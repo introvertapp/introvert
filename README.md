@@ -15,3 +15,7 @@ services:
     volumes:
       - YOUR_PATH_HERE:/data
 ```
+
+```
+docker compose up -d
+```
