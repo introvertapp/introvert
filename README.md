@@ -19,3 +19,7 @@ services:
 ```
 docker compose up -d
 ```
+
+```
+http://YOUR_IP_OR_HOST:3001
+```
