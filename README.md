@@ -1,6 +1,8 @@
 # introvert
 
-Right now it requires Emby.
+Simple tool used to query TV show episode intro timestamps from Emby and prepare it for submission to IntroDB.
+
+Right now it only works with Emby and requires Emby API key. Jellyfin support will come soon.
 
 Account at IntroDB is also required to used the app.
 
