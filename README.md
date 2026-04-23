@@ -6,6 +6,10 @@ Account at IntroDB is also required to used the app.
 
 Enter your details in admin panel when prompted on first launch.
 
+App will import your Emby library and you will be able to browse it and submit to IntroDB.
+
+NOTE: This is still very early and app is being worked on but should be ready enough to play around with.
+
 ```
 services:
   introvert:
