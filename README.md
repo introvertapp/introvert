@@ -1,5 +1,9 @@
 # introvert
 
+Right now it requires Emby.
+Account at IntroDB is also required to used the app.
+Enter your details in admin panel when prompted on first launch.
+
 ```
 services:
   introvert:
