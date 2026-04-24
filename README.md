@@ -1,20 +1,27 @@
 # introvert
 
-**NOTE:** This is a personal tool developed to do things quickly and automate the process where possible. While there is error checking built in, app will try to correct as much as possible, but it is still your responsibility to check everything and make sure what you submit is correct.
+Introvert is a self-hosted web app for managing and submitting TV show intro timestamps.  
+It integrates with media servers like Emby and Jellyfin, and submits intro data to [IntroDB](https://introdb.app).
 
-Simple tool used to query TV show episode intro timestamps from Emby and prepare it for submission to IntroDB.
+## Current media server support
+- [Emby](https://emby.media)
+  * Full metadata, image and intro timestamp support
+- [Jellyfin](https://jellyfin.org)
+  * Metadata and image support only. Jellyfin doesn't have native support for intro timestamps. Support may come in the future. In the meantime, timestamps can be manually entered.
+ 
+## Features
 
-Right now it only works with Emby and requires Emby API key. Jellyfin support will come soon.
+- Browse shows from your media server
+- View seasons and episodes
+- Edit intro timestamps per episode
+- Submit intros to [IntroDB](https://introdb.app)
+- Avoid duplicate submissions via lookup checks
+- Optional local database tracking of submitted episodes
+- Visual indicator for already submitted episodes
+- Multi-provider support (Emby + Jellyfin)
+- Docker-ready for easy deployment
 
-Account at IntroDB is also required to used the app.
-
-Enter your details in admin panel when prompted on first launch.
-
-App will import your Emby library and you will be able to browse it and submit to IntroDB.
-
-NOTE: This is still very early and app is being worked on but should be ready enough to play around with.
-
-## Docker compose
+## Getting Started (Docker)
 ```
 services:
   introvert:
@@ -40,3 +47,62 @@ docker compose up -d
 ```
 http://YOUR_IP_OR_HOST:3001
 ```
+
+## Initial Setup
+
+On first launch:
+
+1. You will be redirected to the **Admin Panel**
+2. Configure (all fields are required):
+
+### Provider
+- Select provider (Emby / Jellyfin)
+- Enter:
+  - Base URL (e.g. `http://10.0.1.12:8096`)
+  - API Key
+
+### IntroDB
+- Submit URL (default prefilled)
+- Lookup URL (default prefilled)
+- API Key
+
+### API Timeout
+- How long will the app wait for IntroDB response (ex. 10000)
+
+### API Delay
+- Delay between each submission to IntroDB. Keep this at a reasonably
+  high number so you don't spam the API
+
+### Optional
+- Enable **Save submissions in local DB**
+
+---
+
+## Local Submission Tracking
+
+When enabled:
+
+- Successful submissions are stored in SQLite
+- Episodes display:
+  - Pulsating dot next to title = already submitted
+
+Stored data includes:
+- provider ID + episode ID
+- IMDb ID
+- season/episode numbers
+- intro start/end timestamps
+- submission result + timestamp
+
+---
+
+## Submission Flow
+
+For each episode:
+
+1. Lookup IntroDB  
+2. Compare:
+   - Missing → submit
+   - Different → submit
+   - Duplicate → skip  
+3. Handle rate limits gracefully  
+4. Optionally store locally  
