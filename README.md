@@ -1,13 +1,15 @@
 # introvert
 
 Introvert is a self-hosted web app for managing and submitting TV show intro timestamps.  
-It integrates with media servers like Emby and Jellyfin, and submits intro data to [IntroDB](https://introdb.app).
+It integrates with media servers like Emby, Jellyfin and Plex, and submits intro data to [IntroDB](https://introdb.app).
 
 ## Current media server support
 - [Emby](https://emby.media)
   * Full metadata, image and intro timestamp support
 - [Jellyfin](https://jellyfin.org)
   * Metadata and image support only. Jellyfin doesn't have native support for intro timestamps. Support may come in the future. In the meantime, timestamps can be manually entered.
+- [Plex]((https://www.plex.tv))
+  * Metadata and image support only. Intro timestamps support may come in the future. In the meantime, timestamps can be manually entered.
  
 ## Features
 
@@ -18,7 +20,7 @@ It integrates with media servers like Emby and Jellyfin, and submits intro data 
 - Avoid duplicate submissions via lookup checks
 - Optional local database tracking of submitted episodes
 - Visual indicator for already submitted episodes
-- Multi-provider support (Emby + Jellyfin)
+- Multi-provider support (Emby + Jellyfin + Plex)
 - Docker-ready for easy deployment
 
 ## Getting Started (Docker)
@@ -56,7 +58,7 @@ On first launch:
 2. Configure (all fields are required):
 
 ### Provider
-- Select provider (Emby / Jellyfin)
+- Select provider (Emby / Jellyfin / Plex)
 - Enter:
   - Base URL (e.g. `http://10.0.1.12:8096`)
   - API Key
