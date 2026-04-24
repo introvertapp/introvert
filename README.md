@@ -8,7 +8,7 @@ It integrates with media servers like Emby, Jellyfin and Plex, and submits intro
   * Full metadata, image and intro timestamp support
 - [Jellyfin](https://jellyfin.org)
   * Metadata and image support only. Jellyfin doesn't have native support for intro timestamps. Support may come in the future. In the meantime, timestamps can be manually entered.
-- [Plex]((https://www.plex.tv))
+- [Plex](https://www.plex.tv))
   * Metadata and image support only. Intro timestamps support may come in the future. In the meantime, timestamps can be manually entered.
  
 ## Features
