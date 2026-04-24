@@ -105,4 +105,14 @@ For each episode:
    - Different → submit
    - Duplicate → skip  
 3. Handle rate limits gracefully  
-4. Optionally store locally  
+4. Optionally store locally
+
+---
+
+## License
+
+This project is licensed under the Creative Commons Attribution-NonCommercial 4.0 International License.
+
+You are free to use, modify, and distribute this software for non-commercial purposes only.
+
+Commercial use is prohibited without explicit permission.
