@@ -40,7 +40,7 @@ services:
       SETTINGS_DB_PATH: /data/app.db
     volumes:
       - YOUR_HOST_PATH:/data
-      - YOUR_HOST_PATH:/data/tvshows:ro   # has to match media center exactly
+      - YOUR_MEDIA_PATH:/data/tvshows:ro   # has to match media center exactly
 ```
 
 ## Launch container
