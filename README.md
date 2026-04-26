@@ -20,6 +20,7 @@ It integrates with media servers like Emby, Jellyfin and Plex, and submits intro
 - Avoid duplicate submissions via lookup checks
 - Optional local database tracking of submitted episodes
 - Visual indicator for already submitted episodes
+- Ability to scan for missing intros (beta)
 - Multi-provider support (Emby + Jellyfin + Plex)
 - Docker-ready for easy deployment
 
