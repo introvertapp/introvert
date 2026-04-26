@@ -7,9 +7,9 @@ It integrates with media servers like Emby, Jellyfin and Plex, and submits intro
 - [Emby](https://emby.media)
   * Full metadata, image and intro timestamp support
 - [Jellyfin](https://jellyfin.org)
-  * Metadata and image support only. Jellyfin doesn't have native support for intro timestamps. Support may come in the future. In the meantime, timestamps can be manually entered.
+  * Metadata and image support only. Jellyfin doesn't have native support for intro timestamps. Support may come in the future. In the meantime, timestamps can be manually entered or you can try using intro detection in the app (beta).
 - [Plex](https://www.plex.tv)
-  * Metadata and image support only. Intro timestamps support may come in the future. In the meantime, timestamps can be manually entered.
+  * Metadata and image support only. Intro timestamps support may come in the future. In the meantime, timestamps can be manually entered or you can try using intro detection in the app (beta).
  
 ## Features
 
@@ -20,8 +20,9 @@ It integrates with media servers like Emby, Jellyfin and Plex, and submits intro
 - Avoid duplicate submissions via lookup checks
 - Optional local database tracking of submitted episodes
 - Visual indicator for already submitted episodes
-- Ability to scan for missing intros (beta)
+- Scan for missing episode intros (beta)
 - Multi-provider support (Emby + Jellyfin + Plex)
+- Launch show or episode directly from the app in your current provider (Emby, Jellyfin or Plex)
 - Docker-ready for easy deployment
 
 ## Getting Started (Docker)
@@ -31,14 +32,15 @@ services:
     container_name: introvert
     image: ghcr.io/introvertapp/introvert:latest
     restart: unless-stopped
-    user: 1000:1000
+    user: 1000:1000   # change to match your user
     ports:
       - "3001:3001"
     environment:
       PORT: 3001
       SETTINGS_DB_PATH: /data/app.db
     volumes:
-      - YOUR_PATH_HERE:/data
+      - YOUR_HOST_PATH:/data
+      - YOUR_HOST_PATH:/data/tvshows:ro   # has to match media center exactly
 ```
 
 ## Launch container
@@ -48,7 +50,7 @@ docker compose up -d
 
 ## Launch the app
 ```
-http://YOUR_IP_OR_HOST:3001
+http://YOUR_IP:3001
 ```
 
 ## Initial Setup
