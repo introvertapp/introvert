@@ -24,7 +24,7 @@ It integrates with media servers like Emby, Jellyfin and Plex, and submits intro
 - Multi-provider support (Emby + Jellyfin + Plex)
 - Launch show or episode directly from the app in your current provider (Emby, Jellyfin or Plex)
 - Optional HTTP and HTTPS support with cert generation
-- Optional authentication
+- Optional authentication with TOTP
 - Docker-ready for easy deployment
 
 ## Getting Started (Docker)
