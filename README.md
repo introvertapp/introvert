@@ -3,6 +3,64 @@
 Introvert is a self-hosted web app for managing and submitting TV show intro timestamps.  
 It integrates with media servers like Emby, Jellyfin and Plex, and submits intro data to [IntroDB](https://introdb.app).
 
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center">
+      <a href="docs/images/screen_app.png">
+        <img src="docs/images/screen_app.png" alt="App screen" width="250">
+      </a>
+      <br>
+      App
+    </td>
+    <td align="center">
+      <a href="docs/images/screen_show_details.png">
+        <img src="docs/images/screen_show_details.png" alt="Show details screen" width="250">
+      </a>
+      <br>
+      Show Details
+    </td>
+    <td align="center">
+      <a href="docs/images/screen_admin_auth.png">
+        <img src="docs/images/screen_admin_auth.png" alt="Admin auth screen" width="250">
+      </a>
+      <br>
+      Admin Auth
+    </td>
+    <td align="center">
+      <a href="docs/images/screen_admin_http.png">
+        <img src="docs/images/screen_admin_http.png" alt="Admin HTTP screen" width="250">
+      </a>
+      <br>
+      Admin HTTP
+    </td>
+     </tr>
+  <tr>
+    <td align="center">
+      <a href="docs/images/screen_admin_introdb.png">
+        <img src="docs/images/screen_admin_introdb.png" alt="Admin IntroDB screen" width="250">
+      </a>
+      <br>
+      Admin IntroDB
+    </td>
+    <td align="center">
+      <a href="docs/images/screen_admin_provider.png">
+        <img src="docs/images/screen_admin_provider.png" alt="Admin provider screen" width="250">
+      </a>
+      <br>
+      Admin Provider
+    </td>
+       <td align="center">
+      <a href="docs/images/screen_api_limit.png">
+        <img src="docs/images/screen_api_limit.png" alt="API limit screen" width="250">
+      </a>
+      <br>
+      API Limit
+    </td>
+  </tr>
+</table>
+
 ## Current media server support
 - [Emby](https://emby.media)
   * Full metadata, image and intro timestamp support
