@@ -73,7 +73,7 @@ It integrates with media servers like Emby, Jellyfin and Plex, and submits intro
  
 ## Features
 
-- Browse shows from your media server
+- Browse shows from your media server or directly from storage location
 - View seasons and episodes
 - Edit intro timestamps per episode
 - Submit intros to [IntroDB](https://introdb.app)
@@ -81,7 +81,7 @@ It integrates with media servers like Emby, Jellyfin and Plex, and submits intro
 - Optional local database tracking of submitted episodes
 - Visual indicator for already submitted episodes
 - Scan for missing episode intros (beta)
-- Multi-provider support (Emby + Jellyfin + Plex)
+- Multi-provider support (Emby + Jellyfin + Plex + Local)
 - Launch show or episode directly from the app in your current provider (Emby, Jellyfin or Plex)
 - Optional HTTP and HTTPS support with cert generation
 - Optional authentication with TOTP
