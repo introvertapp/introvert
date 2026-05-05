@@ -63,11 +63,13 @@ It integrates with media servers like Emby, Jellyfin and Plex, and submits intro
 
 ## Current media server support
 - [Emby](https://emby.media)
-  * Full metadata, image and intro timestamp support
+  * Full metadata, image (poster and logo) and intro timestamp support
 - [Jellyfin](https://jellyfin.org)
-  * Metadata and image support only. Jellyfin doesn't have native support for intro timestamps. Support may come in the future. In the meantime, timestamps can be manually entered or you can try using intro detection in the app (beta).
+  * Metadata and image (poster and logo) support only. Jellyfin doesn't have native support for intro timestamps. Timestamps can be manually entered or you can try using intro detection in the app (beta).
 - [Plex](https://www.plex.tv)
-  * Metadata and image support only. Intro timestamps support may come in the future. In the meantime, timestamps can be manually entered or you can try using intro detection in the app (beta).
+  * Metadata and image (poster and logo) support only. Timestamps can be manually entered or you can try using intro detection in the app (beta).
+- Local storage
+  * Metadata and image (poster) support only. Timestamps can be manually entered or you can try using intro detection in the app (beta).
  
 ## Features
 
