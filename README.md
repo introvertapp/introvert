@@ -75,6 +75,7 @@ It integrates with media servers like Emby, Jellyfin and Plex, and submits intro
 
 - Browse shows from your media server or directly from storage location
 - View seasons and episodes
+- Search for TV shows and episodes in your library (ex. "Seinfeld", "Seinfeld The Wallet", "Seinfeld S04E05")
 - Edit intro timestamps per episode
 - Submit intros to [IntroDB](https://introdb.app)
 - Avoid duplicate submissions via lookup checks
