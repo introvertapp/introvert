@@ -1,7 +1,7 @@
 # introvert
 
-Introvert is a self-hosted web app for managing and submitting TV show intro timestamps.  
-It integrates with media servers like Emby, Jellyfin and Plex, and submits intro data to [IntroDB](https://introdb.app).
+Introvert is a self-hosted web app for managing and submitting TV show intro and outro timestamps.  
+It integrates with media servers like Emby, Jellyfin and Plex, and submits intro and outro data to [IntroDB](https://introdb.app).
 
 ## Screenshots
 
@@ -76,12 +76,12 @@ It integrates with media servers like Emby, Jellyfin and Plex, and submits intro
 - Browse shows from your media server or directly from storage location
 - View seasons and episodes
 - Search for TV shows and episodes in your library (ex. "Seinfeld", "Seinfeld The Wallet", "Seinfeld S04E05")
-- Edit intro timestamps per episode
-- Submit intros to [IntroDB](https://introdb.app)
+- Edit intro and outro timestamps per episode
+- Submit intros and outro to [IntroDB](https://introdb.app)
 - Avoid duplicate submissions via lookup checks
 - Optional local database tracking of submitted episodes
 - Visual indicator for already submitted episodes
-- Scan for missing episode intros (beta)
+- Scan for missing episode intros and outro (beta)
 - Multi-provider support (Emby + Jellyfin + Plex + Local)
 - Launch show or episode directly from the app in your current provider (Emby, Jellyfin or Plex)
 - Optional HTTP and HTTPS support with cert generation
