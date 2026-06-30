@@ -8,7 +8,7 @@ It integrates with media servers like Emby, Jellyfin and Plex, and submits intro
 <table>
   <tr>
     <td align="center">
-      <a href="docs/images/screen_app.png">
+      <a href="assets/images/app.png">
         <img src="docs/images/screen_app.png" alt="App screen" width="250">
       </a>
       <br>
