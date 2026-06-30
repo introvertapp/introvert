@@ -15,48 +15,34 @@ It integrates with media servers like Emby, Jellyfin and Plex, and submits intro
       App
     </td>
     <td align="center">
-      <a href="docs/images/screen_show_details.png">
-        <img src="docs/images/screen_show_details.png" alt="Show details screen" width="250">
+      <a href="assets/images/show.png">
+        <img src="assets/images/show.png" alt="Show details screen" width="250">
       </a>
       <br>
       Show Details
     </td>
     <td align="center">
-      <a href="docs/images/screen_admin_auth.png">
-        <img src="docs/images/screen_admin_auth.png" alt="Admin auth screen" width="250">
+      <a href="assets/images/admin.png">
+        <img src="assets/images/admin.png" alt="Admin screen" width="250">
       </a>
       <br>
-      Admin Auth
-    </td>
-    <td align="center">
-      <a href="docs/images/screen_admin_http.png">
-        <img src="docs/images/screen_admin_http.png" alt="Admin HTTP screen" width="250">
-      </a>
-      <br>
-      Admin HTTP
+      Admin
     </td>
      </tr>
   <tr>
     <td align="center">
-      <a href="docs/images/screen_admin_introdb.png">
-        <img src="docs/images/screen_admin_introdb.png" alt="Admin IntroDB screen" width="250">
+      <a href="assets/images/queue.png">
+        <img src="assets/images/queue.png" alt="Queue screen" width="250">
       </a>
       <br>
-      Admin IntroDB
+      Queue
     </td>
     <td align="center">
-      <a href="docs/images/screen_admin_provider.png">
-        <img src="docs/images/screen_admin_provider.png" alt="Admin provider screen" width="250">
+      <a href="assets/images/history.png">
+        <img src="assets/images/history.png" alt="History screen" width="250">
       </a>
       <br>
-      Admin Provider
-    </td>
-       <td align="center">
-      <a href="docs/images/screen_api_limit.png">
-        <img src="docs/images/screen_api_limit.png" alt="API limit screen" width="250">
-      </a>
-      <br>
-      API Limit
+      History
     </td>
   </tr>
 </table>
