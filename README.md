@@ -9,7 +9,7 @@ It integrates with media servers like Emby, Jellyfin and Plex, and submits intro
   <tr>
     <td align="center">
       <a href="assets/images/app.png">
-        <img src="docs/images/screen_app.png" alt="App screen" width="250">
+        <img src="assets/images/app.png" alt="App screen" width="250">
       </a>
       <br>
       App
