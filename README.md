@@ -1,7 +1,7 @@
 # introvert
 
-Introvert is a self-hosted web app for managing and submitting TV show intro and outro timestamps.  
-It integrates with media servers like Emby, Jellyfin and Plex, and submits intro and outro data to [IntroDB](https://introdb.app).
+Introvert is a self-hosted web app for managing and submitting TV show intro and credits timestamps.  
+It integrates with media servers like Emby, Jellyfin and Plex, and submits intro and credits timestamps to [IntroDB](https://introdb.app) and [TheIntroDB](https://theintrodb.org).
 
 ## Screenshots
 
@@ -69,19 +69,19 @@ It integrates with media servers like Emby, Jellyfin and Plex, and submits intro
 - [Plex](https://www.plex.tv)
   * Metadata and image (poster and logo) support only. Timestamps can be manually entered or you can try using intro detection in the app (beta).
 - Local storage
-  * Metadata and image (poster) support only. Timestamps can be manually entered or you can try using intro detection in the app (beta).
+  * Metadata and image (poster) support only. Timestamps can be manually entered or you can try using intro and credits detection in the app (beta).
  
 ## Features
 
 - Browse shows from your media server or directly from storage location
 - View seasons and episodes
 - Search for TV shows and episodes in your library (ex. "Seinfeld", "Seinfeld The Wallet", "Seinfeld S04E05")
-- Edit intro and outro timestamps per episode
-- Submit intros and outro to [IntroDB](https://introdb.app)
+- Edit intro and credits timestamps per episode
+- Submit intros and credits to [IntroDB](https://introdb.app) and [TheIntroDB](https://theintrodb.org)
 - Avoid duplicate submissions via lookup checks
 - Optional local database tracking of submitted episodes
 - Visual indicator for already submitted episodes
-- Scan for missing episode intros and outro (beta)
+- Scan for missing episode intros and credits (beta)
 - Multi-provider support (Emby + Jellyfin + Plex + Local)
 - Launch show or episode directly from the app in your current provider (Emby, Jellyfin or Plex)
 - Optional HTTP and HTTPS support with cert generation
