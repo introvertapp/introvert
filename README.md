@@ -1,7 +1,6 @@
 # introvert
 
-Introvert is a self-hosted web app for managing and submitting TV show intro and credits timestamps.  
-It integrates with media servers like Emby, Jellyfin and Plex, and submits intro and credits timestamps to [IntroDB](https://introdb.app) and [TheIntroDB](https://theintrodb.org).
+Introvert is a self-hosted web app for managing and submitting TV show intro and credits timestamps. It integrates with media servers like Emby, Jellyfin and Plex, and submits intro and credits timestamps to [IntroDB](https://introdb.app) and [TheIntroDB](https://theintrodb.org).
 
 ## Screenshots
 
