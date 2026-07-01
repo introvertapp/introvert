@@ -32,7 +32,7 @@ It integrates with media servers like Emby, Jellyfin and Plex, and submits intro
   <tr>
     <td align="center">
       <a href="assets/images/detection_queue.png">
-        <img src="assets/images/queue.png" alt="Queue screen" width="250">
+        <img src="assets/images/detection_queue.png" alt="Queue screen" width="250">
       </a>
       <br>
       Queue
