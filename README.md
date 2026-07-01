@@ -38,7 +38,7 @@ It integrates with media servers like Emby, Jellyfin and Plex, and submits intro
       Detection Queue
     </td>
     <td align="center">
-      <a href="assets/images/submission_queue.png">
+      <a href="assets/images/submission_queue.jpeg">
         <img src="assets/images/submission_queue.jpeg" alt="Submission Queue screen" width="250">
       </a>
       <br>
