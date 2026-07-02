@@ -57,11 +57,11 @@ Introvert is a self-hosted web app for managing and submitting TV show intro and
 - [Emby](https://emby.media)
   * Full metadata, image (poster and logo) and intro timestamp support
 - [Jellyfin](https://jellyfin.org)
-  * Metadata and image (poster and logo) support only. Jellyfin doesn't have native support for intro timestamps. Timestamps can be manually entered or you can try using intro detection in the app (beta).
+  * Metadata and image (poster and logo) support only. Jellyfin doesn't have native support for intro timestamps. Timestamps can be manually entered or you can try using intro detection in the app.
 - [Plex](https://www.plex.tv)
-  * Metadata and image (poster and logo) support only. Timestamps can be manually entered or you can try using intro detection in the app (beta).
+  * Metadata and image (poster and logo) support only. Timestamps can be manually entered or you can try using intro detection in the app.
 - Local storage
-  * Metadata and image (poster) support only. Timestamps can be manually entered or you can try using intro and credits detection in the app (beta).
+  * Metadata and image (poster) support only. Timestamps can be manually entered or you can try using intro and credits detection in the app.
  
 ## Features
 
@@ -73,7 +73,7 @@ Introvert is a self-hosted web app for managing and submitting TV show intro and
 - Avoid duplicate submissions via lookup checks
 - Optional local database tracking of submitted episodes
 - Visual indicator for already submitted episodes
-- Scan for missing episode intros and credits (beta)
+- Scan for missing episode intros and credits
 - Multi-provider support (Emby + Jellyfin + Plex + Local)
 - Launch show or episode directly from the app in your current provider (Emby, Jellyfin or Plex)
 - Optional HTTP and HTTPS support with cert generation
