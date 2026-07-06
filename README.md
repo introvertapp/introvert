@@ -1,6 +1,6 @@
 # introvert
 
-Introvert is a self-hosted web app for managing and submitting TV show intro and credits timestamps. It integrates with media servers like Emby, Jellyfin and Plex, and submits intro and credits timestamps to [IntroDB](https://introdb.app) and [TheIntroDB](https://theintrodb.org).
+Introvert is a self-hosted web app for managing and submitting TV show segments timestamps. It integrates with media servers like Emby, Jellyfin and Plex, and submits segments timestamps to [IntroDB](https://introdb.app) and [TheIntroDB](https://theintrodb.org).
 
 ## Screenshots
 
@@ -62,25 +62,26 @@ Introvert is a self-hosted web app for managing and submitting TV show intro and
 
 ## Current media server support
 - [Emby](https://emby.media)
-  * Full metadata, image (poster and logo) and intro timestamp support
+  * Full metadata, image (poster and logo) and intro segment timestamp support
 - [Jellyfin](https://jellyfin.org)
-  * Metadata and image (poster and logo) support only. Jellyfin doesn't have native support for intro timestamps. Timestamps can be manually entered or you can try using intro detection in the app.
+  * Metadata and image (poster and logo) support only. Jellyfin doesn't have native support for segments timestamps. Timestamps can be manually entered, using segments timestamps detection and/or via Segment Video Editor.
 - [Plex](https://www.plex.tv)
-  * Metadata and image (poster and logo) support only. Timestamps can be manually entered or you can try using intro detection in the app.
+  * Metadata and image (poster and logo) support only. Timestamps can be manually entered, using segments timestamps detection and/or via Segment Video Editor.
 - Local storage
-  * Metadata and image (poster) support only. Timestamps can be manually entered or you can try using intro and credits detection in the app.
+  * Metadata and image (poster) support only. Timestamps can be manually entered, using segments timestamps detection and/or via Segment Video Editor.
  
 ## Features
 
 - Browse shows from your media server or directly from storage location
 - View seasons and episodes
 - Search for TV shows and episodes in your library (ex. "Seinfeld", "Seinfeld The Wallet", "Seinfeld S04E05")
-- Edit intro and credits timestamps per episode
-- Submit intros and credits to [IntroDB](https://introdb.app) and [TheIntroDB](https://theintrodb.org)
+- Edit segments timestamps per episode
+- Edit and/or add segments via Segments Video Editor (BETA - Works with Chrome only for now)
+- Submit segments timestamps to [IntroDB](https://introdb.app) and [TheIntroDB](https://theintrodb.org)
 - Avoid duplicate submissions via lookup checks
 - Optional local database tracking of submitted episodes
 - Visual indicator for already submitted episodes
-- Scan for missing episode intros and credits
+- Scan for missing episode segments
 - Multi-provider support (Emby + Jellyfin + Plex + Local)
 - Launch show or episode directly from the app in your current provider (Emby, Jellyfin or Plex)
 - Optional HTTP and HTTPS support with cert generation
