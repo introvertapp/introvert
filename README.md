@@ -21,6 +21,13 @@ Introvert is a self-hosted web app for managing and submitting TV show intro and
       Show Details
     </td>
     <td align="center">
+      <a href="assets/images/segment_video_editor.png">
+        <img src="assets/images/segment_video_editor.png" alt="Segment Video Editor" width="250">
+      </a>
+      <br>
+      Segment Video Editor
+    </td>
+    <td align="center">
       <a href="assets/images/admin.png">
         <img src="assets/images/admin.png" alt="Admin screen" width="250">
       </a>
