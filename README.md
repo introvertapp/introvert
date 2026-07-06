@@ -88,6 +88,35 @@ Introvert is a self-hosted web app for managing and submitting TV show segments 
 - Optional authentication with TOTP
 - Docker-ready for easy deployment
 
+## Keyboard Shortcuts (Segments Video Editor)
+
+### Playback
+
+- `Space` / `K` — Play or pause video preview
+- `Left` / `Right` — Move playhead by one frame
+- `Shift` + `Left` / `Right` — Move playhead by one second
+- `Home` / `End` — Move playhead to start or end
+- `Shift` + `Z` — Reset timeline zoom to full view
+
+### Segments
+
+- `R` — Insert recap at playhead
+- `I` — Insert intro at playhead
+- `C` — Insert credits at playhead
+- `P` — Insert preview at playhead
+- `Delete` / `Backspace` — Delete selected segment drafts
+- `Cmd/Ctrl` + `A` — Select all segment drafts
+- `Cmd/Ctrl` + `Z` — Undo last timeline edit
+
+### Editor
+
+- `S` — Open or close segment drawer
+- `H` — Open or close this shortcut map
+- `J` / `L` — Go to previous or next episode
+- `Cmd/Ctrl` + `S` — Save timeline changes
+- `Cmd/Ctrl` + `R` — Reset timeline changes
+- `Esc` — Close shortcut map, then close video editor
+
 ## Getting Started (Docker)
 ```
 services:
