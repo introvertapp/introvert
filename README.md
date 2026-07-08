@@ -76,7 +76,8 @@ Introvert is a self-hosted web app for managing and submitting TV show segments 
 - View seasons and episodes
 - Search for TV shows and episodes in your library (ex. "Seinfeld", "Seinfeld The Wallet", "Seinfeld S04E05")
 - Edit segments timestamps per episode
-- Edit and/or add segments via Segments Video Editor (BETA - Works with Chrome only for now)
+- Edit and/or add segments via Segments Video Editor
+    - (BETA - Works best with Chrome. Safari is sluggish. MKV format is usable but difficult to handle)
 - Submit segments timestamps to [IntroDB](https://introdb.app) and [TheIntroDB](https://theintrodb.org)
 - Avoid duplicate submissions via lookup checks
 - Optional local database tracking of submitted episodes
