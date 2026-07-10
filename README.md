@@ -84,6 +84,7 @@ Introvert is a self-hosted web app for managing and submitting TV show segments 
 - Visual indicator for already submitted episodes
 - Scan for missing episode segments
 - Multi-provider support (Emby + Jellyfin + Plex + Local)
+- Segment timestamp import from Emby, Jellyfin, Plex
 - Launch show or episode directly from the app in your current provider (Emby, Jellyfin or Plex)
 - Optional HTTP and HTTPS support with cert generation
 - Optional authentication with TOTP
