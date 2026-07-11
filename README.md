@@ -187,7 +187,7 @@ When enabled:
 
 Stored data includes:
 - provider ID + episode ID
-- IMDb ID
+- IMDb/TMDB ID
 - season/episode numbers
 - segment type and timestamps
 - submission result + timestamp
