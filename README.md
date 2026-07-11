@@ -198,11 +198,11 @@ Stored data includes:
 
 For each episode:
 
-1. Lookup IntroDB  
+1. Lookup remote DB  
 2. Compare:
-   - Missing → submit
-   - Different → submit
-   - Duplicate → skip  
+   - If segment timestamp is missing → submit timestamp
+   - If segment timestamp is different → submit timestamp
+   - If segment timestamp is exact/duplicate → skip submission
 3. Handle rate limits gracefully  
 4. Optionally store locally
 
