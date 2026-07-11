@@ -95,8 +95,8 @@ Introvert is a self-hosted web app for managing and submitting TV show segments 
 ### Playback
 
 - `Space` / `K` — Play or pause video preview
-- `Left` / `Right` — Move playhead by one frame
-- `Shift` + `Left` / `Right` — Move playhead by one second
+- `Left` / `Right` — Move playhead by configured number of frames
+- `Shift` + `Left` / `Right` — Move playhead by one frame
 - `Home` / `End` — Move playhead to start or end
 - `Shift` + `Z` — Reset timeline zoom to full view
 
@@ -106,8 +106,8 @@ Introvert is a self-hosted web app for managing and submitting TV show segments 
 - `I` — Insert intro at playhead
 - `C` — Insert credits at playhead
 - `P` — Insert preview at playhead
-- `Delete` / `Backspace` — Delete selected segment drafts
-- `Cmd/Ctrl` + `A` — Select all segment drafts
+- `Delete` / `Backspace` — Delete selected segment(s)
+- `Cmd/Ctrl` + `A` — Select all segments
 - `Cmd/Ctrl` + `Z` — Undo last timeline edit
 
 ### Editor
@@ -117,7 +117,7 @@ Introvert is a self-hosted web app for managing and submitting TV show segments 
 - `J` / `L` — Go to previous or next episode
 - `Cmd/Ctrl` + `S` — Save timeline changes
 - `Cmd/Ctrl` + `R` — Reset timeline changes
-- `Esc` — Close shortcut map, then close video editor
+- `Esc` — Close shortcut map, close video editor
 
 ## Getting Started (Docker)
 ```
