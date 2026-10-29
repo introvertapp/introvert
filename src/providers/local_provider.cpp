@@ -2,6 +2,7 @@
 #include "local_names.h"
 #include "metadata_client.h"
 #include "access_retry.h"
+#include "embedded_segments.h"
 #include "core/sqlite.h"
 
 #include <QCryptographicHash>
@@ -177,6 +178,7 @@ std::optional<ShowDetail> LocalProvider::getShow(const ProviderConfig &config, c
         if (title.isEmpty()) title = "Episode " + QString::number(number);
         Episode episode{{ProviderId::Local, query.value(0).toString(), {}}};
         episode.title = title; episode.seasonNumber = season; episode.episodeNumber = number; episode.mediaPath = query.value(4).toString();
+        inspectEmbeddedSegments(episode, cancelled);
         if (result.seasons.isEmpty() || result.seasons.last().number != season) result.seasons.append(Season{season, {}});
         result.seasons.last().episodes.append(episode);
     }

@@ -2,6 +2,8 @@
 #include "providers/plex_provider.h"
 #include "providers/emby_provider.h"
 #include "providers/local_provider.h"
+#include "segments/catalog_segments.h"
+#include <QElapsedTimer>
 #include <QUrl>
 
 namespace introvert::library {
@@ -51,7 +53,12 @@ QString CatalogService::artwork(const ProviderConfig &config, const std::optiona
     auto destination = force ? std::optional<QString>() : m_cache.image(scope, *path);
     if (!destination) {
         try {
-            const auto bytes = m_providers.at(config.provider)->artwork(config, *path, cancel);
+            QByteArray bytes;
+            {
+                const std::lock_guard<std::mutex> lock(m_providerMutex);
+                checkCancelled(cancel);
+                bytes = m_providers.at(config.provider)->artwork(config, *path, cancel);
+            }
             checkCancelled(cancel);
             destination = m_cache.putImage(scope, *path, bytes);
             if (force && !destination) throw ProviderError("Cannot save artwork to the image cache. Check data directory access and available space.");
@@ -105,35 +112,57 @@ CatalogResult CatalogService::browse(const ProviderConfig &config, const QString
             result.rows.append(row);
         }
         progress(result);
+        QElapsedTimer published; published.start();
         for (qsizetype index = 0; index < values.size(); ++index) {
             checkCancelled(cancel);
             result.rows[index] = displayShow(config, values[index], cancel);
-            if (index % 8 == 7) progress(result);
+            if (published.elapsed() >= 75 || index + 1 == values.size()) { progress(result); published.restart(); }
         }
+    };
+    const auto import = [&](const QList<ShowSummary> &values) {
+        int unavailable = 0;
+        for (const auto &show : values) {
+            checkCancelled(cancel);
+            try {
+                const auto loaded = detail(config, listing, show.identity.itemId, cancel);
+                checkCancelled(cancel);
+                segments::loadCatalogSegments(m_store.databasePath(), loaded);
+            } catch (const ProviderError &) { ++unavailable; }
+        }
+        if (unavailable) result.message = QString("Library loaded. Existing timestamps could not be checked for %1 show(s); open the show or refresh to retry.").arg(unavailable);
     };
     const auto fresh = remote && !force ? m_cache.series(scope) : std::optional<QList<ShowSummary>>();
     if (fresh) {
         result.cached = true;
         result.message = "Using cached " + providerLabel(config.provider) + " library.";
         display(*fresh);
+        import(*fresh);
         return result;
     }
     const auto stale = remote ? m_cache.series(scope, {}, MediaCache::seriesTtl, true) : std::optional<QList<ShowSummary>>();
     if (stale) {
         result.cached = true; result.message = "Checking for library changes…"; display(*stale);
     }
-    provider.invalidate();
-    if (clearLocal && !remote) {
-        auto images = config;
-        for (bool enabled : {false, true}) { images.fetchImages = enabled; m_cache.clearImages(m_cache.scope(images, "images")); }
-        // Default LocalProvider owns the catalog. Overrides may supply a
-        // fixture provider, but cannot silently pretend to clear that catalog.
-        auto *local = dynamic_cast<LocalProvider *>(&provider);
-        if (!local) throw ProviderError("Cannot clear the Local media catalog.");
-        local->clear(config, cancel);
+    {
+        const std::lock_guard<std::mutex> lock(m_providerMutex);
+        checkCancelled(cancel);
+        provider.invalidate();
+        if (clearLocal && !remote) {
+            auto images = config;
+            for (bool enabled : {false, true}) { images.fetchImages = enabled; m_cache.clearImages(m_cache.scope(images, "images")); }
+            // Default LocalProvider owns the catalog. Overrides may supply a
+            // fixture provider, but cannot silently pretend to clear that catalog.
+            auto *local = dynamic_cast<LocalProvider *>(&provider);
+            if (!local) throw ProviderError("Cannot clear the Local media catalog.");
+            local->clear(config, cancel);
+        }
     }
     QList<ShowSummary> values;
-    try { values = provider.listSeries(config, listing != "basic", cancel); }
+    try {
+        const std::lock_guard<std::mutex> lock(m_providerMutex);
+        checkCancelled(cancel);
+        values = provider.listSeries(config, listing != "basic", cancel);
+    }
     catch (const ProviderError &error) {
         if (!stale) throw;
         result.cached = true;
@@ -146,7 +175,7 @@ CatalogResult CatalogService::browse(const ProviderConfig &config, const QString
         m_cache.putSeries(scope, values);
         if (force) m_cache.invalidateDetails(scope);
     }
-    result.cached = false; result.message.clear(); display(values);
+    result.cached = false; result.message.clear(); display(values); import(values);
     return result;
 }
 
@@ -157,7 +186,11 @@ ShowDetail CatalogService::detail(const ProviderConfig &config, const QString &l
     const auto scope = remote ? m_cache.scope(config, listing) : QString();
     auto result = remote ? m_cache.detail(scope, id) : std::optional<ShowDetail>();
     if (!result) {
-        result = m_providers.at(config.provider)->getShow(config, id, listing != "basic", cancel);
+        {
+            const std::lock_guard<std::mutex> lock(m_providerMutex);
+            checkCancelled(cancel);
+            result = m_providers.at(config.provider)->getShow(config, id, listing != "basic", cancel);
+        }
         if (!result) throw ProviderError("This show is no longer available.");
         checkCancelled(cancel);
         if (remote) m_cache.putDetail(scope, *result, id);
@@ -170,8 +203,13 @@ CatalogResult CatalogService::rebuild(const ProviderConfig &config, const QStrin
 {
     checkCancelled(cancel);
     auto &provider = *m_providers.at(config.provider);
-    provider.invalidate();
-    const auto values = provider.listSeries(config, true, cancel);
+    QList<ShowSummary> values;
+    {
+        const std::lock_guard<std::mutex> lock(m_providerMutex);
+        checkCancelled(cancel);
+        provider.invalidate();
+        values = provider.listSeries(config, true, cancel);
+    }
     checkCancelled(cancel);
     const auto full = m_cache.scope(config, "full"), basic = m_cache.scope(config, "basic");
     const auto total = double(values.size() + 2);
@@ -185,11 +223,17 @@ CatalogResult CatalogService::rebuild(const ProviderConfig &config, const QStrin
     for (qsizetype index = 0; index < values.size(); ++index) {
         checkCancelled(cancel);
         const auto &show = values[index];
-        auto detail = provider.getShow(config, show.identity.itemId, true, cancel);
+        std::optional<ShowDetail> detail;
+        {
+            const std::lock_guard<std::mutex> lock(m_providerMutex);
+            checkCancelled(cancel);
+            detail = provider.getShow(config, show.identity.itemId, true, cancel);
+        }
         if (!detail) throw ProviderError("A show changed during the rebuild. Try rebuilding the cache again.");
         for (const auto &path : {show.posterUrl, show.logoUrl, detail->show.posterUrl, detail->show.logoUrl})
             if (path && !path->isEmpty() && !images.contains(*path)) images[*path] = artwork(config, path, cancel, true);
         checkCancelled(cancel);
+        segments::loadCatalogSegments(m_store.databasePath(), *detail);
         requireStored(m_cache.putDetail(full, *detail, show.identity.itemId));
         detail->show.posterUrl.reset(); detail->show.logoUrl.reset();
         requireStored(m_cache.putDetail(basic, *detail, show.identity.itemId));

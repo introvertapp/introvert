@@ -107,6 +107,7 @@ private:
     QThreadPool m_pool;
     LocalMetadataModel *m_metadata;
     providers::Cancellation m_cancel = std::make_shared<std::atomic_bool>(false);
+    providers::Cancellation m_showCancel = std::make_shared<std::atomic_bool>(false);
     std::optional<CatalogSelection> m_key;
     std::optional<providers::ShowDetail> m_detail;
     segments::CatalogSegments m_segments;
@@ -118,6 +119,8 @@ private:
     bool m_previousCached = false, m_previousPending = false;
     bool m_busy = false, m_closed = false, m_browsing = true, m_pending = false, m_cached = false;
     quint64 m_generation = 0;
+    quint64 m_showGeneration = 0;
+    bool m_showActive = false, m_catalogLoading = false;
     quint64 m_detailRevision = 0;
     std::optional<quint64> m_rebuildGeneration;
     double m_rebuildProgress = 0;

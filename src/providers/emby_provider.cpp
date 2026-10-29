@@ -40,14 +40,47 @@ std::optional<ImportedSegment> extract(const QJsonArray &chapters, const QString
     return std::nullopt;
 }
 
-QList<ImportedSegment> chapters(const QJsonArray &values)
+QList<ImportedSegment> chapters(const QJsonArray &values, double duration)
 {
     QList<ImportedSegment> result;
     const auto intro = extract(values, {"IntroStart", "1"}, {"IntroEnd", "2"}, SegmentType::Intro);
     if (intro) result.append(*intro);
     auto credits = extract(values, {"CreditsStart", "3"}, {"CreditsEnd", "4"}, SegmentType::Credits);
     if (!credits) credits = extract(values, {"OutroStart", "3"}, {"OutroEnd", "4"}, SegmentType::Credits);
+    // Emby's native credits marker supplies only a start. Its interval ends at
+    // the declared episode end when no explicit end marker is available.
+    if (!credits && duration > 0) for (const auto &value : values) {
+        const auto chapter = value.toObject();
+        const auto name = detail::sourceString(chapter["MarkerType"]);
+        const auto ticks = detail::finiteNumber(chapter["StartPositionTicks"]);
+        if (QStringList{"CreditsStart", "OutroStart", "3"}.contains(name) && ticks && *ticks >= 0 && *ticks / 10000000 < duration)
+            credits = ImportedSegment{SegmentType::Credits, *ticks / 10000000, duration};
+    }
     if (credits) result.append(*credits);
+    for (const auto kind : {SegmentType::Recap, SegmentType::Preview}) {
+        auto name = segmentName(kind); name[0] = name[0].toUpper();
+        const auto segment = extract(values, {name + "Start"}, {name + "End"}, kind);
+        if (segment) result.append(*segment);
+    }
+    return result;
+}
+
+QList<ImportedSegment> mediaSegments(const QJsonValue &response)
+{
+    if (!response.isObject() || !response.toObject()["Items"].isArray())
+        throw ProviderError("Jellyfin returned an invalid media segment list.");
+    QList<ImportedSegment> result;
+    QSet<QString> seen;
+    for (const auto &value : response.toObject()["Items"].toArray()) {
+        const auto item = value.toObject();
+        auto kind = item["Type"].toString().toLower();
+        if (kind == "outro") kind = "credits";
+        if (!QStringList{"recap", "intro", "credits", "preview"}.contains(kind) || seen.contains(kind)) continue;
+        if (item["StartTicks"].isBool() || item["EndTicks"].isBool()) continue;
+        const auto start = detail::finiteNumber(item["StartTicks"]), end = detail::finiteNumber(item["EndTicks"]);
+        if (!start || !end || *start < 0 || *start >= *end) continue;
+        result.append({segmentType(kind), *start / 10000000, *end / 10000000}); seen.insert(kind);
+    }
     return result;
 }
 
@@ -205,9 +238,23 @@ std::optional<ShowDetail> EmbyProvider::getShow(const ProviderConfig &config, co
             const auto media = item["MediaSources"].toArray();
             if (!media.isEmpty()) episode.mediaPath = detail::optionalString(media.first().toObject()["Path"]);
         }
-        episode.importedSegments = chapters(item["Chapters"].toArray());
         const auto duration = detail::nonnegativeNumber(item["RunTimeTicks"]).value_or(0) / 10000;
         if (duration) episode.durationMs = duration;
+        episode.importedSegments = chapters(item["Chapters"].toArray(), duration / 1000.);
+        if (m_provider == ProviderId::Jellyfin) {
+            try {
+                const auto segments = mediaSegments(request(config, "/MediaSegments/" + detail::quote(key), {}, cancelled));
+                for (const auto &segment : segments) {
+                    if (duration && segment.endSeconds > duration / 1000.) continue;
+                    episode.importedSegments.removeIf([&](const auto &old) { return old.type == segment.type; });
+                    episode.importedSegments.append(segment);
+                }
+            } catch (const ProviderError &error) {
+                // Older servers do not expose this optional endpoint. Other
+                // failures must remain retryable instead of caching no markers.
+                if (error.httpStatus() != 404 && error.httpStatus() != 405) throw;
+            }
+        }
         seasons[season].append(episode);
     }
     if (!result.show.seasonCount) result.show.seasonCount = seasons.size();

@@ -20,7 +20,7 @@ LibraryModel::LibraryModel(SettingsModel &settings, SettingsStore store, QString
       m_cache(std::move(artworkRoot), m_store.databasePath()), m_catalog(m_store, m_cache, std::move(overrides)),
       m_metadata(new LocalMetadataModel(*this, std::move(metadataClient)))
 {
-    m_pool.setMaxThreadCount(1);
+    m_pool.setMaxThreadCount(2);
     connect(&settings, &SettingsModel::changed, this, [this] { settingsChanged(); });
     connect(qobject_cast<ProviderSettingsModel *>(settings.mediaSettings()), &ProviderSettingsModel::saved,
             this, [this] { settingsChanged(true); });
@@ -70,6 +70,8 @@ void LibraryModel::settingsChanged(bool configuration)
 void LibraryModel::defer(const std::optional<CatalogSelection> &key)
 {
     m_cancel->store(true); ++m_generation;
+    m_showCancel->store(true); ++m_showGeneration; m_showActive = false; m_catalogLoading = false;
+    m_rebuildGeneration.reset();
     m_pending = true; m_cached = false; m_busy = false; m_state = "ready"; m_message.clear();
     if (key != m_key) {
         m_shows.clear(); m_episodes.clear(); m_show.clear(); m_detail.reset(); m_segments = {};
@@ -88,13 +90,14 @@ void LibraryModel::setBrowsing(bool active)
 quint64 LibraryModel::begin()
 {
     m_cancel->store(true); m_cancel = std::make_shared<std::atomic_bool>(false);
+    m_catalogLoading = false;
     m_busy = true; m_state = "loading"; m_message.clear();
     return ++m_generation;
 }
 
 void LibraryModel::submit(Kind kind, quint64 generation, Work work)
 {
-    const auto cancel = m_cancel;
+    const auto cancel = kind == Kind::Show ? m_showCancel : m_cancel;
     const auto summary = m_imageSummary;
     m_pool.start(QRunnable::create([this, kind, generation, work = std::move(work), cancel, summary] {
         std::optional<Result> result;
@@ -109,15 +112,16 @@ void LibraryModel::submit(Kind kind, quint64 generation, Work work)
         QMetaObject::invokeMethod(this, [this, kind, generation, result = std::move(result), error] {
             finished(kind, generation, result, error);
         }, Qt::QueuedConnection);
-    }));
+    }), kind == Kind::Show ? 1 : 0);
 }
 
 void LibraryModel::publish(quint64 generation, const library::CatalogResult &catalog)
 {
     QMetaObject::invokeMethod(this, [this, generation, catalog] {
         if (m_closed || generation != m_generation) return;
-        m_shows = catalog.rows; m_message = catalog.message; m_cached = catalog.cached;
-        m_busy = false; m_state = "ready"; emit changed();
+        m_shows = catalog.rows; m_cached = catalog.cached;
+        if (!m_showActive) { m_message = catalog.message; m_busy = false; m_state = "ready"; }
+        emit changed();
     }, Qt::QueuedConnection);
 }
 
@@ -139,11 +143,15 @@ void LibraryModel::refresh(bool force, bool clearLocal)
     try { m_key = settingsKey(); }
     catch (...) {
         m_cancel->store(true); ++m_generation; m_key.reset(); m_detail.reset(); m_show.clear();
+        m_showCancel->store(true); ++m_showGeneration; m_showActive = false; m_catalogLoading = false;
         m_shows.clear(); m_episodes.clear(); m_busy = false; m_state = "error";
         m_message = "Cannot load saved media configuration. Check application database access and retry.";
         emit changed(); return;
     }
+    if (!force && !clearLocal && m_key == previous && m_catalogLoading) return;
+    m_showCancel->store(true); ++m_showGeneration; m_showActive = false;
     const auto generation = begin();
+    m_catalogLoading = m_key.has_value();
     m_cached = false; m_detail.reset(); m_show.clear(); m_episodes.clear();
     if (m_key != previous) m_shows.clear();
     if (!m_key) {
@@ -209,7 +217,9 @@ void LibraryModel::openShow(const QString &id)
 {
     if (m_closed || !m_key) return;
     const auto key = *m_key;
-    const auto generation = begin();
+    m_showCancel->store(true); m_showCancel = std::make_shared<std::atomic_bool>(false);
+    const auto generation = ++m_showGeneration;
+    m_showActive = true; m_busy = true; m_state = "loading"; m_message.clear();
     m_detail.reset(); m_episodes.clear(); m_show.clear();
     for (const auto &row : m_shows) if (row.toMap().value("id").toString() == id) { m_show = row.toMap(); break; }
     submit(Kind::Show, generation, [this, key, id](const Cancellation &cancel, quint64) {
@@ -229,7 +239,23 @@ void LibraryModel::openShow(const QString &id)
 
 void LibraryModel::finished(Kind kind, quint64 generation, const std::optional<Result> &result, const QString &error)
 {
-    if (m_closed || generation != m_generation) return;
+    if (m_closed || generation != (kind == Kind::Show ? m_showGeneration : m_generation)) return;
+    if (kind == Kind::Library || kind == Kind::Rebuild) {
+        m_catalogLoading = false;
+        if (result) {
+            m_shows = result->catalog.rows; m_cached = result->catalog.cached; m_imageSummary = result->stats;
+        }
+        // Background completion must not change a show request's loading/error
+        // state or its episode context.
+        if (m_showActive) {
+            if (kind == Kind::Rebuild) {
+                m_rebuildGeneration.reset();
+                if (!error.isEmpty()) emit cacheRebuildFailed(error);
+                else if (result) m_rebuildProgress = 1;
+            }
+            emit changed(); return;
+        }
+    }
     m_busy = false;
     if (kind == Kind::Rebuild) {
         m_rebuildGeneration.reset();
@@ -252,11 +278,11 @@ void LibraryModel::finished(Kind kind, quint64 generation, const std::optional<R
     }
     m_state = error.isEmpty() ? "ready" : "error"; m_message = error;
     if (result) {
-        m_imageSummary = result->stats;
+        if (kind != Kind::Show) m_imageSummary = result->stats;
         if (kind == Kind::Library || kind == Kind::Rebuild) {
             m_shows = result->catalog.rows; m_message = result->catalog.message; m_cached = result->catalog.cached;
         } else if (kind == Kind::Show) {
-            m_show = result->display; m_detail = result->detail; m_segments = result->segments; m_detailRevision = generation;
+            m_show = result->display; m_detail = result->detail; m_segments = result->segments; ++m_detailRevision;
             selectSeason(m_detail->seasons.isEmpty() ? 1 : int(m_detail->seasons.first().number.value_or(0)));
         }
     }
@@ -301,7 +327,7 @@ QVariantList LibraryModel::episodesForSeason(int number) const
                 {"number", episode.episodeNumber ? QVariant(*episode.episodeNumber) : QVariant()},
                 {"season", episode.seasonNumber ? QVariant(*episode.seasonNumber) : QVariant()},
                 {"status", m_segments.edited.contains(episode.identity.itemId) ? QString("Edited")
-                    : episode.importedSegments.isEmpty() ? QString() : library::providerLabel(episode.identity.provider)},
+                    : segments.isEmpty() || episode.importedSegments.isEmpty() ? QString() : library::providerLabel(episode.identity.provider)},
                 {"recap", "—"}, {"intro", "—"}, {"credits", "—"}, {"preview", "—"}};
             for (auto it = segments.cbegin(); it != segments.cend(); ++it) {
                 values[it.key()] = QVariantList{it.value().first, it.value().second};
@@ -316,8 +342,9 @@ QVariantList LibraryModel::episodesForSeason(int number) const
 
 void LibraryModel::closeShow()
 {
-    if (m_closed || (m_show.isEmpty() && !m_detail)) return;
-    m_cancel->store(true); ++m_generation; m_busy = false; m_state = "ready"; m_message.clear();
+    if (m_closed || !m_showActive) return;
+    m_showCancel->store(true); ++m_showGeneration; m_showActive = false;
+    m_busy = m_catalogLoading && m_shows.isEmpty(); m_state = m_busy ? "loading" : "ready"; m_message.clear();
     m_detail.reset(); m_show.clear(); m_episodes.clear(); emit changed();
 }
 
@@ -343,7 +370,7 @@ void LibraryModel::close()
     if (m_closed) return;
     m_closed = true;
     m_metadata->close();
-    m_cancel->store(true); m_pool.waitForDone();
+    m_cancel->store(true); m_showCancel->store(true); m_pool.waitForDone();
     disconnect(&m_settings, nullptr, this, nullptr);
     disconnect(m_settings.mediaSettings(), nullptr, this, nullptr);
 }

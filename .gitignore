@@ -45,3 +45,6 @@ secrets.json
 *.tsbuildinfo
 *.swp
 *.swo
+
+# Public project overview.
+!/README.md

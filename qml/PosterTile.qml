@@ -47,6 +47,8 @@ AbstractButton {
             // Sample the 2x decode directly throughout the small hover zoom.
             // Minification mip levels discard detail that zooming then enlarges.
             mipmap: false
+            opacity: status === Image.Ready ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
         }
         // Original geometric poster compositions, limited to design preview data.
         Rectangle { visible: !tile.record.posterUrl; width: parent.width * 1.1; height: width; radius: width / 2; x: parent.width * 0.22; y: parent.height * 0.1; color: "#18ffffff"; rotation: 25 }

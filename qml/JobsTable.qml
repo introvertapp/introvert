@@ -22,6 +22,11 @@ Rectangle {
     implicitHeight: 40 + Math.max(66, displayedCount*41) + (displayedCount > 0 ? 58 : 0)
     property var columnOverrides: ({})
     function columnWidth(column) { return columnOverrides[column.key] || (history ? viewport.width : Math.max(viewport.width,1110)) * column.weight / totalWeight }
+    function displayValue(record, key) {
+        if(key !== "date") return String(record[key])
+        var date = new Date(record[key])
+        return isNaN(date.getTime()) ? String(record[key]) : date.toLocaleString(Qt.locale(), Locale.ShortFormat)
+    }
     signal showOpened(var record)
     objectName: history ? "historyTable" : "queueTable"
     color: theme.card; border.color: theme.border; radius: 12; clip: true
@@ -79,7 +84,7 @@ Rectangle {
                                 required property var modelData
                                 width: table.columnWidth(modelData); height: 41
                                 leftPadding: 14; rightPadding: 10; verticalAlignment: Text.AlignVCenter
-                                text: String(row.rowRecord[modelData.key]); elide: Text.ElideRight; font.pixelSize: 13
+                                text: table.displayValue(row.rowRecord, modelData.key); elide: Text.ElideRight; font.pixelSize: 13
                                 color: modelData.key === "show" ? table.theme.link : modelData.key === "status" ? (row.rowRecord.status === "Failed" ? table.theme.danger : row.rowRecord.status.indexOf("Rate") >= 0 ? table.theme.warning : table.theme.text) : table.theme.text
                                 Rectangle { anchors.right: parent.right; width: 1; height: parent.height; color: table.theme.border }
                                 MouseArea { anchors.fill: parent; enabled: modelData.key === "show"; cursorShape: Qt.PointingHandCursor; onClicked: table.showOpened(row.rowRecord) }

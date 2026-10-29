@@ -20,8 +20,8 @@ QMap<QByteArray, QByteArray> headers(const ProviderConfig &config)
 QList<ImportedSegment> markers(const QJsonArray &values)
 {
     QList<ImportedSegment> result;
-    for (const auto kind : {SegmentType::Intro, SegmentType::Credits}) {
-        const QStringList names = kind == SegmentType::Intro ? QStringList{"intro"} : QStringList{"credits", "outro"};
+    for (const auto kind : {SegmentType::Recap, SegmentType::Intro, SegmentType::Credits, SegmentType::Preview}) {
+        const QStringList names = kind == SegmentType::Credits ? QStringList{"credits", "outro"} : QStringList{segmentName(kind)};
         bool found = false;
         for (const auto &name : names) {
             for (const auto &value : values) {

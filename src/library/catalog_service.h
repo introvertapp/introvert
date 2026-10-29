@@ -4,6 +4,7 @@
 #include "core/settings_store.h"
 #include <functional>
 #include <map>
+#include <mutex>
 
 namespace introvert::library {
 
@@ -15,7 +16,8 @@ struct CatalogResult {
 };
 
 // Synchronous worker-owned coordinator. Settings and QML never perform HTTP or
-// filesystem scans. A serial worker owns provider discovery state.
+// filesystem scans. Provider calls are serialized, allowing foreground detail
+// requests between background artwork/import operations.
 class CatalogService final {
 public:
     using Progress = std::function<void(const CatalogResult &)>;
@@ -35,6 +37,7 @@ private:
     SettingsStore m_store;
     MediaCache &m_cache;
     ProviderMap m_providers;
+    std::mutex m_providerMutex;
 };
 
 QString providerLabel(providers::ProviderId id);

@@ -56,7 +56,10 @@ Item {
         if(state.status==="failed")return "FAILED"
         if(state.status==="cancelled")return "CANCELLED"
         var result=JSON.parse(state.result || "{}"), applied=result.updated ? result.updated[ep.id] : null
-        if(applied) return Object.keys(applied).map(function(kind){return kind.toUpperCase()}).join("/")
+        if(applied) return Object.keys(applied).filter(function(kind){
+            var current=ep.segmentValues && ep.segmentValues[kind], detected=applied[kind]
+            return current && detected && current[0]===detected[0] && current[1]===detected[1]
+        }).map(function(kind){return kind.toUpperCase()}).join("/")
         if(result.eligible && result.eligible[ep.id] && result.eligible[ep.id].length) return "NO "+result.eligible[ep.id].map(function(kind){return kind.toUpperCase()}).join("/")
         return ""
     }

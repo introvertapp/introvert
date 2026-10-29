@@ -40,14 +40,16 @@ CatalogSegments loadCatalogSegments(const QString &databasePath, const providers
                         row[kind] = {stored->second.start, stored->second.end};
                         if (stored->second.source == "video_editor") result.edited.insert(episode.identity.itemId);
                     }
-                } else if (row.contains(kind) && episode.identity.provider != providers::ProviderId::Local) {
+                } else if (row.contains(kind)) {
                     const auto value = row.value(kind);
                     if (std::isfinite(value.first) && std::isfinite(value.second) && 0 <= value.first && value.first < value.second) {
                         sql::execute(connection.db, "INSERT OR IGNORE INTO segments "
                             "(show_key,season,episode,kind,start,end,source,provider,provider_episode) VALUES(?,?,?,?,?,?,?,?,?)",
                             {keys.first(), *episode.seasonNumber, *episode.episodeNumber, kind, value.first, value.second,
-                             "media_server", providers::providerName(episode.identity.provider), episode.identity.itemId});
-                        latest.emplace(identity, Stored{value.first, value.second, false, "media_server"});
+                             episode.identity.provider == providers::ProviderId::Local ? "embedded" : "media_server",
+                             providers::providerName(episode.identity.provider), episode.identity.itemId});
+                        latest.emplace(identity, Stored{value.first, value.second, false,
+                            episode.identity.provider == providers::ProviderId::Local ? "embedded" : "media_server"});
                     }
                 }
             }
