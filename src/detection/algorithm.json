@@ -1,0 +1,11 @@
+{
+  "id": "introvert-detector",
+  "name": "Introvert Detector",
+  "version": "0.47.0",
+  "interface_version": 1,
+  "result_schema_version": 1,
+  "minimum_app_version": "0.1.7",
+  "window_policy": "hard-audio-windows-v1",
+  "composition": "audio-led-credits-edge-v1",
+  "selection": "audio-led-credits-edge-v1"
+}
