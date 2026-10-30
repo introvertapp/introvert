@@ -20,6 +20,7 @@ QString providerName(ProviderId provider);
 ProviderId providerId(const QString &name);
 QString segmentName(SegmentType kind);
 SegmentType segmentType(const QString &name);
+QString normalizedEpisodeOrder(QString value);
 
 class ProviderError : public std::runtime_error {
 public:
@@ -87,6 +88,7 @@ struct Episode {
     std::optional<QString> itemUrl, mediaPath;
     QList<ImportedSegment> importedSegments;
     std::optional<qint64> durationMs;
+    std::optional<QString> numberingSource, episodeOrder, tvdbEpisodeId;
 };
 
 struct Season {
@@ -97,6 +99,7 @@ struct Season {
 struct ShowDetail {
     ShowSummary show;
     QList<Season> seasons;
+    bool hasEpisodeAddressing = false;
 };
 
 // Synchronous domain boundary, scheduled on an owning worker by the library.

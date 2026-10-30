@@ -8,6 +8,7 @@ namespace introvert::segments {
 
 QStringList showKeys(const providers::ShowSummary &show);
 void initializeTables(QSqlDatabase &db);
+qint64 currentRevision(QSqlDatabase &db);
 // The caller owns the transaction containing metadata and alias changes.
 void copyAliases(QSqlDatabase &db, const providers::ShowSummary &before, const providers::ShowSummary &after);
 

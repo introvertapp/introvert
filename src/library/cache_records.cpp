@@ -85,13 +85,17 @@ QJsonValue encodeDetail(const ShowDetail &detail)
                 markers.append(QJsonObject{{"segment_type", segmentName(marker.type)},
                     {"start_seconds", marker.startSeconds}, {"end_seconds", marker.endSeconds}});
             }
-            episodes.append(QJsonObject{{"identity", identity(episode.identity)}, {"title", json(episode.title)},
+            QJsonObject record{{"identity", identity(episode.identity)}, {"title", json(episode.title)},
                 {"season_number", json(episode.seasonNumber)}, {"episode_number", json(episode.episodeNumber)},
-                {"duration_ms", json(episode.durationMs)}, {"imported_segments", markers}});
+                {"duration_ms", json(episode.durationMs)}, {"imported_segments", markers}};
+            if (episode.numberingSource) record["numbering_source"] = *episode.numberingSource;
+            if (episode.episodeOrder) record["episode_order"] = *episode.episodeOrder;
+            if (episode.tvdbEpisodeId) record["tvdb_episode_id"] = *episode.tvdbEpisodeId;
+            episodes.append(record);
         }
         seasons.append(QJsonObject{{"number", json(season.number)}, {"episodes", episodes}});
     }
-    return QJsonObject{{"show", show(detail.show)}, {"seasons", seasons}};
+    return QJsonObject{{"show", show(detail.show)}, {"seasons", seasons}, {"episode_addressing_version",1}};
 }
 QList<ShowSummary> decodeSeries(const QJsonValue &value)
 {
@@ -101,6 +105,7 @@ ShowDetail decodeDetail(const QJsonValue &value)
 {
     const auto root = object(value);
     ShowDetail result{readShow(root["show"]), {}};
+    result.hasEpisodeAddressing=root["episode_addressing_version"].toInt()==1;
     for (const auto &value : array(root["seasons"])) {
         const auto row = object(value);
         Season season{integer(row["number"]), {}};
@@ -109,6 +114,9 @@ ShowDetail decodeDetail(const QJsonValue &value)
             Episode episode{readIdentity(row["identity"])};
             episode.title = optionalString(row["title"]); episode.seasonNumber = integer(row["season_number"]);
             episode.episodeNumber = integer(row["episode_number"]); episode.durationMs = integer(row["duration_ms"]);
+            if (row.contains("numbering_source")) episode.numberingSource = optionalString(row["numbering_source"]);
+            if (row.contains("episode_order")) episode.episodeOrder = optionalString(row["episode_order"]);
+            if (row.contains("tvdb_episode_id")) episode.tvdbEpisodeId = optionalString(row["tvdb_episode_id"]);
             for (const auto &value : array(row["imported_segments"])) {
                 const auto marker = object(value);
                 require(marker["start_seconds"].isDouble() && marker["end_seconds"].isDouble()

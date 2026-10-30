@@ -162,7 +162,7 @@ std::optional<ShowDetail> PlexProvider::getShow(const ProviderConfig &config, co
 {
     context(config, cancelled);
     const auto path = "/library/metadata/" + detail::quote(showId);
-    const auto metadata = items(config, path, {{"includeGuids", 1}}, cancelled);
+    const auto metadata = items(config, path, {{"includeGuids", 1}, {"includePreferences",1}}, cancelled);
     if (metadata.isEmpty()) return std::nullopt;
     QList<QJsonObject> episodes;
     try { episodes = items(config, path + "/allLeaves", {{"includeMarkers", 1}, {"includeGuids", 1}}, cancelled); }
@@ -188,6 +188,15 @@ std::optional<ShowDetail> PlexProvider::getShow(const ProviderConfig &config, co
         Episode episode{{ProviderId::Plex, key, m_machine}};
         episode.title = detail::optionalString(item["title"]);
         episode.seasonNumber = season; episode.episodeNumber = detail::nonnegativeNumber(item["index"]).value_or(0);
+        for(const auto &guid:item["Guid"].toArray()) {
+            const auto value=guid.toObject()["id"].toString();
+            if(value.startsWith("tvdb://")) {episode.tvdbEpisodeId=value.mid(7);episode.numberingSource="tvdb";}
+        }
+        auto ordering=metadata.first()["showOrdering"].toString();
+        for(const auto &setting:metadata.first()["Preferences"].toObject()["Setting"].toArray())
+            if(setting.toObject()["id"]=="showOrdering")ordering=setting.toObject()["value"].toString();
+        if(ordering=="tmdbAiring")episode.numberingSource="tmdb";
+        else if(!normalizedEpisodeOrder(ordering).isEmpty()) {episode.numberingSource="tvdb";episode.episodeOrder=normalizedEpisodeOrder(ordering);}
         if (m_machine && !m_machine->isEmpty()) episode.itemUrl = web(config, key);
         for (const auto &media : item["Media"].toArray()) {
             for (const auto &part : media.toObject()["Part"].toArray()) {

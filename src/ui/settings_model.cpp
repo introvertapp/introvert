@@ -92,6 +92,7 @@ void ProviderSettingsModel::select(const QString &provider)
             m_address = provider == "local" ? config.localRoot : config.remoteUrl;
             m_images = config.fetchImages;
             m_timeout = config.timeoutSeconds;
+            if (provider != "local") m_credential = m_store.credential("media:" + provider).value_or(QString());
         } catch (...) {
             m_message = QStringLiteral("Cannot load provider settings. Check database access and app.db credential storage.");
         }
@@ -338,6 +339,7 @@ void WebhookSettingsModel::close()
 
 SettingsModel::SettingsModel(SettingsStore store, QObject *parent)
     : QObject(parent), m_store(std::move(store)), m_snapshot(m_store.load()), m_detectionResources(m_store.detectionResources()),
+      m_visualRefinementEnabled(m_store.visualRefinementEnabled()),
       m_media(new ProviderSettingsModel(m_store, m_snapshot.mediaProvider, this)),
       m_endpoints(new EndpointSettingsModel(m_store, this)), m_webhooks(new WebhookSettingsModel(m_store, this))
 {
@@ -349,7 +351,7 @@ void SettingsModel::update(const QString &field, const QVariant &value)
     try {
         const auto result = m_store.update(field, value);
         if (result.timestampFormat == m_snapshot.timestampFormat && result.listingType == m_snapshot.listingType
-            && result.introMinimumSeconds == m_snapshot.introMinimumSeconds && result.mediaProvider == m_snapshot.mediaProvider) return;
+            && result.mediaProvider == m_snapshot.mediaProvider) return;
         m_snapshot = result; emit changed();
     } catch (const SettingsError &failure) { emit error(errorText(failure)); }
     catch (...) { emit error(QStringLiteral("Cannot save Introvert preferences in app.db.")); }
@@ -365,8 +367,12 @@ void SettingsModel::setDetectionEffort(const QString &value)
     setDetectionResources(value=="light"?"low":value=="high"?"full":"medium");
 }
 void SettingsModel::setTimestampFormat(const QString &value) { update("timestamp_format", value); }
+void SettingsModel::setVisualRefinementEnabled(bool value)
+{
+    try { m_store.setVisualRefinementEnabled(value); m_visualRefinementEnabled=value; emit changed(); }
+    catch (...) { emit error(QStringLiteral("Cannot save visual refinement preference in app.db.")); }
+}
 void SettingsModel::setListingType(const QString &value) { update("tv_show_listing_type", value); }
-void SettingsModel::setIntroMinimumSeconds(int value) { update("intro_detection_min_seconds", value); }
 void SettingsModel::setMediaProvider(const QString &value) { update("media_provider", value); m_media->select(m_snapshot.mediaProvider); }
 
 } // namespace introvert::ui

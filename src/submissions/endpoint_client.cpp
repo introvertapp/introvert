@@ -85,8 +85,8 @@ bool imdb(const QString &value)
 bool mediaBody(const QJsonObject &body)
 {
     const auto row = body.toVariantMap();
-    if (!integer(row.value("tmdb_id"), 1, 10000000) || !QStringList{"tv", "movie"}.contains(row.value("type").toString())) return false;
-    for (const auto &key : {"season", "episode"}) if (!null(row.value(key)) && !integer(row.value(key), 1)) return false;
+    if (!integer(row.value("tvdb_id"), 1, 100000000) || !QStringList{"tv", "movie"}.contains(row.value("type").toString())) return false;
+    for (const auto &key : {"season", "episode"}) if (!null(row.value(key)) && !integer(row.value(key), 0)) return false;
     for (const auto &kind : kinds) {
         if (!body.contains(kind)) continue;
         if (!body[kind].isArray()) return false;
@@ -105,15 +105,15 @@ bool mediaBody(const QJsonObject &body)
 }
 bool submissionBody(const QJsonObject &body)
 {
-    if (!body["submissions"].isArray()) return false;
+    if (body["ok"] != true || !body["submissions"].isArray()) return false;
     static const QRegularExpression uuid(QStringLiteral("\\A[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}\\z"));
     for (const auto &value : body["submissions"].toArray()) {
         if (!value.isObject()) return false;
         const auto row = value.toObject().toVariantMap();
         if (row.value("id").metaType().id() != QMetaType::QString || !uuid.match(row.value("id").toString()).hasMatch()
-            || !integer(row.value("tmdbId"), 1, 10000000) || !QStringList{"tv", "movie"}.contains(row.value("type").toString())
+            || !row.contains("tvdbId") || !(null(row.value("tvdbId")) || integer(row.value("tvdbId"), 1, 100000000)) || !QStringList{"tv", "movie"}.contains(row.value("type").toString())
             || !kinds.contains(row.value("segment").toString())) return false;
-        for (const auto &key : {"season", "episode"}) if (!null(row.value(key)) && !integer(row.value(key), 1)) return false;
+        for (const auto &key : {"season", "episode"}) if (!null(row.value(key)) && !integer(row.value(key), 0)) return false;
         if (!row.contains("videoDurationMs") || (!null(row.value("videoDurationMs")) && !integer(row.value("videoDurationMs"), 0, 21600000))) return false;
         for (const auto &key : {"startMs", "endMs"}) if (!null(row.value(key)) && !integer(row.value(key))) return false;
         if (!QStringList{"pending", "accepted", "rejected"}.contains(row.value("status").toString())) return false;
@@ -182,7 +182,7 @@ EndpointClient::Response EndpointClient::request(QString url, const QVariantMap 
         encoded.append(quote(field.key()) + '=' + quote(string(field.value())));
     }
     if (!encoded.isEmpty()) url += '?' + QString::fromLatin1(encoded.join('&'));
-    QMap<QByteArray, QByteArray> headers{{"Accept", "application/json"}};
+    QMap<QByteArray, QByteArray> headers{{"Accept", "application/json"}, {"User-Agent","Introvert"}};
     if (authenticated && m_key && !m_key->isEmpty())
         headers[m_endpoint == "introdb_app" ? "X-API-Key" : "Authorization"]
             = (m_endpoint == "introdb_app" ? *m_key : "Bearer " + m_key->trimmed()).toUtf8();
@@ -213,17 +213,28 @@ LookupResult EndpointClient::lookup(const QVariantMap &values, const providers::
         query = {{"imdb_id", values.value("imdb_id")}, {"season", values.value("season")}, {"episode", values.value("episode")}, {"segment_type", segment}};
         url = m_settings.value("introdb_lookup_url").toString();
     } else {
-        if (!positive(values.value("season")) || !positive(values.value("episode"))) return {};
-        const auto id = positive(values.value("tmdb_id"));
-        if (id && *id <= 10000000) query["tmdb_id"] = *id;
-        else if (imdb(values.value("imdb_id").toString())) query["imdb_id"] = values.value("imdb_id");
-        else return {};
-        query["season"] = values.value("season"); query["episode"] = values.value("episode");
+        if (!integer(values.value("season")) || !integer(values.value("episode"))) return {};
+        try {
+            auto identity=values;identity["start_sec"]=0.;identity["end_sec"]=6.;
+            const auto outgoing = payload(identity,false).body;
+            for (const auto &name : {"tvdb_id", "tmdb_id", "imdb_id", "mapping", "tvdb_episode_id", "episode_name"})
+                if (outgoing.contains(name)) query[name] = outgoing[name].toVariant();
+            query["season"] = outgoing["season"].toVariant(); query["episode"] = outgoing["episode"].toVariant();
+            if (outgoing.contains("video_duration_ms")) query["duration_ms"] = outgoing["video_duration_ms"].toVariant();
+            query["details"] = "true";
+        } catch (const SubmissionError &) { return {}; }
         url = base(m_settings.value("theintrodb_base_url").toString()) + "/media";
     }
     try {
         const auto response = request(url, query, {}, !intro, cancel);
-        if (response.status != 200 || !response.body.isObject() || (!intro && !mediaBody(response.body.toObject()))) return {};
+        if(!intro && response.status==429) {LookupResult result;result.failure=rateLimit(response);return result;}
+        if(!intro && response.status!=200 && response.status!=404) {
+            LookupResult result;result.failure=SubmissionResult{"FAIL",response.status,"Cannot verify existing segments. Check the endpoint API key or retry later.",{}, {}};return result;
+        }
+        if (!intro && response.status==200 && (!response.body.isObject() || !mediaBody(response.body.toObject()))) {
+            LookupResult result;result.failure=SubmissionResult{"FAIL",response.status,"Cannot verify existing segments: the endpoint returned an invalid response.",{}, {}};return result;
+        }
+        if (response.status != 200 || !response.body.isObject()) return {};
         const auto body = response.body.toObject().toVariantMap();
         auto value = body.value(segment);
         if (intro && !truthy(value)) value = body.value(kind);
@@ -237,18 +248,22 @@ LookupResult EndpointClient::lookup(const QVariantMap &values, const providers::
                 ? std::optional<double>(0.) : numeric(row.value("start_ms"));
             const auto rawEnd = intro ? first(row, {"end_sec", "endSec", "end"}) : row.value("end_ms");
             auto end = numeric(rawEnd);
-            if (!intro) { if (start) start = rounded(*start / 1000); if (end) end = rounded(*end / 1000); }
+            if (!intro) { if (start) start = *start / 1000; if (end) end = *end / 1000; }
             if (!start || (!null(rawEnd) && !end)) continue;
             result.matches.append({*start, end, row.value("confidence"), first(row, {"submission_count", "submissionCount"}),
                                    intro ? first(row, {"updated_at", "updatedAt"}) : QVariant()});
         }
         return result;
-    } catch (const EndpointError &) { return {}; }
+    } catch (const EndpointError &error) {
+        LookupResult result;
+        if(!intro)result.failure=SubmissionResult{"FAIL",{},QString::fromUtf8(error.what()),{}, {}};
+        return result;
+    }
 }
 
-EndpointClient::Payload EndpointClient::payload(const QVariantMap &values) const
+EndpointClient::Payload EndpointClient::payload(const QVariantMap &values, bool requireCredential) const
 {
-    if (!configured()) throw SubmissionError("Enable the endpoint and save its API key in Settings");
+    if (requireCredential && !configured()) throw SubmissionError("Enable the endpoint and save its API key in Settings");
     const auto start = numeric(values.value("start_sec")), end = numeric(values.value("end_sec"));
     const auto kind = values.value("segment_type").toString(), imdbId = values.value("imdb_id").toString();
     if (!kinds.contains(kind) || !start || *start < 0 || (!null(values.value("end_sec")) && (!end || *end <= *start)))
@@ -262,18 +277,86 @@ EndpointClient::Payload EndpointClient::payload(const QVariantMap &values) const
             {"imdb_id", values.value("imdb_id")}, {"season", season}, {"episode", episode},
             {"segment_type", kind == "credits" ? QString("outro") : kind}, {"start_sec", *start}, {"end_sec", end ? QVariant(*end) : QVariant()}})};
     }
-    const auto id = positive(values.value("tmdb_id")), duration = positive(values.value("video_duration_ms"));
-    if (!id || *id > 10000000) throw SubmissionError("TheIntroDB requires a TMDB ID");
-    if (!duration || *duration < 300000 || *duration > 21600000) throw SubmissionError("TheIntroDB requires a video duration between 5 minutes and 6 hours");
-    if (season.toDouble() < 1 || episode.toDouble() < 1) throw SubmissionError("TheIntroDB requires positive season and episode numbers");
-    if (!imdbId.isEmpty() && !imdb(imdbId)) throw SubmissionError("Invalid IMDb ID");
+    QVariantMap body{{"type", "tv"}, {"segment", kind},
+        {"season", values.value("target_season", season)}, {"episode", values.value("target_episode", episode)},
+        {"start_ms", (kind == "intro" || kind == "recap") && *start == 0 ? QVariant() : QVariant(rounded(*start * 1000))},
+        {"end_ms", end ? QVariant(rounded(*end * 1000)) : QVariant()}};
+    const auto tvdb = positive(values.value("tvdb_id")), tmdb = positive(values.value("tmdb_id"));
+    const auto source = values.value("numbering_source").toString();
+    const auto exact = positive(values.value("tvdb_episode_id"));
+    if (tvdb && *tvdb <= 100000000 && (source == "tvdb" || exact || (!tmdb && source != "imdb"))) body["tvdb_id"] = *tvdb;
+    else if (tmdb && *tmdb <= 10000000 && source != "imdb") body["tmdb_id"] = *tmdb;
+    else if (imdb(imdbId)) body["imdb_id"] = imdbId;
+    else throw SubmissionError("TheIntroDB requires a TVDB, TMDB or IMDb ID compatible with the episode numbering");
+    const auto mapping = values.value("mapping").toString();
+    if (!mapping.isEmpty()) {
+        if (!QStringList{"default","official","dvd","alternate","absolute","regional"}.contains(mapping))
+            throw SubmissionError("Unknown episode order. Choose a supported episode order before submitting.");
+        body["mapping"] = mapping;
+    }
+    if (exact) { body["tvdb_episode_id"] = *exact; body.remove("mapping"); }
+    if (!values.value("episode_name").toString().isEmpty()) body["episode_name"] = values.value("episode_name");
+    if (!integer(body["season"],0,1000) || !integer(body["episode"],0,10000)) throw SubmissionError("Invalid season or episode number");
+    const auto duration = numeric(values.value("video_duration_ms"));
+    if (duration && (*duration == 0 || (*duration >= 300000 && *duration <= 21600000)) && std::floor(*duration) == *duration)
+        body["video_duration_ms"] = *duration;
     if (*start > 21600 || (end && *end > 21600) || ((kind == "intro" || kind == "recap") && !end))
         throw SubmissionError("Invalid TheIntroDB segment timestamps");
-    QVariantMap body{{"tmdb_id", *id}, {"type", "tv"}, {"segment", kind}, {"season", season}, {"episode", episode},
-        {"video_duration_ms", *duration}, {"start_ms", (kind == "intro" || kind == "recap") && *start == 0 ? QVariant() : QVariant(rounded(*start * 1000))},
-        {"end_ms", end ? QVariant(rounded(*end * 1000)) : QVariant()}};
-    if (!imdbId.isEmpty()) body["imdb_id"] = imdbId;
+    if (end) {
+        const auto length = *end - *start;
+        const auto maximum = kind == "intro" ? 300 : kind == "recap" ? 1200 : 1800;
+        if (length < 5 || length > maximum) throw SubmissionError("Segment duration is outside TheIntroDB limits");
+    }
+
     return {base(m_settings.value("theintrodb_base_url").toString()) + "/submit", QJsonObject::fromVariantMap(body)};
+}
+
+QVariantMap EndpointClient::resolve(const QVariantMap &values, const providers::Cancellation &cancel) const
+{
+    if (m_endpoint != "theintrodb_org" || (positive(values.value("tvdb_episode_id")) && positive(values.value("tvdb_id")))) return values;
+    auto body = payload(values).body;
+    for (const auto &name : {"segment","start_ms","end_ms","video_duration_ms"}) body.remove(name);
+    Response response;
+    try { response = request(base(m_settings.value("theintrodb_base_url").toString()) + "/map", {}, body, true, cancel); }
+    catch (const EndpointError &) { throw SubmissionError("Cannot verify the submission episode. Check network access and retry."); }
+    const auto row = response.body.toObject();
+    if (response.status != 200 || !integer(row["tvdb_id"].toVariant(),1,100000000)
+        || row["type"] != "tv" || !integer(row["season"].toVariant(),0,1000) || !integer(row["episode"].toVariant(),0,10000))
+        throw SubmissionError(response.status == 429 ? "Episode verification is rate limited. Wait before trying again."
+            : "Cannot verify the episode mapping. Check the source IDs, episode order and endpoint API key.");
+    auto result = values;
+    if(positive(values.value("tvdb_id")) && values.value("tvdb_id").toLongLong()!=row["tvdb_id"].toInteger())
+        throw SubmissionError("The resolved TVDB show conflicts with the saved identifiers. Correct the show identification before submitting.");
+    result["tvdb_id"] = row["tvdb_id"].toVariant(); result["numbering_source"] = "tvdb";
+    result["target_season"] = row["season"].toVariant(); result["target_episode"] = row["episode"].toVariant();
+    result["mapping"] = "default";
+    if (positive(row["tvdb_episode_id"].toVariant())) result["tvdb_episode_id"] = row["tvdb_episode_id"].toVariant();
+    result["resolved_title"] = row["episode_title"].toString();
+    return result;
+}
+
+SubmissionResult EndpointClient::rateLimit(const Response &response) const
+{
+    const auto body=response.body.toObject().toVariantMap();
+    const bool intro=m_endpoint=="introdb_app";
+        std::optional<QString> reset, resume;
+        if (intro) {
+            QVariant raw;
+            for (const auto &value : {body.value("reset_at"), body.value("resetAt"), QVariant(QString::fromUtf8(response.headers.value("x-ratelimit-reset"))),
+                                       QVariant(QString::fromUtf8(response.headers.value("x-rate-limit-reset")))})
+                if (truthy(value)) { raw = value; break; }
+            reset = resetDate(raw, m_clock());
+            if (!reset) reset = resetDate(QString::fromUtf8(response.headers.value("retry-after")), m_clock(), true);
+            resume = reset ? reset : iso(m_clock() + 3600);
+        } else {
+            std::optional<double> seconds;
+            for(const auto &name:{"x-ratelimit-reset","x-usagelimit-reset","x-usagelimit-specificmedia-reset","retry-after"}) {
+                const auto value=numeric(QString::fromUtf8(response.headers.value(name)));
+                if(value && *value>0)seconds=std::max(seconds.value_or(0.),*value);
+            }
+            resume = iso(m_clock() + (seconds && *seconds > 0 ? *seconds : 3600)); reset = resume;
+        }
+        return {"RATE LIMITED", response.status, "Rate limit exceeded", reset, resume};
 }
 
 void EndpointClient::validate(const QVariantMap &values) const { payload(values); }
@@ -288,21 +371,7 @@ SubmissionResult EndpointClient::submit(const QVariantMap &values, const provide
     const auto body = response.body.isObject() ? response.body.toObject().toVariantMap() : QVariantMap();
     const bool intro = m_endpoint == "introdb_app";
     if (response.status == 429 || (intro && response.status >= 400 && string(body.value("error")).contains("Rate limit exceeded"))) {
-        std::optional<QString> reset, resume;
-        if (intro) {
-            QVariant raw;
-            for (const auto &value : {body.value("reset_at"), body.value("resetAt"), QVariant(QString::fromUtf8(response.headers.value("x-ratelimit-reset"))),
-                                       QVariant(QString::fromUtf8(response.headers.value("x-rate-limit-reset")))})
-                if (truthy(value)) { raw = value; break; }
-            reset = resetDate(raw, m_clock());
-            if (!reset) reset = resetDate(QString::fromUtf8(response.headers.value("retry-after")), m_clock(), true);
-            resume = reset ? reset : iso(m_clock() + 3600);
-        } else {
-            auto seconds = numeric(QString::fromUtf8(response.headers.value("x-ratelimit-reset")));
-            if (!seconds) seconds = numeric(QString::fromUtf8(response.headers.value("x-usagelimit-reset")));
-            resume = iso(m_clock() + (seconds && *seconds > 0 ? *seconds : 3600)); reset = resume;
-        }
-        return {"RATE LIMITED", response.status, "Rate limit exceeded", reset, resume};
+        return rateLimit(response);
     }
     const bool success = intro ? response.status == 200 : response.status >= 200 && response.status < 300 && submissionBody(response.body.toObject());
     return {success ? "OK" : "FAIL", response.status, success ? QString() : QString("Endpoint rejected the submission or returned an invalid response"), {}, {}};

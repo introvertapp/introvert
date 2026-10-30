@@ -232,6 +232,14 @@ std::optional<ShowDetail> EmbyProvider::getShow(const ProviderConfig &config, co
         Episode episode{{m_provider, key, server}};
         episode.title = detail::optionalString(item["Name"]); episode.seasonNumber = season;
         episode.episodeNumber = detail::nonnegativeNumber(item["IndexNumber"]).value_or(0);
+        const auto episodeIds=item["ProviderIds"].toObject();
+        for(const auto &name:episodeIds.keys()) {
+            if(name.compare("tvdb",Qt::CaseInsensitive)==0 && detail::present(episodeIds[name])) {
+                episode.tvdbEpisodeId=detail::sourceString(episodeIds[name]);episode.numberingSource="tvdb";
+            }
+        }
+        const auto ordering=normalizedEpisodeOrder(metadata.first()["DisplayOrder"].toString());
+        if(!ordering.isEmpty()) {episode.episodeOrder=ordering;if(result.show.externalIds.tvdb)episode.numberingSource="tvdb";}
         episode.itemUrl = web(config, key, server);
         episode.mediaPath = detail::optionalString(item["Path"]);
         if (!episode.mediaPath || episode.mediaPath->isEmpty()) {

@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QtQuick.Effects
 
 Item {
     id: header
@@ -26,44 +25,14 @@ Item {
         z: -1
         anchors.fill: parent; anchors.margins: -20
     }
-    Item {
+    HeaderGlass {
         objectName: "headerGlass"
         parent: header.glassHost || standardGlassHost
         z: -1
         anchors.fill: parent
-        clip: true
-        Rectangle { anchors.fill: parent; color: header.theme.background; visible: header.blurredBackdrop }
-        ShaderEffectSource {
-            id: backdrop
-            sourceItem: header.blurredBackdrop ? header.backdropSource : null
-            sourceRect: header.backdropRect
-            textureSize: Qt.size(parent.width,parent.height)
-            live: header.blurredBackdrop; visible: false
-        }
-        MultiEffect {
-            objectName: "headerBackdropBlur"
-            anchors.fill: parent
-            source: backdrop; visible: header.blurredBackdrop
-            blurEnabled: true; blurMax: 40; blur: 1.0
-            saturation: 0.1
-            autoPaddingEnabled: false
-        }
-        Rectangle {
-            objectName: "headerGlassTint"
-            anchors.fill: parent; color: header.theme.background
-            opacity: header.blurredBackdrop ? 0.72 : 0.88
-        }
-        Rectangle {
-            // Keep the header highlight identical on every page, even where
-            // the backdrop continues farther down behind pinned information.
-            anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
-            height: header.height+40
-            gradient: Gradient {
-                GradientStop { position: 0; color: "#12ffffff" }
-                GradientStop { position: 1; color: "#00ffffff" }
-            }
-        }
-        MouseArea { anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.ArrowCursor; onWheel: function(wheel) { wheel.accepted=false } }
+        theme: header.theme; backdropSource: header.backdropSource; backdropRect: header.backdropRect
+        // Keep the highlight identical even on taller page material hosts.
+        highlightHeight: header.height+40
     }
     AppImage {
         objectName: "applicationWordmark"

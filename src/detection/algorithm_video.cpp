@@ -6,7 +6,8 @@
 namespace introvert::detection {
 namespace {
 QVariantList decodeObservations(Algorithm &algorithm, ProcessRunner &runner, const MediaInfo &media, const QString &episode,
-    const QString &job, const QString &ffmpeg, const TimeRange &window, int width, int height, int columns, double fps, const Cancellation &cancel, QVariantMap *timings)
+    const QString &job, const QString &ffmpeg, const TimeRange &window, int width, int height, int columns, double fps, const Cancellation &cancel, QVariantMap *timings,
+    const char *operation="observe_video_frame",SegmentType type=SegmentType::Credits)
 {
     if (!media.selectedVideo || !TimeRange(0,media.duration).contains(window) || window.duration()>600.000001
         || width<64 || width>1280 || height<64 || height>720 || columns<1 || columns>512 || fps<.5 || fps>16)
@@ -20,7 +21,7 @@ QVariantList decodeObservations(Algorithm &algorithm, ProcessRunner &runner, con
         +":force_original_aspect_ratio=decrease:flags=area,pad="+QString::number(width)+':'+QString::number(height)+":(ow-iw)/2:(oh-ih)/2,format=rgb24";
     ProcessRequest request{{ffmpeg,"-hide_banner","-nostdin","-loglevel","error","-ss",mediaDecimal(fast),"-i",media.identity.normalizedPath,
         "-map","0:"+QString::number(*media.selectedVideo),"-t",mediaDecimal(window.duration()),
-        "-an","-sn","-dn","-vf",filter,"-pix_fmt","rgb24","-f","rawvideo","pipe:1"},ProcessCategory::Decoder,"visual-frame-stream",job,episode,SegmentType::Credits,300.};
+        "-an","-sn","-dn","-vf",filter,"-pix_fmt","rgb24","-f","rawvideo","pipe:1"},ProcessCategory::Decoder,"visual-frame-stream",job,episode,type,300.};
     QByteArray pending; QVariantList observations; qint64 frames=0,recognitionNs=0;
     request.maximumStreamBytes=(expected+1)*frameBytes;
     request.stdoutConsumer=[&](const QByteArray &bytes) {
@@ -29,7 +30,7 @@ QVariantList decodeObservations(Algorithm &algorithm, ProcessRunner &runner, con
             const double t=window.start+double(frames)/fps;
             if (frames>=expected || t>=window.end) throw DetectionError("visual_frame_limit","Decoder exceeded the scoped frame grid.");
             QElapsedTimer recognition; recognition.start();
-            const auto result=algorithm.invoke("observe_video_frame",{{"pixels",pending.left(frameBytes)},{"width",width},{"height",height}},cancel);
+            const auto result=algorithm.invoke(operation,{{"pixels",pending.left(frameBytes)},{"width",width},{"height",height}},cancel);
             recognitionNs+=recognition.nsecsElapsed();
             const auto rawValues=result.value("values").toList(); QVariantList values;
             if (rawValues.size()!=columns) throw DetectionError("visual_invalid_features","Invalid visual feature layout.");
@@ -51,6 +52,34 @@ QVariantList decodeObservations(Algorithm &algorithm, ProcessRunner &runner, con
         throw DetectionError("visual_decode_incomplete","Scoped video coverage is incomplete.");
     return observations;
 }
+}
+QVariantMap extractAlgorithmIntroBoundaries(Algorithm &algorithm,const QVariantMap &description,ProcessRunner &runner,
+    const MediaInfo &media,const QString &episode,const QString &job,const QString &ffmpeg,const ScanWindow &hardWindow,
+    double audioStart,double audioEnd,const Cancellation &cancel)
+{
+    const auto d=description.value("visual_boundaries").toMap();
+    if(d.value("version")!="recurring-visual-boundaries-v1" || !d.value("available").toBool())
+        return {{"status","unavailable"},{"reason","intro_visual_backend_unavailable"}};
+    if(hardWindow.type!=SegmentType::Intro || !std::isfinite(audioStart) || !std::isfinite(audioEnd)
+        || audioStart>=audioEnd || !hardWindow.range.contains({audioStart,audioEnd}))
+        throw DetectionError("visual_invalid_scope","Intro boundaries exceed their hard window.");
+    const double radius=d.value("edge_radius_seconds").toDouble(),fps=d.value("frames_per_second").toDouble();
+    if(radius!=3. || fps!=8. || d.value("columns").toInt()!=96 || d.value("width").toInt()!=160 || d.value("height").toInt()!=96)
+        throw DetectionError("visual_invalid_description","Unsupported intro boundary format.");
+    QVariantMap result{{"status","analyzed"},{"frames",0}};
+    for(const auto &edge:QStringList{"start","end"}) {
+        checkCancelled(cancel);const double reference=edge=="start"?audioStart:audioEnd;
+        const TimeRange scope(std::max(hardWindow.range.start,reference-radius),std::min(hardWindow.range.end,reference+radius));
+        try {
+            const auto frames=decodeObservations(algorithm,runner,media,episode,job,ffmpeg,scope,160,96,96,fps,cancel,nullptr,
+                "observe_boundary_frame",SegmentType::Intro);
+            result[edge]=QVariantMap{{"status","analyzed"},{"observations",frames},{"window_start",scope.start},{"window_end",scope.end},
+                {"audio_time",reference},{"frames",frames.size()}};
+            result["frames"]=result.value("frames").toInt()+frames.size();
+        } catch(const Cancelled &){throw;}
+        catch(const DetectionError &error){result[edge]=QVariantMap{{"status","failed"},{"code",error.code}};}
+    }
+    return result;
 }
 QVariantMap extractAlgorithmVideo(Algorithm &algorithm, const QVariantMap &description, ProcessRunner &runner,
     const MediaInfo &media, const QString &episode, const QString &job, const QString &ffmpeg, FeatureCache *cache,

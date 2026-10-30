@@ -28,6 +28,7 @@ struct SegmentMatch {
 };
 struct LookupResult {
     QList<SegmentMatch> matches;
+    std::optional<SubmissionResult> failure;
     bool found() const { return !matches.isEmpty(); }
 };
 
@@ -42,6 +43,7 @@ public:
     bool configured() const { return enabled() && m_key && !m_key->isEmpty(); }
     LookupResult lookup(const QVariantMap &values, const providers::Cancellation &cancelled = {}) const;
     void validate(const QVariantMap &values) const;
+    QVariantMap resolve(const QVariantMap &values, const providers::Cancellation &cancelled = {}) const;
     SubmissionResult submit(const QVariantMap &values, const providers::Cancellation &cancelled = {}) const;
     QString endpoint() const { return m_endpoint; }
     QVariantMap settings() const { return m_settings; }
@@ -49,7 +51,8 @@ public:
 private:
     struct Payload { QString url; QJsonObject body; };
     struct Response { int status; QMap<QByteArray, QByteArray> headers; QJsonValue body; };
-    Payload payload(const QVariantMap &values) const;
+    SubmissionResult rateLimit(const Response &response) const;
+    Payload payload(const QVariantMap &values, bool requireCredential = true) const;
     Response request(QString url, const QVariantMap &query, const std::optional<QJsonObject> &body,
                      bool authenticated, const providers::Cancellation &cancelled) const;
     QString m_endpoint;

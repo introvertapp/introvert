@@ -1,5 +1,6 @@
 #include "job_store.h"
 #include "core/sqlite.h"
+#include "segments/identity.h"
 #include <QDateTime>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -23,6 +24,9 @@ void DetectionJobStore::initialize() const
     // retired derived-feature storage, preserving saved segments and history.
     sql::execute(connection.db, "DROP TABLE IF EXISTS detection_features");
     sql::execute(connection.db, "CREATE TABLE IF NOT EXISTS detection_jobs(id TEXT PRIMARY KEY,provider TEXT,show_id TEXT,title TEXT, season INTEGER,kinds TEXT,status TEXT,current INTEGER,total INTEGER,message TEXT,error TEXT, result TEXT,diagnostics TEXT,created REAL,updated REAL)");
+    auto columns=sql::execute(connection.db,"PRAGMA table_info(detection_jobs)");bool hasRevision=false;
+    while(columns.next())hasRevision|=columns.value(1).toString()=="status_revision";columns.finish();
+    if(!hasRevision)sql::execute(connection.db,"ALTER TABLE detection_jobs ADD COLUMN status_revision INTEGER NOT NULL DEFAULT 0");
     sql::execute(connection.db, "UPDATE detection_jobs SET status='failed',message='Previous detection was interrupted',updated=? WHERE status IN ('queued','running')", {now()}); transaction.commit();
 }
 QVariantList DetectionJobStore::rows() const
@@ -36,8 +40,8 @@ QPair<QString, bool> DetectionJobStore::create(const providers::ShowDetail &deta
     auto query = sql::execute(connection.db, "SELECT id FROM detection_jobs WHERE provider=? AND show_id=? AND season=? AND status IN ('queued','running') ORDER BY created DESC LIMIT 1", {provider, detail.show.identity.itemId, season});
     if (query.next()) { const auto id = query.value(0).toString(); query.finish(); transaction.commit(); return {id, false}; } query.finish();
     const auto id = QUuid::createUuid().toString(QUuid::WithoutBraces); const auto time = now();
-    sql::execute(connection.db, "INSERT INTO detection_jobs VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", {id, provider, detail.show.identity.itemId, detail.show.title, season,
-        QString::fromUtf8(QJsonDocument(QJsonArray::fromStringList(kinds)).toJson(QJsonDocument::Compact)), "queued", 0, 1000, "Scan queued", "", "{}", "{}", time, time}); transaction.commit(); return {id, true};
+    sql::execute(connection.db, "INSERT INTO detection_jobs VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", {id, provider, detail.show.identity.itemId, detail.show.title, season,
+        QString::fromUtf8(QJsonDocument(QJsonArray::fromStringList(kinds)).toJson(QJsonDocument::Compact)), "queued", 0, 1000, "Scan queued", "", "{}", "{}", time, time,segments::currentRevision(connection.db)}); transaction.commit(); return {id, true};
 }
 void DetectionJobStore::progress(const QString &id, const QString &phase, int current, int total) const
 {

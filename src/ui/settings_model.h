@@ -132,7 +132,7 @@ class SettingsModel final : public QObject {
     Q_PROPERTY(QString listingType READ listingType NOTIFY changed)
     Q_PROPERTY(QString detectionResources READ detectionResources NOTIFY changed)
     Q_PROPERTY(QString detectionEffort READ detectionEffort NOTIFY changed)
-    Q_PROPERTY(int introMinimumSeconds READ introMinimumSeconds NOTIFY changed)
+    Q_PROPERTY(bool visualRefinementEnabled READ visualRefinementEnabled NOTIFY changed)
     Q_PROPERTY(QString mediaProvider READ mediaProvider NOTIFY changed)
     Q_PROPERTY(QObject *mediaSettings READ mediaSettings CONSTANT)
     Q_PROPERTY(QObject *endpointSettings READ endpointSettings CONSTANT)
@@ -144,7 +144,7 @@ public:
     QString listingType() const { return m_snapshot.listingType; }
     QString detectionResources() const { return m_detectionResources; }
     QString detectionEffort() const { return m_detectionResources=="low"?"light":m_detectionResources=="full"?"high":"medium"; }
-    int introMinimumSeconds() const { return m_snapshot.introMinimumSeconds; }
+    bool visualRefinementEnabled() const { return m_visualRefinementEnabled; }
     QString mediaProvider() const { return m_snapshot.mediaProvider; }
     QObject *mediaSettings() const { return m_media; }
     QObject *endpointSettings() const { return m_endpoints; }
@@ -153,7 +153,7 @@ public:
     Q_INVOKABLE void setListingType(const QString &value);
     Q_INVOKABLE void setDetectionResources(const QString &value);
     Q_INVOKABLE void setDetectionEffort(const QString &value);
-    Q_INVOKABLE void setIntroMinimumSeconds(int value);
+    Q_INVOKABLE void setVisualRefinementEnabled(bool value);
     Q_INVOKABLE void setMediaProvider(const QString &value);
     void close();
 signals:
@@ -164,6 +164,7 @@ private:
     SettingsStore m_store;
     AppSettings m_snapshot;
     QString m_detectionResources;
+    bool m_visualRefinementEnabled = true;
     ProviderSettingsModel *m_media;
     EndpointSettingsModel *m_endpoints;
     WebhookSettingsModel *m_webhooks;

@@ -24,13 +24,17 @@ SubmissionModel::~SubmissionModel() { close(); }
 
 bool SubmissionModel::Context::operator==(const Context &other) const
 {
-    return revision == other.revision && key == other.key && season == other.season;
+    return revision == other.revision && key == other.key && season == other.season && identity == other.identity;
 }
 
 std::optional<SubmissionModel::Context> SubmissionModel::context() const
 {
     if (!m_library.m_detail) return {};
-    return Context{m_library.m_detailRevision, m_library.selection(), m_library.season()};
+    const auto &detail=*m_library.m_detail;
+    QStringList identity{detail.show.externalIds.imdb.value_or(QString()),detail.show.externalIds.tmdb.value_or(QString()),detail.show.externalIds.tvdb.value_or(QString())};
+    for(const auto &season:detail.seasons)for(const auto &episode:season.episodes)
+        identity.append(episode.identity.itemId+":"+episode.numberingSource.value_or(QString())+":"+episode.episodeOrder.value_or(QString())+":"+episode.tvdbEpisodeId.value_or(QString()));
+    return Context{m_library.m_detailRevision, m_library.selection(), m_library.season(),identity.join('|')};
 }
 
 void SubmissionModel::libraryChanged()
@@ -113,7 +117,7 @@ void SubmissionModel::run()
                 try {
                     QVariant value;
                     if (command->kind == Kind::Prepare) {
-                        value = submissions::prepareSubmission(*command->detail, command->selection, command->endpoint, m_settings, m_segments);
+                        value = submissions::prepareSubmission(*command->detail, command->selection, command->endpoint, m_settings, m_segments, m_stop);
                     } else {
                         const auto client = submissions::EndpointClient::fromStore(command->plan.value("endpoint").toString(), m_settings);
                         for (const auto &item : command->plan.value("items").toList()) client.validate(item.toMap());
@@ -157,7 +161,7 @@ void SubmissionModel::finished(Kind kind, quint64 generation, const QVariant &va
                 const auto identifier = [&](const QString &name) -> QVariant {
                     const auto id = plan.value(name); return !id.isValid() || id.isNull() || id.toString().isEmpty() ? QVariant(QString::fromUtf8("—")) : id;
                 };
-                m_review = {{"show", plan.value("show")}, {"season", plan.value("season")}, {"imdb", identifier("imdb")}, {"tmdb", identifier("tmdb")},
+                m_review = {{"show", plan.value("show")}, {"season", plan.value("season")}, {"imdb", identifier("imdb")}, {"tmdb", identifier("tmdb")}, {"tvdb", identifier("tvdb")}, {"targets", items},
                     {"endpoint", label(plan.value("endpoint").toString())}, {"episodes", episodes.size()}, {"segments", items.size()}, {"types", types}};
                 emit prepared();
             } else { m_review.clear(); m_context.reset(); emit enqueued(); }

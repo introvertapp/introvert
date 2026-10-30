@@ -27,7 +27,7 @@ public:
     SegmentValues load(const providers::ShowSummary &show, const providers::Episode &episode) const;
     void save(const providers::ShowSummary &show, const providers::Episode &episode,
               const SegmentChanges &changes, double duration, const QString &source = QStringLiteral("video_editor")) const;
-    qsizetype deleteMany(const QList<EpisodeTarget> &episodes) const;
+    qsizetype deleteMany(const QList<EpisodeTarget> &episodes, qint64 *statusRevision = nullptr) const;
     bool isEdited(const providers::ShowSummary &show, const providers::Episode &episode) const;
     QVariantMap preferences() const;
     void setPreference(const QString &key, int value) const;

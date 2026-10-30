@@ -13,6 +13,7 @@ CatalogSegments loadCatalogSegments(const QString &databasePath, const providers
     const auto keys = showKeys(detail.show);
     struct Stored { double start, end; bool deleted; QString source; };
     std::map<std::tuple<qint64, qint64, QString>, Stored> latest;
+    std::map<std::pair<qint64,qint64>,qint64> resets;
     sql::Connection connection(databasePath);
     sql::Transaction transaction(connection.db);
     initializeTables(connection.db);
@@ -25,12 +26,17 @@ CatalogSegments loadCatalogSegments(const QString &databasePath, const providers
         while (query.next())
             latest.emplace(std::make_tuple(query.value(0).toLongLong(), query.value(1).toLongLong(), query.value(2).toString()),
                 Stored{query.value(3).toDouble(), query.value(4).toDouble(), query.value(5).toBool(), query.value(6).toString()});
+        auto cleared=sql::execute(connection.db,"SELECT season,episode,MAX(revision) FROM episode_status_resets WHERE show_key IN ("
+            +placeholders.join(',')+") GROUP BY season,episode",arguments);
+        while(cleared.next())resets[{cleared.value(0).toLongLong(),cleared.value(1).toLongLong()}]=cleared.value(2).toLongLong();
     }
     for (const auto &season : detail.seasons) for (const auto &episode : season.episodes) {
         SegmentValues row;
         for (const auto &segment : episode.importedSegments)
             row[providers::segmentName(segment.type)] = {segment.startSeconds, segment.endSeconds};
         if (!keys.isEmpty() && episode.seasonNumber && episode.episodeNumber) {
+            const auto reset=resets.find({*episode.seasonNumber,*episode.episodeNumber});
+            if(reset!=resets.end())result.statusRevisions[episode.identity.itemId]=reset->second;
             for (const auto &kind : {QString("recap"), QString("intro"), QString("credits"), QString("preview")}) {
                 const auto identity = std::make_tuple(*episode.seasonNumber, *episode.episodeNumber, kind);
                 const auto stored = latest.find(identity);

@@ -55,6 +55,7 @@ Item {
 
                     SettingsTabButton { objectName: "settingsTab_application"; width: tabButtons.width; text: "Application"; subtitle: "General app preferences"; iconName: "application"; theme: page.theme; labelReveal: page.navigationReveal; selected: page.activeTab === "application"; onClicked: page.activeTab = "application" }
                     SettingsTabButton { objectName: "settingsTab_media"; width: tabButtons.width; text: "Media"; subtitle: "Media server connection"; iconName: "media"; theme: page.theme; labelReveal: page.navigationReveal; selected: page.activeTab === "media"; onClicked: page.activeTab = "media" }
+                    SettingsTabButton { objectName: "settingsTab_detection"; width: tabButtons.width; text: "Detection"; subtitle: "Analysis and resource use"; iconName: "clock"; theme: page.theme; labelReveal: page.navigationReveal; selected: page.activeTab === "detection"; onClicked: page.activeTab = "detection" }
                     SettingsTabButton { objectName: "settingsTab_endpoints"; width: tabButtons.width; text: "Endpoints"; subtitle: "Submission and lookup APIs"; iconName: "endpoints"; theme: page.theme; labelReveal: page.navigationReveal; selected: page.activeTab === "endpoints"; onClicked: page.activeTab = "endpoints" }
                     SettingsTabButton { objectName: "settingsTab_segments"; width: tabButtons.width; text: "Segments"; subtitle: "Manage segment timestamps"; iconName: "segments"; theme: page.theme; labelReveal: page.navigationReveal; selected: page.activeTab === "segments"; onClicked: page.activeTab = "segments" }
                     SettingsTabButton { objectName: "settingsTab_notifications"; width: tabButtons.width; text: "Notifications"; subtitle: "Segment detection alerts"; iconName: "notifications"; theme: page.theme; labelReveal: page.navigationReveal; selected: page.activeTab === "notifications"; onClicked: page.activeTab = "notifications" }
@@ -88,6 +89,7 @@ Item {
                         Text {
                             text: page.activeTab === "application" ? "Application"
                                 : page.activeTab === "media" ? "Media"
+                                : page.activeTab === "detection" ? "Detection"
                                 : page.activeTab === "endpoints" ? "Endpoints"
                                 : page.activeTab === "segments" ? "Segment deletion" : "Notifications"
                             width: parent.width
@@ -122,64 +124,6 @@ Item {
                                 width: parent.width
                                 Text { Layout.fillWidth: true; text: "TV Show listing type"; color: page.theme.text }
                                 AppComboBox { objectName: "listingTypeControl"; Layout.preferredWidth: 150; model: ["Full (with images)", "Basic (no images)"]; implicitHeight: 40; currentIndex: page.appSettings.listingType === "basic" ? 1 : 0; onActivated: function(index) { page.appSettings.setListingType(index === 1 ? "basic" : "full") } }
-                            }
-                            RowLayout {
-                                width: parent.width; spacing: 8
-                                Text { Layout.fillWidth: true; font.pixelSize: 15; font.weight: Font.Medium; text: "Intro minimum length"; color: page.theme.text }
-                                AppNumberField { objectName: "introMinimumControl"; Layout.preferredWidth: 92; from: 5; to: 120; value: page.appSettings.introMinimumSeconds; onValueModified: page.appSettings.setIntroMinimumSeconds(value) }
-                                Text { text: "seconds"; font.pixelSize: 14; color: page.theme.muted }
-                                AppButton { text: "Reset"; enabled: page.appSettings.introMinimumSeconds !== 15; theme: page.theme; onClicked: page.appSettings.setIntroMinimumSeconds(15) }
-                            }
-                            Column {
-                                width: parent.width; spacing: 6
-                                RowLayout {
-                                    width: parent.width
-                                    Text { Layout.fillWidth: true; text: "Effort"; color: page.theme.text }
-                                    ColumnLayout {
-                                        Layout.preferredWidth: 300; Layout.maximumWidth: 300; Layout.fillWidth: false; spacing: 0
-                                        Slider {
-                                            id: effortSlider; objectName: "detectionResourcesControl"
-                                            Layout.fillWidth: true; implicitHeight: 34
-                                            from: 0; to: 2; stepSize: 1; snapMode: Slider.SnapAlways
-                                            value: Math.max(0, ["light", "medium", "high"].indexOf(page.appSettings.detectionEffort))
-                                            Accessible.name: "Detection effort"
-                                            Accessible.description: ["Light", "Medium", "High"][Math.round(value)]
-                                            onMoved: page.appSettings.setDetectionEffort(["light", "medium", "high"][Math.round(value)])
-                                            background: Rectangle {
-                                                x: effortSlider.leftPadding; y: (effortSlider.height - height) / 2
-                                                width: effortSlider.availableWidth; height: 6; radius: 3; color: page.theme.border
-                                                Rectangle { width: effortSlider.visualPosition * parent.width; height: parent.height; radius: 3; color: page.theme.accent }
-                                            }
-                                            handle: Rectangle {
-                                                x: effortSlider.leftPadding + effortSlider.visualPosition * (effortSlider.availableWidth - width)
-                                                y: (effortSlider.height - height) / 2; width: 20; height: 20; radius: 10
-                                                color: page.theme.accent; border.width: 1
-                                                border.color: effortSlider.activeFocus ? page.theme.text : page.theme.border
-                                            }
-                                        }
-                                        RowLayout {
-                                            Layout.fillWidth: true
-                                            Repeater {
-                                                model: ["Light", "Medium", "High"]
-                                                Text {
-                                                    required property int index; required property string modelData
-                                                    Layout.fillWidth: true; horizontalAlignment: index === 0 ? Text.AlignLeft : index === 2 ? Text.AlignRight : Text.AlignHCenter
-                                                    text: modelData; font.pixelSize: 12; font.bold: Math.round(effortSlider.value) === index
-                                                    color: Math.round(effortSlider.value) === index ? page.theme.text : page.theme.muted
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                Text {
-                                    objectName: "detectionEffortDescription"; width: parent.width
-                                    color: page.theme.muted; font.pixelSize: 13; wrapMode: Text.WordWrap
-                                    text: page.appSettings.detectionEffort === "light"
-                                        ? "Background use with fewer audio refinements and a short visual check around credit starts. Applies to new scans."
-                                        : page.appSettings.detectionEffort === "high"
-                                        ? "Deepest audio and visual refinement, with the most parallel work. Reserves CPU and memory headroom for the system. Applies to new scans."
-                                        : "Balanced resource use, with more audio and visual refinement than Light. Applies to new scans."
-                                }
                             }
                             LibrarySettings { width: parent.width; theme: page.theme; section: "application"; mediaLibrary: page.mediaLibrary }
                             Rectangle { width: parent.width; height: 1; color: page.theme.border }
@@ -233,6 +177,88 @@ Item {
                         }
 
                         Column {
+                            objectName: "detectionSettingsSection"
+                            visible: page.activeTab === "detection"
+                            width: parent.width
+                            spacing: 16
+                            Column {
+                                width: parent.width; spacing: 6
+                                RowLayout {
+                                    width: parent.width
+                                    Text { Layout.fillWidth: true; text: "Effort"; color: page.theme.text }
+                                    ColumnLayout {
+                                        Layout.preferredWidth: 300; Layout.maximumWidth: 300; Layout.fillWidth: false; spacing: 0
+                                        Slider {
+                                            id: effortSlider; objectName: "detectionResourcesControl"
+                                            Layout.fillWidth: true; implicitHeight: 34
+                                            from: 0; to: 2; stepSize: 1; snapMode: Slider.SnapAlways
+                                            value: Math.max(0, ["light", "medium", "high"].indexOf(page.appSettings.detectionEffort))
+                                            Accessible.name: "Detection effort"
+                                            Accessible.description: ["Light", "Medium", "High"][Math.round(value)]
+                                            onMoved: page.appSettings.setDetectionEffort(["light", "medium", "high"][Math.round(value)])
+                                            background: Rectangle {
+                                                x: effortSlider.leftPadding; y: (effortSlider.height - height) / 2
+                                                width: effortSlider.availableWidth; height: 6; radius: 3; color: page.theme.border
+                                                Rectangle { width: effortSlider.visualPosition * parent.width; height: parent.height; radius: 3; color: page.theme.accent }
+                                            }
+                                            handle: Rectangle {
+                                                x: effortSlider.leftPadding + effortSlider.visualPosition * (effortSlider.availableWidth - width)
+                                                y: (effortSlider.height - height) / 2; width: 20; height: 20; radius: 10
+                                                color: page.theme.accent; border.width: 1
+                                                border.color: effortSlider.activeFocus ? page.theme.text : page.theme.border
+                                            }
+                                        }
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            Repeater {
+                                                model: ["Light", "Medium", "High"]
+                                                Text {
+                                                    required property int index; required property string modelData
+                                                    Layout.fillWidth: true; horizontalAlignment: index === 0 ? Text.AlignLeft : index === 2 ? Text.AlignRight : Text.AlignHCenter
+                                                    text: modelData; font.pixelSize: 12; font.bold: Math.round(effortSlider.value) === index
+                                                    color: Math.round(effortSlider.value) === index ? page.theme.text : page.theme.muted
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                Text {
+                                    objectName: "detectionEffortDescription"; width: parent.width
+                                    color: page.theme.muted; font.pixelSize: 13; wrapMode: Text.WordWrap
+                                    text: page.appSettings.detectionEffort === "light"
+                                        ? "Lower system resource use. Good for background detection."
+                                        : page.appSettings.detectionEffort === "high"
+                                        ? "Higher system resource use with additional parallel work, allowing system headroom."
+                                        : "Balanced system resource use and parallel work."
+                                }
+                                Text {
+                                    objectName: "detectionEffortQualityDescription"; width: parent.width
+                                    color: page.theme.muted; font.pixelSize: 13; wrapMode: Text.WordWrap
+                                    text: "Detection quality and accuracy does not change between Light/Medium/High"
+                                }
+                            }
+                            Column {
+                                width: parent.width; spacing: 6
+                                RowLayout {
+                                    width: parent.width; height: 34; spacing: 10
+                                    Text { Layout.fillWidth: true; text: "Visual refinement"; color: page.theme.text }
+                                    Text { text: page.appSettings.visualRefinementEnabled ? "On" : "Off"; color: page.theme.muted }
+                                    SegmentSwitch {
+                                        objectName: "visualRefinementControl"
+                                        checked: page.appSettings.visualRefinementEnabled
+                                        Accessible.name: "Visual refinement"
+                                        onToggled: page.appSettings.setVisualRefinementEnabled(checked)
+                                    }
+                                }
+                                Text {
+                                    objectName: "visualRefinementDescription"; width: parent.width
+                                    color: page.theme.muted; font.pixelSize: 13; wrapMode: Text.WordWrap
+                                    text: "Refines Intro starts and ends, and Credits starts, using nearby video frames. Can make detection take significantly longer. Turn off for faster audio-only detection. Applies to new scans."
+                                }
+                            }
+                        }
+
+                        Column {
                             visible: page.activeTab === "media"
                             width: parent.width
                             spacing: 14
@@ -280,6 +306,7 @@ Item {
                                             objectName: "mediaCredentialControl"
                                             property bool reveal: false
                                             property bool edited: false
+                                            text: page.appSettings.mediaSettings.credentialInput
                                             width: parent.width-48; height: 40
                                             echoMode: reveal ? TextInput.Normal : TextInput.Password
                                             inputMethodHints: Qt.ImhHiddenText | Qt.ImhSensitiveData | Qt.ImhNoPredictiveText
@@ -293,7 +320,7 @@ Item {
                                             objectName: "mediaCredentialReveal"
                                             width: 40; height: 40; theme: page.theme
                                             iconName: credentialEntry.reveal ? "eye-off" : "eye"
-                                            hint: credentialEntry.reveal ? "Hide typed API key" : "Show typed API key"
+                                            hint: credentialEntry.reveal ? "Hide API key" : "Show API key"
                                             onClicked: credentialEntry.reveal=!credentialEntry.reveal
                                         }
                                     }
@@ -304,7 +331,7 @@ Item {
                                     indicator: Rectangle { width: 14; height: 14; y: (parent.height-height)/2; radius: 3; color: parent.checked ? "#00a9ad" : page.theme.field; border.color: page.theme.border; Text { anchors.centerIn: parent; text: "✓"; font.pixelSize: 12; color: "white"; visible: parent.parent.checked } }
                                     contentItem: Text { leftPadding: 22; text: "Fetch images"; font.pixelSize: 14; color: page.theme.text; verticalAlignment: Text.AlignVCenter }
                                     objectName: "mediaImagesControl"
-                                    visible: page.appSettings.mediaProvider === "local"
+                                    visible: false
                                     text: "Fetch images"
                                     checked: page.appSettings.mediaSettings.fetchImages
                                     onToggled: page.appSettings.mediaSettings.setFetchImages(checked)
@@ -312,11 +339,12 @@ Item {
                                 Rectangle { width: parent.width; height: 1; color: page.theme.border }
                                 AppButton {
                                     objectName: "rebuildMediaCacheControl"
-                                    visible: ["plex","emby","jellyfin"].indexOf(page.appSettings.mediaProvider)>=0
+                                    visible: ["plex","emby","jellyfin","local"].indexOf(page.appSettings.mediaProvider)>=0
                                     readonly property bool rebuilding: Boolean(page.mediaLibrary && page.mediaLibrary.rebuildingCache)
-                                    text: rebuilding ? "Rebuilding Cache…" : "Rebuild Cache"
+                                    text: page.appSettings.mediaProvider==="local" ? (rebuilding ? "Checking for changes…" : "Rescan for changes") : (rebuilding ? "Rebuilding Cache…" : "Rebuild Cache")
+                                    hint: page.appSettings.mediaProvider==="local" ? "Check folders for added, changed or removed files. Unchanged files reuse saved metadata." : ""
                                     implicitWidth: 180; theme: page.theme
-                                    enabled: !page.preview && Boolean(page.mediaLibrary) && !page.mediaLibrary.busy && !rebuilding
+                                    enabled: !page.preview && Boolean(page.mediaLibrary) && !page.mediaLibrary.busy && !rebuilding && !(page.appSettings.mediaProvider==="local" && page.mediaLibrary.localMetadata.busy)
                                     opacity: enabled || rebuilding ? 1 : .45
                                     progress: rebuilding ? page.mediaLibrary.cacheRebuildProgress : -1
                                     onClicked: page.mediaLibrary.rebuildCache()
@@ -350,5 +378,5 @@ Item {
             }
         }
     }
-    readonly property string sectionHelp: page.activeTab === "application" ? "Introvert detects recurring intros and credits across a season. Use Detect Segments on a show to scan its selected season. Display preferences are saved automatically." : page.activeTab === "media" || page.activeTab === "endpoints" ? "Settings and API keys are saved in the local app.db." : page.activeTab === "notifications" ? "Webhook settings and the optional key are saved in app.db. Enabled webhooks receive successful detection summaries." : "Manage saved segment timestamps."
+    readonly property string sectionHelp: page.activeTab === "application" ? "Display preferences and application updates. Preferences are saved automatically." : page.activeTab === "detection" ? "Configure new detection jobs. Effort controls resource use; visual refinement checks Intro boundaries and Credits starts." : page.activeTab === "media" || page.activeTab === "endpoints" ? "Settings and API keys are saved in the local app.db." : page.activeTab === "notifications" ? "Webhook settings and the optional key are saved in app.db. Enabled webhooks receive successful detection summaries." : "Manage saved segment timestamps."
 }

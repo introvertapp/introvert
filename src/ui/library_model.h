@@ -94,6 +94,7 @@ private:
     void settingsChanged(bool configuration = false);
     void defer(const std::optional<CatalogSelection> &key);
     void refresh(bool force, bool clearLocal = false);
+    void reloadLocalMetadata();
     quint64 begin();
     void submit(Kind kind, quint64 generation, Work work);
     void publish(quint64 generation, const library::CatalogResult &catalog);
@@ -132,6 +133,9 @@ class LocalMetadataModel final : public QObject {
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
     Q_PROPERTY(bool fetching READ fetching NOTIFY changed)
     Q_PROPERTY(bool hasKey READ hasKey NOTIFY changed)
+    Q_PROPERTY(QString credentialInput READ credentialInput NOTIFY changed)
+    Q_PROPERTY(QVariantMap configuration READ configuration NOTIFY configurationChanged)
+    Q_PROPERTY(QVariantMap credentials READ credentials NOTIFY changed)
     Q_PROPERTY(QString message READ message NOTIFY changed)
     Q_PROPERTY(QVariantMap status READ status NOTIFY changed)
 public:
@@ -140,36 +144,44 @@ public:
     bool busy() const { return m_busy; }
     bool fetching() const { return m_busy && m_fetching; }
     bool hasKey() const { return m_hasKey; }
+    QString credentialInput() const { return m_credential; }
+    QVariantMap configuration() const { return m_configuration; }
+    QVariantMap credentials() const { return m_credentials; }
     QString message() const { return m_message; }
     QVariantMap status() const { return m_status; }
     Q_INVOKABLE void activate();
     Q_INVOKABLE void queueKey(const QString &key);
     Q_INVOKABLE void saveKey(const QString &key);
+    Q_INVOKABLE void setOption(const QString &name, const QString &value);
+    Q_INVOKABLE void queueCredential(const QString &provider, const QString &key);
+    Q_INVOKABLE void identify(const QString &showId, const QString &providerId);
     Q_INVOKABLE void fetch();
     Q_INVOKABLE void stop();
     void close();
 signals:
     void changed();
     void keySaved();
+    void configurationChanged();
 private:
-    enum class Kind { Status, Key, Fetch };
+    enum class Kind { Status, Fetch };
     struct Result { bool hasKey = false; QVariantMap status; };
     using Work = std::function<Result(quint64)>;
     void start(Kind kind, Work work);
     void flushKey();
-    void storeKey(const QString &key);
     LibraryModel &m_library;
     SettingsStore m_store;
     providers::MetadataService m_service;
     QThreadPool m_pool;
     QTimer m_timer;
     providers::Cancellation m_cancel = std::make_shared<std::atomic_bool>(false);
-    std::optional<QString> m_pendingKey;
     std::optional<CatalogSelection> m_fetchKey;
     bool m_busy = false, m_fetching = false, m_hasKey = false, m_closed = false;
-    quint64 m_generation = 0;
-    QString m_message;
+    quint64 m_generation = 0, m_keyRevision = 0;
+    QString m_message, m_credential;
     QVariantMap m_status;
+    QVariantMap m_configuration, m_credentials;
+    QMap<QString,QString> m_pendingCredentials;
+    QString m_root, m_targetShow;
 };
 
 } // namespace introvert::ui

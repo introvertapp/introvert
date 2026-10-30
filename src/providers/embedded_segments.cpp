@@ -62,10 +62,10 @@ QList<ImportedSegment> embeddedSegments(const QJsonObject &probe)
     return result;
 }
 
-void inspectEmbeddedSegments(Episode &episode, const Cancellation &cancelled)
+bool inspectEmbeddedSegments(Episode &episode, const Cancellation &cancelled)
 {
     checkCancelled(cancelled);
-    if (!episode.mediaPath || !QFileInfo(*episode.mediaPath).isFile()) return;
+    if (!episode.mediaPath || !QFileInfo(*episode.mediaPath).isFile()) return false;
 #ifdef Q_OS_WIN
     const auto name = QStringLiteral("ffprobe.exe");
 #else
@@ -102,14 +102,15 @@ void inspectEmbeddedSegments(Episode &episode, const Cancellation &cancelled)
     if (process.error() == QProcess::FailedToStart) throw ProviderError("Cannot start the ffprobe runtime to check embedded timestamps.");
     // Unsupported/damaged media remains in the catalog and can still be
     // opened by the user. Never interpret partial probe output as timestamps.
-    if (exceeded || process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) return;
+    if (exceeded || process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) return false;
     QJsonParseError error;
     const auto document = QJsonDocument::fromJson(bytes, &error);
-    if (error.error != QJsonParseError::NoError || !document.isObject()) return;
+    if (error.error != QJsonParseError::NoError || !document.isObject()) return false;
     const auto probe = document.object();
     episode.importedSegments = embeddedSegments(probe);
     const auto duration = seconds(probe["format"].toObject()["duration"]);
     if (duration && *duration * 1000 < double(std::numeric_limits<qint64>::max())) episode.durationMs = qint64(*duration * 1000);
+    return true;
 }
 
 } // namespace introvert::providers

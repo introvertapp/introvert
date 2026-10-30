@@ -111,6 +111,7 @@ ApplicationWindow {
                 detector: window.uiPreview ? null : window.detector
                 submissions: window.uiPreview ? null : window.submissions
                 segmentManager: window.uiPreview ? null : window.segmentManager
+                localMetadata: window.uiPreview || !window.mediaLibrary ? null : window.mediaLibrary.localMetadata
                 theme: colors; show: window.mediaLibrary && !window.uiPreview && window.mediaLibrary.show.id ? window.mediaLibrary.show : window.selectedShow; preview: window.uiPreview
                 loading: Boolean(window.mediaLibrary && !window.uiPreview && window.mediaLibrary.busy)
                 errorMessage: window.mediaLibrary && !window.uiPreview ? window.mediaLibrary.message : ""

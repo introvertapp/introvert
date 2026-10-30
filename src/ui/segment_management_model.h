@@ -43,6 +43,7 @@ private:
         bool edited = false;
         quint64 revision = 0;
         qsizetype count = 0;
+        qint64 statusRevision = 0;
         QList<QPair<QString, QString>> affected;
     };
     using Work = std::function<Result(const providers::Cancellation &)>;

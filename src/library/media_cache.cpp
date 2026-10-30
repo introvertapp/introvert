@@ -189,6 +189,8 @@ std::optional<QString> MediaCache::putImage(const QString &scope, const QString 
     const auto key = imageKey(scope, path);
     const auto name = key + '.' + QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex().left(16)) + ".img";
     const auto file = QDir(m_root).filePath(name);
+    const bool existed=QFileInfo::exists(file);
+    QStringList obsolete;
     try {
         if (!QDir().mkpath(m_root)) return std::nullopt;
         QSaveFile output(file);
@@ -198,7 +200,7 @@ std::optional<QString> MediaCache::putImage(const QString &scope, const QString 
         const auto old = query.next() ? query.value(0).toString() : QString(); query.finish();
         const auto current = now();
         sql::execute(db, "INSERT OR REPLACE INTO media_cache_images VALUES(?,?,?,?,?,?)", {scope, key, name, bytes.size(), current, current});
-        if (old != name) if (const auto oldFile = imageFile(old)) remove(*oldFile);
+        if (old != name) if (const auto oldFile = imageFile(old)) obsolete.append(*oldFile);
         query = sql::execute(db, "SELECT rowid,filename,size FROM media_cache_images ORDER BY accessed DESC");
         QList<QPair<qint64, QString>> discarded; qint64 total = 0;
         while (query.next()) {
@@ -207,11 +209,14 @@ std::optional<QString> MediaCache::putImage(const QString &scope, const QString 
         }
         query.finish();
         for (const auto &row : discarded) {
-            if (const auto oldFile = imageFile(row.second)) remove(*oldFile);
+            if (const auto oldFile = imageFile(row.second)) obsolete.append(*oldFile);
             sql::execute(db, "DELETE FROM media_cache_images WHERE rowid=?", {row.first});
         }
-        transaction.commit(); return QFileInfo::exists(file) ? std::optional<QString>(file) : std::nullopt;
-    } catch (const DatabaseError &) { QFile::remove(file); return std::nullopt; }
+        transaction.commit();
+        // Cleanup cannot roll back the committed reference to the new image.
+        for(const auto &oldFile:obsolete)QFile::remove(oldFile);
+        return QFileInfo::exists(file) ? std::optional<QString>(file) : std::nullopt;
+    } catch (const DatabaseError &) { if(!existed)QFile::remove(file); return std::nullopt; }
 }
 void MediaCache::discardImage(const QString &scope, const QString &path)
 {

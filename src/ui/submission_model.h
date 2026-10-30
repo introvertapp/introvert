@@ -49,6 +49,7 @@ private:
         quint64 revision;
         std::optional<CatalogSelection> key;
         int season;
+        QString identity;
         bool operator==(const Context &other) const;
         bool operator!=(const Context &other) const { return !(*this == other); }
     };

@@ -38,6 +38,13 @@ DetectionUpdates DetectionService::run(const QString &id, const providers::ShowD
 {
     QElapsedTimer timer; timer.start();
     try {
+        // A queued scan can wait for an already-started deletion to commit.
+        // Snapshot status visibility after those writers have drained, too.
+        {
+            sql::Connection connection(m_store.databasePath());
+            sql::execute(connection.db,"UPDATE detection_jobs SET status_revision=? WHERE id=? AND status='queued'",
+                {segments::currentRevision(connection.db),id});
+        }
         QList<providers::Episode> episodes; for (const auto &group : detail.seasons) if (group.number == season) { episodes = group.episodes; break; }
         if (episodes.size() < 2) throw std::invalid_argument("Need at least 2 episodes in the season to detect segments");
         const auto keys = segments::showKeys(detail.show); QStringList marks; for (const auto &key : keys) { Q_UNUSED(key); marks.append("?"); }

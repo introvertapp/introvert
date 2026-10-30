@@ -17,7 +17,7 @@ namespace {
 const QStringList providers = {"plex", "emby", "jellyfin", "local"};
 const QStringList accounts = {"media:plex", "media:emby", "media:jellyfin",
                              "endpoints:introdb_app", "endpoints:theintrodb_org",
-                             "metadata:tmdb", "webhook:key"};
+                             "metadata:tmdb", "metadata:tvdb", "metadata:tvdb_pin", "metadata:omdb", "metadata:fanart", "webhook:key"};
 const QStringList endpointFields = {"introdb_enabled", "introdb_api_url", "introdb_lookup_url",
     "theintrodb_enabled", "theintrodb_base_url", "api_timeout_ms", "api_delay_seconds",
     "save_submissions_local_db"};
@@ -58,11 +58,6 @@ bool validServerUrl(const QString &value)
 
 void validateSetting(const QString &field, const QVariant &value)
 {
-    if (field == "intro_detection_min_seconds") {
-        require(value.metaType().id() == QMetaType::Int && value.toInt() >= 5 && value.toInt() <= 120,
-                "Intro minimum length must be a whole number between 5 and 120 seconds.");
-        return;
-    }
     QStringList options;
     if (field == "timestamp_format") options = {"seconds", "MM:SS", "both"};
     else if (field == "tv_show_listing_type") options = {"full", "basic"};
@@ -83,17 +78,11 @@ QSet<QString> columns(QSqlDatabase &db, const QString &table)
 
 AppSettings loadApp(QSqlDatabase &db)
 {
-    auto query = execute(db, QStringLiteral("SELECT timestamp_format,tv_show_listing_type,"
-                         "intro_detection_min_seconds,media_provider FROM app_settings WHERE id=1"));
+    auto query = execute(db, QStringLiteral("SELECT timestamp_format,tv_show_listing_type,media_provider FROM app_settings WHERE id=1"));
     require(query.next(), "Introvert app_settings row is missing.");
-    // SQLite's dynamic types must not silently coerce malformed persisted values.
-    for (int i : {0, 1, 3}) require(query.value(i).metaType().id() == QMetaType::QString,
+    for (int i : {0, 1, 2}) require(query.value(i).metaType().id() == QMetaType::QString,
                                   "Incompatible application settings values.");
-    const auto minimum = query.value(2);
-    require((minimum.metaType().id() == QMetaType::Int || minimum.metaType().id() == QMetaType::LongLong)
-                && minimum.toLongLong() >= 5 && minimum.toLongLong() <= 120,
-            "Invalid Intro minimum length in app.db.");
-    AppSettings result{query.value(0).toString(), query.value(1).toString(), minimum.toInt(), query.value(3).toString()};
+    AppSettings result{query.value(0).toString(), query.value(1).toString(), query.value(2).toString()};
     validateSetting("timestamp_format", result.timestampFormat);
     validateSetting("tv_show_listing_type", result.listingType);
     validateSetting("media_provider", result.mediaProvider);
@@ -190,12 +179,14 @@ void SettingsStore::initialize() const
         execute(db, QStringLiteral("CREATE TABLE IF NOT EXISTS app_settings ("
             "id INTEGER PRIMARY KEY CHECK (id = 1),theme_mode TEXT NOT NULL DEFAULT 'auto',"
             "timestamp_format TEXT NOT NULL DEFAULT 'both',tv_show_listing_type TEXT NOT NULL DEFAULT 'full',"
-            "intro_detection_min_seconds INTEGER NOT NULL DEFAULT 15,media_provider TEXT NOT NULL DEFAULT '')"));
+            "media_provider TEXT NOT NULL DEFAULT '')"));
         execute(db, QStringLiteral("INSERT OR IGNORE INTO app_settings(id) VALUES(1)"));
     }
+    if (columns(db,"app_settings").contains("intro_detection_min_seconds"))
+        execute(db,QStringLiteral("ALTER TABLE app_settings DROP COLUMN intro_detection_min_seconds"));
     loadApp(db);
     require(columns(db, "app_settings") == QSet<QString>{"id", "theme_mode", "timestamp_format", "tv_show_listing_type",
-                "intro_detection_min_seconds", "media_provider"}, "Incompatible application settings schema.");
+                "media_provider"}, "Incompatible application settings schema.");
     if (version < 2) {
         execute(db, QStringLiteral("CREATE TABLE provider_settings (provider_id TEXT PRIMARY KEY NOT NULL "
             "CHECK(provider_id IN ('plex','emby','jellyfin','local')),remote_url TEXT NOT NULL DEFAULT '',"
@@ -221,6 +212,9 @@ void SettingsStore::initialize() const
     const auto endpointValues = endpointDefaults();
     for (const auto &name : endpointFields) defaults.append(endpointValues.value(name));
     execute(db, QStringLiteral("INSERT OR IGNORE INTO endpoint_settings VALUES(1,?,?,?,?,?,?,?,?)"), defaults);
+    execute(db,"UPDATE endpoint_settings SET theintrodb_base_url='https://api.theintrodb.org/v4' WHERE theintrodb_base_url IN "
+        "('https://api.theintrodb.org/v3','https://api.theintrodb.org/v3/','https://api.theintrodb.org/v2','https://api.theintrodb.org/v2/')");
+    execute(db,"CREATE TABLE IF NOT EXISTS local_metadata_settings(root TEXT PRIMARY KEY,provider TEXT NOT NULL,artwork TEXT NOT NULL,episode_order TEXT NOT NULL)");
     loadEndpointsFrom(db);
     execute(db, QStringLiteral("CREATE TABLE IF NOT EXISTS webhook_settings(id INTEGER PRIMARY KEY CHECK(id=1),enabled INTEGER NOT NULL,url TEXT NOT NULL)"));
     execute(db, QStringLiteral("INSERT OR IGNORE INTO webhook_settings VALUES(1,0,'')"));
@@ -228,8 +222,11 @@ void SettingsStore::initialize() const
         "automatic INTEGER NOT NULL DEFAULT 0 CHECK(automatic IN (0,1)),checked_at INTEGER NOT NULL DEFAULT 0)"));
     execute(db, QStringLiteral("INSERT OR IGNORE INTO update_settings(id) VALUES(1)"));
     execute(db, QStringLiteral("CREATE TABLE IF NOT EXISTS detection_settings(id INTEGER PRIMARY KEY CHECK(id=1),"
-        "resource_profile TEXT NOT NULL DEFAULT 'medium' CHECK(resource_profile IN ('low','medium','full')))"));
+        "resource_profile TEXT NOT NULL DEFAULT 'medium' CHECK(resource_profile IN ('low','medium','full')),"
+        "visual_refinement_enabled INTEGER NOT NULL DEFAULT 1 CHECK(visual_refinement_enabled IN (0,1)))"));
     execute(db, QStringLiteral("INSERT OR IGNORE INTO detection_settings(id) VALUES(1)"));
+    if (!columns(db, "detection_settings").contains("visual_refinement_enabled"))
+        execute(db, QStringLiteral("ALTER TABLE detection_settings ADD COLUMN visual_refinement_enabled INTEGER NOT NULL DEFAULT 1 CHECK(visual_refinement_enabled IN (0,1))"));
     execute(db, QStringLiteral("PRAGMA user_version=2"));
     transaction.commit();
     restrictPermissions(m_path);
@@ -239,6 +236,35 @@ AppSettings SettingsStore::load() const
 {
     Connection connection(m_path);
     return loadApp(connection.db);
+}
+
+QVariantMap SettingsStore::loadLocalMetadata(const QString &root) const
+{
+    Connection connection(m_path);
+    auto query=execute(connection.db,"SELECT provider,artwork,episode_order FROM local_metadata_settings WHERE root=?",{root});
+    if(query.next())return {{"provider",query.value(0)},{"artwork",query.value(1)},{"episode_order",query.value(2)}};
+    query.finish();
+    auto tables=execute(connection.db,"SELECT 1 FROM sqlite_master WHERE name='local_show_metadata'");
+    bool existing=false;
+    if(tables.next()) {
+        tables.finish();
+        auto saved=execute(connection.db,"SELECT 1 FROM local_show_metadata m JOIN shows s ON s.id=m.show_id WHERE s.root=? LIMIT 1",{root});
+        existing=saved.next();
+    }
+    auto images=execute(connection.db,"SELECT fetch_images FROM provider_settings WHERE provider_id='local'");
+    const bool enabled=images.next() && images.value(0).toBool();
+    return {{"provider",existing?"tvmaze":"tmdb"},{"artwork",enabled?"same":"off"},{"episode_order","official"}};
+}
+
+void SettingsStore::saveLocalMetadata(const QString &root,const QVariantMap &values) const
+{
+    require(!root.isEmpty() && values.size()==3,"Choose a Local media folder first.");
+    require(QStringList{"tmdb","tvdb","omdb","tvmaze"}.contains(values.value("provider").toString()),"Unsupported metadata provider.");
+    require(QStringList{"same","off","tmdb","tvdb","omdb","tvmaze","fanart"}.contains(values.value("artwork").toString()),"Unsupported artwork provider.");
+    require(QStringList{"default","official","dvd","alternate","absolute","regional"}.contains(values.value("episode_order").toString()),"Unsupported episode order.");
+    Connection connection(m_path);
+    execute(connection.db,"INSERT INTO local_metadata_settings VALUES(?,?,?,?) ON CONFLICT(root) DO UPDATE SET provider=excluded.provider,artwork=excluded.artwork,episode_order=excluded.episode_order",
+        {root,values.value("provider"),values.value("artwork"),values.value("episode_order")});
 }
 
 QString SettingsStore::detectionResources() const
@@ -257,6 +283,24 @@ void SettingsStore::setDetectionResources(const QString &profile) const
     Connection connection(m_path);
     auto row=execute(connection.db,"UPDATE detection_settings SET resource_profile=? WHERE id=1",{profile});
     require(row.numRowsAffected()==1,"Detection resource preferences are missing.");
+}
+
+bool SettingsStore::visualRefinementEnabled() const
+{
+    Connection connection(m_path);
+    if (!columns(connection.db,"detection_settings").contains("visual_refinement_enabled")) return true;
+    auto row=execute(connection.db,"SELECT visual_refinement_enabled FROM detection_settings WHERE id=1");
+    require(row.next(),"Visual refinement preference is missing.");
+    const auto value=row.value(0);
+    require((value.metaType().id()==QMetaType::Int || value.metaType().id()==QMetaType::LongLong)
+        && (value.toLongLong()==0 || value.toLongLong()==1),"Invalid visual refinement preference.");
+    return value.toBool();
+}
+void SettingsStore::setVisualRefinementEnabled(bool enabled) const
+{
+    Connection connection(m_path);
+    auto row=execute(connection.db,"UPDATE detection_settings SET visual_refinement_enabled=? WHERE id=1",{enabled?1:0});
+    require(row.numRowsAffected()==1,"Visual refinement preference is missing.");
 }
 
 QVariantMap SettingsStore::loadUpdates() const
@@ -319,7 +363,7 @@ QVariantMap SettingsStore::endpointDefaults()
 {
     return {{"introdb_enabled", true}, {"introdb_api_url", "https://api.introdb.app/submit"},
         {"introdb_lookup_url", "https://api.introdb.app/segments"}, {"theintrodb_enabled", false},
-        {"theintrodb_base_url", "https://api.theintrodb.org/v3"}, {"api_timeout_ms", 10000},
+        {"theintrodb_base_url", "https://api.theintrodb.org/v4"}, {"api_timeout_ms", 10000},
         {"api_delay_seconds", 5}, {"save_submissions_local_db", false}};
 }
 

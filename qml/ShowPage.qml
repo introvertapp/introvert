@@ -21,6 +21,7 @@ Item {
         return links
     }
     property var segmentManager: null
+    property var localMetadata: null
     property var submissions: null
     property var detector: null
     property var episodes: []
@@ -52,6 +53,7 @@ Item {
     function scanStateFor(ep) {
         if(!detector || !detector.status.id)return ""
         var state=detector.status, kinds=JSON.parse(state.kinds || "[]")
+        if(Number(state.status_revision || 0)<Number(ep.statusRevision || 0))return ""
         if(detector.active) return "PROCESSING"
         if(state.status==="failed")return "FAILED"
         if(state.status==="cancelled")return "CANCELLED"
@@ -63,7 +65,20 @@ Item {
         if(result.eligible && result.eligible[ep.id] && result.eligible[ep.id].length) return "NO "+result.eligible[ep.id].map(function(kind){return kind.toUpperCase()}).join("/")
         return ""
     }
-    function submissionStateFor(ep) {return submissions ? submissions.episodeStatuses[(ep.providerId || (show ? show.provider : ""))+":"+(ep.showId || (show ? show.id : ""))+":"+ep.id] || {} : {}}
+    function submissionStateFor(ep) {
+        var state=submissions ? submissions.episodeStatuses[(ep.providerId || (show ? show.provider : ""))+":"+(ep.showId || (show ? show.id : ""))+":"+ep.id] || {} : {}
+        var revision=Number(ep.statusRevision || 0)
+        if(!revision)return state
+        var segments={},badges={}
+        Object.keys(state.segments || {}).forEach(function(kind){
+            if(Number(state.segments[kind].statusRevision || 0)>=revision)segments[kind]=state.segments[kind]
+        })
+        Object.keys(state.badges || {}).forEach(function(kind){
+            var current=state.badges[kind].filter(function(badge){return Number(badge.statusRevision || 0)>=revision})
+            if(current.length)badges[kind]=current
+        })
+        return {segments:segments,badges:badges}
+    }
     property string endpoint: submissions && submissions.endpoints.length ? submissions.endpoints[0] : "introdb.app"
     function clearSelection() { selectionByEpisode={} }
     onShowChanged: {if(!show || show.id!==selectionShowId) { clearSelection();selectionShowId=show ? String(show.id || "") : "";resetScroll() }}
@@ -121,6 +136,7 @@ Item {
             RowLayout {
                 AppComboBox { id: endpointPicker; onActivated: page.endpoint=currentText; model: page.submissions ? page.submissions.endpoints : ["introdb.app", "theintrodb.org"]; Layout.preferredWidth: 180 }
                 AppButton { objectName: "reviewSubmissionControl"; text: page.selectedCount > 0 ? "Submit (" + page.selectedCount + ")" : "Submit"; enabled: page.selectedCount > 0 && (!page.submissions || !page.submissions.busy); theme: page.theme; onClicked: page.reviewRequested() }
+                AppButton { objectName: "identifyLocalShowControl"; visible: Boolean(page.show && page.show.provider==="local" && page.localMetadata); text: "Identify"; enabled: Boolean(page.localMetadata) && !page.localMetadata.busy && !page.loading; theme: page.theme; onClicked: { page.localMetadata.activate(); providerShowId.text=""; identifyShow.open() } }
             }
 
         }
@@ -192,4 +208,21 @@ Item {
         }
     }
 
+    Dialog {
+        id: identifyShow; objectName: "identifyLocalShowDialog"; parent: Overlay.overlay; anchors.centerIn: parent
+        modal: true; focus: true; padding: 20; width: Math.min(460,parent ? parent.width-40 : 460)
+        title: "Identify show"
+        background: Rectangle { color: page.theme.card; border.color: page.theme.border; radius: 14 }
+        header: Text { text: identifyShow.title; padding: 20; font.pixelSize: 18; font.bold: true; color: page.theme.text }
+        contentItem: ColumnLayout {
+            spacing: 12
+            Text { Layout.fillWidth: true; wrapMode: Text.WordWrap; color: page.theme.muted; text: "Enter the show ID from " + (page.localMetadata ? String(page.localMetadata.configuration.provider || "the selected provider") : "the selected provider") + ". Fetching will update the saved match." }
+            AppTextField { id: providerShowId; objectName: "localShowProviderId"; Layout.fillWidth: true; placeholderText: "Provider show ID" }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                AppButton { text: "Cancel"; theme: page.theme; onClicked: identifyShow.close() }
+                AppButton { objectName: "confirmLocalShowIdentification"; text: "Identify"; theme: page.theme; enabled: providerShowId.text.trim().length>0 && Boolean(page.localMetadata) && !page.localMetadata.busy; onClicked: { page.localMetadata.identify(page.show.id,providerShowId.text.trim()); identifyShow.close() } }
+            }
+        }
+    }
 }

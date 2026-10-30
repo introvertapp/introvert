@@ -1,6 +1,18 @@
 #include "contracts.h"
+#include <QStringList>
 
 namespace introvert::providers {
+
+QString normalizedEpisodeOrder(QString value)
+{
+    value=value.toLower().remove(' ').remove('-').remove('_');
+    const QMap<QString,QString> aliases{{"aired","official"},{"airedorder","official"},{"officialorder","official"},
+        {"dvdorder","dvd"},{"altdvd","dvd"},{"absoluteorder","absolute"},{"abso","absolute"},
+        {"alternateorder","alternate"},{"alttwo","alternate"},{"streaming","alternate"},{"streamingorder","alternate"},
+        {"regionalorder","regional"},{"production","regional"},{"productionorder","regional"},{"defaultorder","default"}};
+    value=aliases.value(value,value);
+    return QStringList{"default","official","dvd","alternate","absolute","regional"}.contains(value)?value:QString();
+}
 
 QString providerName(ProviderId provider)
 {

@@ -10,6 +10,7 @@ using SegmentValues = QMap<QString, QPair<double, double>>;
 struct CatalogSegments {
     QMap<QString, SegmentValues> values;
     QSet<QString> edited;
+    QMap<QString,qint64> statusRevisions;
 };
 
 // The catalog's read/import boundary. Explicit edits and tombstones win across

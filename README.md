@@ -4,6 +4,28 @@ Introvert is a desktop app for finding, reviewing, editing, and sharing TV episo
 segment timestamps. Connect a Plex, Emby, or Jellyfin server, or browse a local
 media folder, and manage your library in one place.
 
+![Introvert video editor with a selected intro interval](assets/screenshots/timeline-editor.jpg)
+
+<details>
+<summary>More app screenshots</summary>
+
+**TV library**
+
+![Plex TV library in Introvert](assets/screenshots/library.jpg)
+
+**Video playback and segment timestamps**
+
+![Episode playback in the video editor](assets/screenshots/video-editor.jpg)
+
+**Submission history**
+
+![Submission history and statistics](assets/screenshots/submission-history.jpg)
+
+Queue/history entries shown in screenshots are staged examples using real shows;
+no submissions were sent to create them.
+
+</details>
+
 ## What it does
 
 - **Browse your TV library.** View shows, seasons, episodes, posters, and external

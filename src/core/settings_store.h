@@ -16,7 +16,6 @@ using SettingsError = DatabaseError;
 struct AppSettings {
     QString timestampFormat = QStringLiteral("both");
     QString listingType = QStringLiteral("full");
-    int introMinimumSeconds = 15;
     QString mediaProvider;
 };
 
@@ -54,13 +53,18 @@ public:
     QVariantMap loadWebhook() const;
     QVariantMap saveWebhook(const QVariantMap &values, const std::optional<QString> &editedKey = {}) const;
 
-    // Worker/service access only. Qt models expose presence, never saved values.
+    // Services use independent connections. Media forms may expose saved values
+    // only through their password-masked credential controls.
     std::optional<QString> credential(const QString &account) const;
     bool hasCredential(const QString &account) const;
     void setCredential(const QString &account, const std::optional<QString> &value) const;
+    QVariantMap loadLocalMetadata(const QString &root) const;
+    void saveLocalMetadata(const QString &root, const QVariantMap &values) const;
 
     QString detectionResources() const;
     void setDetectionResources(const QString &profile) const;
+    bool visualRefinementEnabled() const;
+    void setVisualRefinementEnabled(bool enabled) const;
 
     QVariantMap loadUpdates() const;
     void setAutomaticUpdates(bool automatic) const;

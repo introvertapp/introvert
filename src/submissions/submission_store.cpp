@@ -1,4 +1,5 @@
 #include "submission_store.h"
+#include "segments/identity.h"
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
@@ -81,6 +82,12 @@ void SubmissionStore::initialize() const
         "canonical TEXT NOT NULL,season INTEGER NOT NULL,episode INTEGER NOT NULL,kind TEXT NOT NULL,"
         "start REAL NOT NULL,end REAL,submitted REAL NOT NULL)");
     sql::execute(db, "CREATE INDEX IF NOT EXISTS submit_items_pending ON submit_items(job_id,status,id)");
+    auto columns=sql::execute(db,"PRAGMA table_info(submit_items)");bool hasRevision=false;
+    while(columns.next())hasRevision|=columns.value(1).toString()=="status_revision";columns.finish();
+    if(!hasRevision)sql::execute(db,"ALTER TABLE submit_items ADD COLUMN status_revision INTEGER NOT NULL DEFAULT 0");
+    auto fields=sql::execute(db,"PRAGMA table_info(submit_items)");bool hasAddress=false;
+    while(fields.next())hasAddress|=fields.value(1).toString()=="address";fields.finish();
+    if(!hasAddress)sql::execute(db,"ALTER TABLE submit_items ADD COLUMN address TEXT NOT NULL DEFAULT '{}'");
     transaction.commit();
 }
 
@@ -93,6 +100,7 @@ QString SubmissionStore::enqueue(const QVariantMap &plan) const
           "ORDER BY created DESC LIMIT 1",
         {plan.value("endpoint"), plan.value("season"), plan.value("provider"), plan.value("show_id"), plan.value("tmdb"), plan.value("imdb")});
     const auto id = active.isEmpty() ? QUuid::createUuid().toString(QUuid::WithoutBraces) : active.first().value("id").toString();
+    const auto statusRevision=segments::currentRevision(db);
     if (active.isEmpty()) {
         const auto canonical = QString::fromUtf8(QJsonValue::fromVariant(plan.value("canonical")).toJson(QJsonValue::JsonFormat::Compact));
         sql::execute(db, "INSERT INTO submit_jobs VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -101,14 +109,20 @@ QString SubmissionStore::enqueue(const QVariantMap &plan) const
     }
     for (const auto &value : plan.value("items").toList()) {
         const auto item = value.toMap();
-        sql::execute(db, "INSERT INTO submit_items(job_id,episode_id,title,season,number,kind,start,end,duration_ms,created,updated) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(job_id,episode_id,kind) DO UPDATE SET "
+        QVariantMap address;
+        for (const auto &name : {"tvdb_id","tmdb_id","imdb_id","numbering_source","mapping","tvdb_episode_id",
+                                 "target_season","target_episode","episode_name","resolved_title"})
+            if(item.contains(name)) address[name]=item[name];
+        const auto encoded=QString::fromUtf8(QJsonValue::fromVariant(address).toJson(QJsonValue::JsonFormat::Compact));
+        sql::execute(db, "INSERT INTO submit_items(job_id,episode_id,title,season,number,kind,start,end,duration_ms,created,updated,status_revision,address) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(job_id,episode_id,kind) DO UPDATE SET "
             "title=excluded.title,start=excluded.start,end=excluded.end,duration_ms=excluded.duration_ms,"
             "status=CASE WHEN submit_items.start IS excluded.start AND submit_items.end IS excluded.end "
+            "AND submit_items.address IS excluded.address AND submit_items.duration_ms IS excluded.duration_ms "
             "AND submit_items.status IN ('OK','DUPLICATE') THEN submit_items.status ELSE 'WAITING' END,"
-            "error='',comparison=NULL,updated=excluded.updated,revision=submit_items.revision+1",
+            "error='',comparison=NULL,updated=excluded.updated,revision=submit_items.revision+1,status_revision=excluded.status_revision,address=excluded.address",
             {id, item.value("episode_id"), sql::text(item.value("title").toString()), item.value("season"), item.value("episode"),
-             item.value("segment_type"), item.value("start_sec"), nullable(item.value("end_sec")), nullable(item.value("video_duration_ms")), now, now});
+             item.value("segment_type"), item.value("start_sec"), nullable(item.value("end_sec")), nullable(item.value("video_duration_ms")), now, now,statusRevision,encoded});
     }
     sql::execute(db, "UPDATE submit_jobs SET updated=? WHERE id=?", {now, id});
     transaction.commit(); return id;
@@ -179,13 +193,23 @@ bool SubmissionStore::processOne(const SettingsStore &settings, const providers:
     QVariantMap values{{"imdb_id", nullable(job.value("imdb"))}, {"tmdb_id", nullable(job.value("tmdb"))},
         {"season", item.value("season")}, {"episode", item.value("number")}, {"segment_type", item.value("kind")},
         {"start_sec", item.value("start")}, {"end_sec", nullable(item.value("end"))}, {"video_duration_ms", nullable(item.value("duration_ms"))}};
+    const auto address=QJsonValue::fromJson(item.value("address").toString().toUtf8()).toObject().toVariantMap();
+    for(auto i=address.begin();i!=address.end();++i) values[i.key()]=i.value();
     SubmissionCompletion completion; completion.settings = client.settings();
-    try { client.validate(values); }
+    try {
+        if(client.endpoint()=="theintrodb_org" && address.isEmpty()) throw SubmissionError("Review this queued item again to verify its v4 episode identity.");
+        client.validate(values);
+    }
     catch (const SubmissionError &error) {
         completion.status = "FAIL"; completion.error = QString::fromUtf8(error.what()); finish(*selected, completion); return true;
     }
     const auto lookup = client.lookup(values, cancelled);
     if (cancelled && cancelled->load()) return false;
+    if(lookup.failure) {
+        completion.status=lookup.failure->result;completion.error=lookup.failure->error;completion.httpStatus=lookup.failure->httpStatus;
+        if(completion.status=="RATE LIMITED")completion.limit=*lookup.failure;
+        finish(*selected,completion);return true;
+    }
     completion.comparison = comparison(lookup, item.value("start").toDouble(), item.value("end").isNull()
         ? std::nullopt : std::optional<double>(item.value("end").toDouble()));
     if (*completion.comparison == "DUPLICATE") completion.status = "DUPLICATE";
@@ -201,7 +225,7 @@ bool SubmissionStore::processOne(const SettingsStore &settings, const providers:
 QVariantMap SubmissionStore::episodeStatuses() const
 {
     sql::Connection connection(m_path);
-    const auto records = rows(connection.db, "SELECT j.provider,j.show_id,i.episode_id,i.kind,i.status,i.comparison,i.error,i.http_status,j.endpoint,i.start,i.end,i.updated "
+    const auto records = rows(connection.db, "SELECT j.provider,j.show_id,i.episode_id,i.kind,i.status,i.comparison,i.error,i.http_status,j.endpoint,i.start,i.end,i.updated,i.status_revision "
         "FROM submit_items i JOIN submit_jobs j ON j.id=i.job_id ORDER BY i.updated DESC,i.id DESC");
     QVariantMap result;
     for (const auto &item : records) {
@@ -209,12 +233,17 @@ QVariantMap SubmissionStore::episodeStatuses() const
         auto state = result.value(key).toMap();
         auto segments = state.value("segments").toMap(), badges = state.value("badges").toMap();
         const auto kind = item.value("kind").toString();
-        if (!segments.contains(kind)) segments[kind] = QVariantMap{{"kind", kind}, {"result", item.value("status")},
-            {"comparison", item.value("comparison").isNull() ? QString("") : item.value("comparison").toString()},
-            {"error", item.value("error")}, {"httpStatus", nullable(item.value("http_status"))}};
+        if (!segments.contains(kind)) {
+            QVariantMap current{{"kind", kind}, {"result", item.value("status")},
+                {"comparison", item.value("comparison").isNull() ? QString("") : item.value("comparison").toString()},
+                {"error", item.value("error")}, {"httpStatus", nullable(item.value("http_status"))}};
+            if(item.value("status_revision").toLongLong()>0)current["statusRevision"]=item.value("status_revision");
+            segments[kind]=current;
+        }
         if (item.value("status") == "OK" || item.value("status") == "DUPLICATE") {
             auto values = badges.value(kind).toList();
-            const QVariantMap badge{{"endpoint", item.value("endpoint")}, {"start", item.value("start")}, {"end", nullable(item.value("end"))}};
+            QVariantMap badge{{"endpoint", item.value("endpoint")}, {"start", item.value("start")}, {"end", nullable(item.value("end"))}};
+            if(item.value("status_revision").toLongLong()>0)badge["statusRevision"]=item.value("status_revision");
             if (!values.contains(badge)) values.append(badge);
             badges[kind] = values;
         }

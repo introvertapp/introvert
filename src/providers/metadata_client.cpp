@@ -49,8 +49,14 @@ QByteArray MetadataClient::image(const QString &url, const Cancellation &cancell
     return providers::read(url, {}, true, 10, cancelled).data;
 }
 
-MetadataClient::MetadataClient(QString tvmaze, QString tmdb, double delaySeconds)
-    : m_tvmaze(std::move(tvmaze)), m_tmdb(std::move(tmdb)), m_delay(delaySeconds) {}
+MetadataClient::MetadataClient(QString tvmaze, QString tmdb, double delaySeconds, QVariantMap additionalBases)
+    : m_tvmaze(std::move(tvmaze)), m_tmdb(std::move(tmdb)), m_delay(delaySeconds), m_bases(std::move(additionalBases))
+{
+    m_bases["tvmaze"]=m_tvmaze; m_bases["tmdb"]=m_tmdb;
+    if(!m_bases.contains("tvdb"))m_bases["tvdb"]="https://api4.thetvdb.com/v4";
+    if(!m_bases.contains("omdb"))m_bases["omdb"]="https://www.omdbapi.com";
+    if(!m_bases.contains("fanart"))m_bases["fanart"]="https://webservice.fanart.tv/v3.2";
+}
 
 QJsonValue MetadataClient::tv(const QString &path, const QVariantMap &parameters, const Cancellation &cancelled) const
 {
@@ -68,28 +74,6 @@ std::optional<qint64> MetadataClient::positiveId(const QJsonValue &value)
     const auto number = detail::finiteNumber(value);
     if (!number || std::floor(*number) != *number) return std::nullopt;
     return detail::nonnegativeNumber(value, true);
-}
-
-MetadataClient::Match MetadataClient::tmdbId(const std::optional<QString> &imdb, const std::optional<qint64> &tvdb,
-                                            const std::optional<QString> &key, double timeoutSeconds,
-                                            const Cancellation &cancelled) const
-{
-    if (!key || key->isEmpty()) return {{}, QStringLiteral("TMDB API key is required")};
-    std::optional<QString> error;
-    const QList<QPair<std::optional<QString>, QString>> identifiers{
-        {imdb, QStringLiteral("imdb_id")}, {tvdb ? std::optional<QString>(QString::number(*tvdb)) : std::nullopt, QStringLiteral("tvdb_id")}};
-    for (const auto &identifier : identifiers) {
-        if (!identifier.first || identifier.first->isEmpty()) continue;
-        try {
-            const auto body = read(m_tmdb + "/find/" + detail::quote(*identifier.first),
-                {{"api_key", *key}, {"external_source", identifier.second}}, timeoutSeconds, cancelled);
-            for (const auto &row : body.toObject()["tv_results"].toArray()) {
-                const auto value = positiveId(row.toObject()["id"]);
-                if (value && *value) return {QString::number(*value), {}};
-            }
-        } catch (const ProviderError &) { error = QStringLiteral("TMDB lookup failed"); }
-    }
-    return {{}, error};
 }
 
 } // namespace introvert::providers

@@ -108,6 +108,7 @@ void LibraryModel::submit(Kind kind, quint64 generation, Work work)
             result->stats = kind == Kind::Show ? summary : m_cache.stats();
         } catch (const Cancelled &) { result.reset(); }
         catch (const ProviderError &failure) { result.reset(); error = QString::fromUtf8(failure.what()); }
+        catch (const DatabaseError &failure) { result.reset(); error = QString::fromUtf8(failure.what()); }
         catch (...) { result.reset(); error = "Cannot load media. Check the saved configuration and app.db access, then retry."; }
         QMetaObject::invokeMethod(this, [this, kind, generation, result = std::move(result), error] {
             finished(kind, generation, result, error);
@@ -183,7 +184,7 @@ void LibraryModel::rebuildCache()
     catch (...) {
         emit cacheRebuildFailed("Cannot read the saved media configuration. Check Settings → Media and try again."); return;
     }
-    if (!m_key || m_key->saved.provider == "local") return;
+    if (!m_key || (m_key->saved.provider=="local" && m_metadata->busy())) return;
     const auto key = *m_key;
     m_previousState = m_state; m_previousMessage = m_message; m_previousCached = m_cached; m_previousPending = m_pending;
     const auto generation = begin();
@@ -195,6 +196,34 @@ void LibraryModel::rebuildCache()
         return result;
     });
     emit changed();
+}
+
+void LibraryModel::reloadLocalMetadata()
+{
+    if(m_closed || !m_key || m_key->saved.provider!="local")return;
+    const auto key=*m_key;const auto generation=m_generation;const auto detailRevision=m_detailRevision;
+    const auto showId=m_show.value("id").toString();const auto cancel=m_cancel;const auto before=m_segments;
+    m_pool.start(QRunnable::create([this,key,generation,detailRevision,showId,cancel,before] {
+        try {
+            const auto config=m_catalog.config(key.saved,cancel);
+            const auto catalog=m_catalog.browse(config,key.listing,false,false,{},cancel,[](const library::CatalogResult &){});
+            std::optional<ShowDetail> detail;
+            QVariantMap show;
+            if(!showId.isEmpty()) {detail=m_catalog.detail(config,key.listing,showId,cancel);show=m_catalog.displayShow(config,detail->show,cancel);}
+            const auto overlay=detail?segments::loadCatalogSegments(m_store.databasePath(),*detail):segments::CatalogSegments();
+            QMetaObject::invokeMethod(this,[this,key,generation,detailRevision,catalog,detail,show,before,overlay] {
+                if(m_closed || generation!=m_generation || (!m_key || !(*m_key==key)))return;
+                m_shows=catalog.rows;
+                if(detail && detailRevision==m_detailRevision && m_detail && m_detail->show.identity.itemId==detail->show.identity.itemId) {
+                    m_detail=*detail;m_show=show;
+                    if(m_segments.values==before.values && m_segments.edited==before.edited && m_segments.statusRevisions==before.statusRevisions)m_segments=overlay;
+                    QVariantList seasons;for(const auto &season:detail->seasons)seasons.append(season.number?QVariant(*season.number):QVariant());
+                    m_show["seasonNumbers"]=seasons;m_episodes=episodesForSeason(m_season);
+                }
+                emit changed();
+            },Qt::QueuedConnection);
+        } catch(...) {}
+    }));
 }
 
 void LibraryModel::clearImageCache()
@@ -333,6 +362,7 @@ QVariantList LibraryModel::episodesForSeason(int number) const
                 values[it.key()] = QVariantList{it.value().first, it.value().second};
                 row[it.key()] = timestamp(it.value().first) + " – " + timestamp(it.value().second);
             }
+            if(m_segments.statusRevisions.contains(episode.identity.itemId))row["statusRevision"]=m_segments.statusRevisions.value(episode.identity.itemId);
             row["segmentValues"] = values; rows.append(row);
         }
         break;

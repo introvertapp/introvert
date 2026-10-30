@@ -64,7 +64,9 @@ MediaDetectionOutput MediaDetectionEngine::run(const providers::ProviderConfig &
     const providers::Cancellation &cancel, const DetectionProgress &progress, const QString &jobId)
 try
 {
-    const auto requestedEffort=m_resourceProfile.isEmpty()?SettingsStore(m_path).detectionResources():m_resourceProfile;
+    const SettingsStore settings(m_path);
+    const auto requestedEffort=m_resourceProfile.isEmpty()?settings.detectionResources():m_resourceProfile;
+    const bool visualRefinementEnabled=settings.visualRefinementEnabled();
     // One application-wide budget, including future show/library queues. Jobs
     // cannot each multiply their own matching pools or decoder/cache allowances.
     static QSemaphore execution(1);
@@ -92,10 +94,13 @@ try
     if (jobId.isEmpty()) throw std::invalid_argument("Detection job ID is required.");
     const auto package = AlgorithmPackages(m_path, m_algorithmRoot).selected();
     const auto pinnedAlgorithm = std::make_shared<Algorithm>(package); auto &algorithm = *pinnedAlgorithm;
-    auto description = algorithm.description(m_parameters,profile.name);
+    // Effort controls host scheduling/storage only. Use the fullest refinement
+    // at every resource level, including with older effort-v1 components.
+    const QString analysisEffort=QStringLiteral("high");
+    auto description = algorithm.description(m_parameters,analysisEffort);
     const bool effortSupported=description.value("effort").toMap().value("version")=="effort-v1"
-        && description.value("effort").toMap().value("name")==profile.name;
-    const auto algorithmEffort=effortSupported?profile.name:QString();
+        && description.value("effort").toMap().value("name")==analysisEffort;
+    const auto algorithmEffort=effortSupported?analysisEffort:QString();
     auto visualDescription=description.value("visual").toMap();
     const double visualRadius=std::min(effortSupported?15.:5.,visualDescription.value("edge_radius_seconds",5.).toDouble());
     visualDescription["edge_radius_seconds"]=visualRadius;description["visual"]=visualDescription;
@@ -111,7 +116,10 @@ try
     ResourceManager processResources(processLimits);
     QVariantList failures, cacheOperations, coverage, matches, pairs, matchingWarnings, searchWindows, mediaRecoveries;
     QVariantMap visual;
-    const bool visualEnabled=types.contains(SegmentType::Credits) && description.value("visual").toMap().value("available").toBool();
+    const bool introVisualSupported=description.value("visual_boundaries").toMap().value("version")=="recurring-visual-boundaries-v1"
+        && description.value("visual_boundaries").toMap().value("available").toBool();
+    const bool visualEnabled=visualRefinementEnabled && ((types.contains(SegmentType::Credits) && description.value("visual").toMap().value("available").toBool())
+        || (types.contains(SegmentType::Intro) && introVisualSupported));
     int visualFrames=0;
     std::vector<std::shared_ptr<const FeatureTrack>> tracks;
     std::map<std::pair<QString, SegmentType>, TimeRange> allowedWindows; QMap<QString, MediaInfo> preparedMedia;
@@ -387,23 +395,24 @@ try
                 throw DetectionError("algorithm_invalid_result","Invalid audio selection scope.");
             audioByKind.insert(key,a);
         }
+        const auto visualSelections=audioSelected;
+        if (visualEnabled) {
         QElapsedTimer visualTimer; visualTimer.start();
-        QVariantList creditSelections;
-        for(const auto &entry:audioSelected)if(entry.toMap().value("segment_type")=="credits")creditSelections.append(entry);
-        struct VisualResult { QString episode; QVariantMap result; QVariantList cache; };
+        struct VisualResult { QString episode,kind; QVariantMap result; QVariantList cache; };
         std::atomic_int visualActive{0},visualPeak{0};
         {
-        ContinuousWork<VisualResult> tasks(size_t(creditSelections.size()),profile.visualWorkers,profile.priority,profile.serviceLevel,[&](size_t n) {
-            const auto selectedAudio=creditSelections[qsizetype(n)].toMap();const auto id=selectedAudio.value("episode").toString();
+        ContinuousWork<VisualResult> tasks(size_t(visualSelections.size()),profile.visualWorkers,profile.priority,profile.serviceLevel,[&](size_t n) {
+            const auto selectedAudio=visualSelections[qsizetype(n)].toMap();const auto id=selectedAudio.value("episode").toString(),kind=selectedAudio.value("segment_type").toString();
             QVariantList operations;
-            if(!visualEnabled)return VisualResult{id,{{"status","unavailable"},{"reason",description.value("visual").toMap().value("reason","optional_backend_unavailable")}},operations};
+            if((kind=="intro" && !introVisualSupported) || (kind=="credits" && !description.value("visual").toMap().value("available").toBool()))
+                return VisualResult{id,kind,{{"status","unavailable"},{"reason","optional_backend_unavailable"}},operations};
             providers::checkCancelled(cancel);
             auto reservation=admission.acquire(512LL*1024*1024,cancelled);
             const int active=++visualActive;auto peak=visualPeak.load();while(active>peak && !visualPeak.compare_exchange_weak(peak,active)){}
             struct ActiveVisual {std::atomic_int &active;~ActiveVisual(){--active;}} activeVisual{visualActive};
             const auto item=std::find_if(episodes.begin(),episodes.end(),[&](const auto &episode){return episode.identity.itemId==id;});
             const auto media=preparedMedia.value(id);
-            if(!media.selectedVideo)return VisualResult{id,{{"status","unavailable"},{"reason","no_video_stream"}},operations};
+            if(!media.selectedVideo)return VisualResult{id,kind,{{"status","unavailable"},{"reason","no_video_stream"}},operations};
             QVariantMap result;
             try {
                 const auto attempt=[&] {
@@ -412,6 +421,8 @@ try
                     throw DetectionError("media_changed","Episode media changed during detection.");
                 MappedResources workerResources(processResources,profile.decoderThreads);
                 workerResources.paths.insert(source.path,source.stream?source.stream->url().toString():source.path);
+                if(kind=="intro") return extractAlgorithmIntroBoundaries(algorithm,description,workerResources,media,id,jobId,ffmpeg,
+                    {SegmentType::Intro,allowedWindows.at({id,SegmentType::Intro})},selectedAudio.value("start").toDouble(),selectedAudio.value("end").toDouble(),cancelled);
                 return extractAlgorithmVideo(algorithm,description,workerResources,media,id,jobId,ffmpeg,nullptr,
                     {SegmentType::Credits,allowedWindows.at({id,SegmentType::Credits})},selectedAudio.value("start").toDouble(),cancelled,
                     [&](const QVariantMap &event){operations.append(event.value("status"));});
@@ -426,28 +437,39 @@ try
             catch(const providers::Cancelled &){throw;}
             catch(const DetectionError &error){result={{"status","failed"},{"code",error.code}};}
             catch(...){result={{"status","failed"},{"code","visual_analysis_failed"}};}
-            return VisualResult{id,result,operations};
+            return VisualResult{id,kind,result,operations};
         });
-        for(qsizetype n=0;n<creditSelections.size();++n) {
-            auto result=tasks.take(size_t(n),cancelled);visual[result.episode]=result.result;cacheOperations.append(result.cache);
-            visualFrames+=result.result.value("coarse_frames").toInt()+result.result.value("dense_frames").toInt();
-            if(progress)progress("refinement",int(n+1),int(creditSelections.size()));
+        for(qsizetype n=0;n<visualSelections.size();++n) {
+            auto result=tasks.take(size_t(n),cancelled);auto v=visual.value(result.episode).toMap();
+            if(result.kind=="intro") {v["intro"]=result.result;if(!v.contains("status"))v["status"]=result.result.value("status");}
+            else {const auto intro=v.value("intro");v=result.result;if(intro.isValid())v["intro"]=intro;}
+            visual[result.episode]=v;cacheOperations.append(result.cache);
+            visualFrames+=result.result.value("coarse_frames").toInt()+result.result.value("dense_frames").toInt()+result.result.value("frames").toInt();
+            if(progress)progress("refinement",int(n+1),int(visualSelections.size()));
         }
         visualExecution=tasks.diagnostics();
         visualExecution["peak_admitted"]=visualPeak.load();
         }
         visualMs=visualTimer.elapsed();
+        } else for(const auto &entry:visualSelections) {
+            const auto id=entry.toMap().value("episode").toString();
+            const QVariantMap state{{"status",visualRefinementEnabled?"unavailable":"disabled"},
+                {"reason",visualRefinementEnabled?description.value("visual").toMap().value("reason","optional_backend_unavailable"):QVariant("disabled_by_setting")}};
+            auto v=visual.value(id).toMap();if(entry.toMap().value("segment_type")=="intro")v["intro"]=state;
+            for(auto it=state.cbegin();it!=state.cend();++it)v[it.key()]=it.value();visual[id]=v;
+        }
         if (visualEnabled) try {
-            const auto fused=algorithm.invoke("fuse",{{"audio_selected",audioSelected},{"matches",matches},{"visual",visual},{"effort",algorithmEffort}},cancelled);
+            const auto fused=algorithm.invoke("fuse",{{"audio_selected",audioSelected},{"matches",matches},{"visual",visual},{"effort",algorithmEffort},{"refine_intro_edges",introVisualSupported}},cancelled);
             const auto proposed=fused.value("selected").toList(); QSet<QString> seen;
             if (proposed.size()!=audioByKind.size()) throw DetectionError("visual_invalid_fusion","Visual refinement must preserve audio selections.");
             for (const auto &entry:proposed) {
                 const auto p=entry.toMap(); const auto kind=p.value("segment_type").toString(),key=p.value("episode").toString()+'\n'+kind;
                 const auto original=audioByKind.constFind(key); const auto start=p.value("start").toDouble(),end=p.value("end").toDouble();
                 if (original==audioByKind.cend() || seen.contains(key) || !std::isfinite(start) || !std::isfinite(end)
-                    || start<0 || start>=end || end!=original->value("end").toDouble()
+                    || start<0 || start>=end || (kind=="credits" && end!=original->value("end").toDouble())
                     || !allowedWindows.at({p.value("episode").toString(),kind=="intro"?SegmentType::Intro:SegmentType::Credits}).contains({start,end})
-                    || std::abs(start-original->value("start").toDouble())>(kind=="credits"?visualRadius+.000001:0.))
+                    || std::abs(start-original->value("start").toDouble())>(kind=="credits"?visualRadius+.000001:introVisualSupported?3.000001:0.)
+                    || (kind=="intro" && std::abs(end-original->value("end").toDouble())>(introVisualSupported?3.000001:0.)))
                     throw DetectionError("visual_invalid_fusion","Visual refinement exceeded its audio edge scope.");
                 seen.insert(key);
             }
@@ -487,7 +509,15 @@ try
             } catch (const detection::Cancelled &) { throw providers::Cancelled(); }
         };
     }
+    // Keep boundary decisions/counts, not the frame descriptors used during fusion.
+    for(auto &entry:visual) {
+        auto v=entry.toMap(),intro=v.value("intro").toMap();
+        if(intro.empty())continue;
+        for(const auto &edge:QStringList{"start","end"}) {auto e=intro.value(edge).toMap();e.remove("observations");intro[edge]=e;}
+        v["intro"]=intro;entry=v;
+    }
     output.diagnostics = {{"composition", algorithm.metadata().value("composition")}, {"detector_version", package.version}, {"mode", visualEnabled ? "audio_visual" : "audio_only"},
+        {"visual_refinement",QVariantMap{{"enabled",visualRefinementEnabled},{"active",visualEnabled}}},
         {"selection", algorithm.metadata().value("selection")}, {"selected", selected}, {"selection_decisions", decisions},
         {"analysis_reuse",QVariantMap{{"policy","fresh-job-v1"},{"persistent_features",false},{"temporary_pcm","job-only"}}},
         {"audio_selected",audioSelected},{"audio_selection_decisions",audioDecisions},{"visual",visual},
@@ -496,7 +526,7 @@ try
         {"matching_warnings", matchingWarnings},{"media_recoveries",mediaRecoveries}, {"outcome", output.failed ? "failed" : failures.empty() && matchingWarnings.empty() ? "complete" : "partial"},
         {"usable_episodes", int(usableEpisodes.size())}, {"descriptor_bytes", retainedBytes},
         {"extraction_execution",extractionExecution},{"matching_execution",matchingExecution},{"visual_execution",visualExecution},
-        {"effort",QVariantMap{{"requested",profile.name},{"supported",effortSupported},{"algorithm",description.value("effort")},{"admission",admission.diagnostics()}}},{"resources",[&]{auto d=profile.diagnostics(); d["concurrent_decoders"]=processLimits.decoders; return d;}()},
+        {"effort",QVariantMap{{"policy","resource-only-v1"},{"requested",profile.name},{"supported",effortSupported},{"algorithm",description.value("effort")},{"admission",admission.diagnostics()}}},{"resources",[&]{auto d=profile.diagnostics(); d["concurrent_decoders"]=processLimits.decoders; return d;}()},
         {"utilization",utilization.diagnostics()},{"utilization_stages",QVariantMap{{"after_extraction",extractionUtilization},{"after_matching",matchingUtilization}}},{"processes",processResources.statistics()},
         {"performance", QVariantMap{{"extraction_ms", extractionMs},{"matching_ms",matchingMs},{"visual_ms",visualMs}, {"matching_selection_ms", elapsed.elapsed()-extractionMs},
             {"stream_resumes",streamResumes.load()},{"retried_episodes",retriedEpisodes.load()},{"remote_media_limit",remoteWork.limit()},

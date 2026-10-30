@@ -221,7 +221,7 @@ void SegmentManagementModel::deleteBulk(const QVariantList &targets)
         for(const auto &episode:episodes)seasons.append({episode.first,*episode.second.seasonNumber});
         const auto edit=m_library.m_editLocks.edit(seasons);
         if(!edit)throw SegmentError("Season timestamps cannot be deleted during detection");
-        result.count = m_store.deleteMany(episodes);
+        result.count = m_store.deleteMany(episodes,&result.statusRevision);
         return result;
     });
 }
@@ -242,6 +242,7 @@ void SegmentManagementModel::finished(Kind kind, quint64 generation, const std::
                 bool updated = false;
                 for (const auto &affected : result->affected) if (affected.first == show) {
                     m_library.m_segments.values[affected.second].clear(); m_library.m_segments.edited.remove(affected.second); updated = true;
+                    m_library.m_segments.statusRevisions[affected.second]=result->statusRevision;
                 }
                 if (updated) m_library.selectSeason(m_library.season());
             }

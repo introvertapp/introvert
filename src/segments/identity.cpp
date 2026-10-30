@@ -36,17 +36,32 @@ void initializeTables(QSqlDatabase &db)
         "updated TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,revision INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(show_key,season,episode,kind))");
     sql::execute(db, "CREATE TABLE IF NOT EXISTS episode_media(provider TEXT,episode_id TEXT,duration_ms INTEGER NOT NULL,PRIMARY KEY(provider,episode_id))");
     sql::execute(db, "CREATE TABLE IF NOT EXISTS preferences (name TEXT PRIMARY KEY,value INTEGER NOT NULL)");
+    auto resetTable=sql::execute(db,"SELECT 1 FROM sqlite_master WHERE type='table' AND name='episode_status_resets'");
+    const bool hadResets=resetTable.next();resetTable.finish();
+    sql::execute(db, "CREATE TABLE IF NOT EXISTS episode_status_resets(show_key TEXT NOT NULL,season INTEGER NOT NULL,episode INTEGER NOT NULL,revision INTEGER NOT NULL,PRIMARY KEY(show_key,season,episode))");
+    if(!hadResets)sql::execute(db,"INSERT INTO episode_status_resets SELECT show_key,season,episode,MAX(revision) FROM segments "
+        "WHERE kind IN ('recap','intro','credits','preview') GROUP BY show_key,season,episode HAVING COUNT(*)=4 AND SUM(deleted)=4 AND MAX(revision)>0");
     if (value == 0) sql::execute(db, "PRAGMA user_version=1");
+}
+
+qint64 currentRevision(QSqlDatabase &db)
+{
+    auto table=sql::execute(db,"SELECT 1 FROM sqlite_master WHERE type='table' AND name='segments'");
+    if(!table.next())return 0;
+    auto row=sql::execute(db,"SELECT COALESCE(MAX(revision),0) FROM segments");row.next();return row.value(0).toLongLong();
 }
 
 void copyAliases(QSqlDatabase &db, const providers::ShowSummary &before, const providers::ShowSummary &after)
 {
-    for (const auto &target : showKeys(after)) for (const auto &source : showKeys(before))
+    for (const auto &target : showKeys(after)) for (const auto &source : showKeys(before)) {
         sql::execute(db, "INSERT INTO segments SELECT ?,season,episode,kind,start,end,deleted,source,provider,provider_episode,updated,revision "
             "FROM segments WHERE show_key=? AND 1 ON CONFLICT(show_key,season,episode,kind) DO UPDATE SET "
             "start=excluded.start,end=excluded.end,deleted=excluded.deleted,source=excluded.source,provider=excluded.provider,"
             "provider_episode=excluded.provider_episode,updated=excluded.updated,revision=excluded.revision "
             "WHERE excluded.revision>segments.revision", {target, source});
+        sql::execute(db,"INSERT INTO episode_status_resets SELECT ?,season,episode,revision FROM episode_status_resets WHERE show_key=? AND 1 "
+            "ON CONFLICT(show_key,season,episode) DO UPDATE SET revision=MAX(episode_status_resets.revision,excluded.revision)",{target,source});
+    }
 }
 
 } // namespace introvert::segments

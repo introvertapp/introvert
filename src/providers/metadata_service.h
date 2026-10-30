@@ -18,7 +18,7 @@ public:
     QVariantMap record(const QString &root, const QString &state, qint64 current, qint64 total,
                        const QString &title = {}, const QString &message = {}, const QString &error = {}) const;
     QVariantMap recover(const QString &root) const;
-    QVariantMap run(const ProviderConfig &config, const Cancellation &cancelled, const Progress &progress);
+    QVariantMap run(const ProviderConfig &config, const Cancellation &cancelled, const Progress &progress, const QString &showId = {});
 private:
     QString m_path;
     LocalProvider m_provider;

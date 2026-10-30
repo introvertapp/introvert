@@ -256,6 +256,7 @@ Dialog {
     Shortcut { sequences: [StandardKey.Undo]; enabled: editor.visible && editor.editable && !editor.fieldEditing; onActivated: editor.undo() }
     Shortcut { sequence: "H"; enabled: editor.visible && !editor.fieldEditing; onActivated: help.visible ? help.close() : help.open() }
     Shortcut { sequence: "S"; enabled: editor.visible && !editor.fieldEditing; onActivated: editor.drawerOpen = !editor.drawerOpen }
+    Shortcut { sequence: "E"; enabled: editor.visible && !editor.fieldEditing; onActivated: videoWorkspace.togglePanelWidth() }
     Shortcut { sequence: "Shift+Z"; enabled: editor.visible && !editor.fieldEditing; onActivated: { editor.zoom=1;editor.viewStart=0 } }
     Shortcut { sequence: "Ctrl+A"; enabled: editor.visible && !editor.fieldEditing; onActivated: editor.selectAllDrafts() }
     Shortcut { sequence: "Meta+A"; enabled: editor.visible && !editor.fieldEditing; onActivated: editor.selectAllDrafts() }
@@ -381,8 +382,8 @@ Dialog {
                     }
                     RowLayout {
                         anchors.right: parent.right; anchors.rightMargin: 10; anchors.verticalCenter: parent.verticalCenter; spacing: 8
-                        AppButton { objectName: "editorResetControl"; enabled: editor.editable; iconOpacity: hovered ? 1 : .8; glyphOnly: true; iconSize: 16; iconName: "reset"; hint: "Reset timeline drafts and zoom (⌘/Ctrl+R)"; implicitWidth: 26; implicitHeight: 26; theme: editor.theme; onClicked: editor.resetDrafts() }
-                        AppButton { objectName: "editorSaveControl"; iconOpacity: hovered ? 1 : .8; glyphOnly: true; iconSize: 16; iconName: "save"; hint: "Save timeline (⌘/Ctrl+S)"; implicitWidth: 26; implicitHeight: 26; enabled: Boolean(editor.editable && editor.backend && editor.draftChanged); theme: editor.theme; onClicked: editor.saveTimeline(false) }
+                        AppButton { objectName: "editorResetControl"; enabled: editor.editable; iconOpacity: hovered ? 1 : .8; glyphOnly: true; iconSize: 16; iconName: "reset"; hint: "Reset timeline drafts and zoom ("+help.shortcutText("Cmd/Ctrl + R")+")"; implicitWidth: 26; implicitHeight: 26; theme: editor.theme; onClicked: editor.resetDrafts() }
+                        AppButton { objectName: "editorSaveControl"; iconOpacity: hovered ? 1 : .8; glyphOnly: true; iconSize: 16; iconName: "save"; hint: "Save timeline ("+help.shortcutText("Cmd/Ctrl + S")+")"; implicitWidth: 26; implicitHeight: 26; enabled: Boolean(editor.editable && editor.backend && editor.draftChanged); theme: editor.theme; onClicked: editor.saveTimeline(false) }
                     }
                 }
             }

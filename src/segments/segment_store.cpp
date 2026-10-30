@@ -86,14 +86,19 @@ void SegmentStore::save(const providers::ShowSummary &show, const providers::Epi
     transaction.commit();
 }
 
-qsizetype SegmentStore::deleteMany(const QList<EpisodeTarget> &episodes) const
+qsizetype SegmentStore::deleteMany(const QList<EpisodeTarget> &episodes, qint64 *statusRevision) const
 {
     QList<Identity> plan;
     for (const auto &target : episodes) plan.append(identity(target.first, target.second));
     sql::Connection connection(m_path); sql::Transaction transaction(connection.db); initializeTables(connection.db);
     const SegmentChanges changes{{"recap", {}}, {"intro", {}}, {"credits", {}}, {"preview", {}}};
     for (qsizetype index = 0; index < episodes.size(); ++index) write(connection.db, plan[index], episodes[index].second, changes, "manual");
+    const auto revision=currentRevision(connection.db);
+    for(const auto &id:plan)for(const auto &key:id.keys)
+        sql::execute(connection.db,"INSERT INTO episode_status_resets VALUES(?,?,?,?) ON CONFLICT(show_key,season,episode) DO UPDATE SET revision=excluded.revision",
+            {key,id.season,id.episode,revision});
     transaction.commit();
+    if(statusRevision)*statusRevision=revision;
     return plan.size();
 }
 
