@@ -63,14 +63,14 @@ QVariantList observeCreditFrame(const QByteArray &rgb, int width, int height, co
             // Some OS/runtime combinations advertise the accurate model but fail
             // to compile it. Retry once with Vision's independent character path;
             // empty successful recognition is not a failure and is never retried.
-            static std::once_flag recoveryNotice;
-            std::call_once(recoveryNotice,[&] {qWarning().noquote()<<"Vision accurate text recognition failed ("+accurateError+"); retrying with fast recognition.";});
             request=textRequest(VNRequestTextRecognitionLevelFast); error=nil;
             if (![handler performRequests:@[request] error:&error]) {
                 checkCancelled(cancel);
                 throw DetectionError("visual_text_failed",QString("Text recognition did not complete (accurate: %1; fast: %2).")
                     .arg(accurateError,recognitionError(error)));
             }
+            static std::once_flag recoveryNotice;
+            std::call_once(recoveryNotice,[&] {qInfo().noquote()<<"Vision text recognition recovered with fast recognition after accurate failed ("+accurateError+").";});
         }
         static const QRegularExpression roles(QStringLiteral("\\b(directors?|producers?|production|written|writers?|cast|music|editors?|editing|sound|camera|photography|costumes?|makeup|executive|assistants?|starring|screenplay|created|design)\\b"),QRegularExpression::CaseInsensitiveOption);
         QList<VisualTextLine> lines;
