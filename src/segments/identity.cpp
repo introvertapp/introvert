@@ -30,7 +30,7 @@ void initializeTables(QSqlDatabase &db)
 {
     auto version = sql::execute(db, "PRAGMA user_version"); version.next();
     const auto value = version.value(0).toInt(); version.finish();
-    if (value < 0 || value > 2) throw DatabaseError("Unsupported Introvert segment database version");
+    if (value < 0 || value > 2) throw DatabaseError("Unsupported INTROvert segment database version");
     sql::execute(db, "CREATE TABLE IF NOT EXISTS segments (show_key TEXT NOT NULL,season INTEGER NOT NULL,episode INTEGER NOT NULL,"
         "kind TEXT NOT NULL,start REAL,end REAL,deleted INTEGER NOT NULL DEFAULT 0,source TEXT NOT NULL,provider TEXT,provider_episode TEXT,"
         "updated TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,revision INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(show_key,season,episode,kind))");

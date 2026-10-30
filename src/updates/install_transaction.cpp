@@ -43,9 +43,9 @@ HANDLE launch(const fs::path &program, const std::vector<std::wstring> &argument
 void waitForParent(const InstallTransaction &t)
 {
     HANDLE process = OpenProcess(SYNCHRONIZE, FALSE, DWORD(t.parentPid));
-    if (!process) { require(GetLastError() == ERROR_INVALID_PARAMETER, "Cannot wait for Introvert to exit."); return; }
+    if (!process) { require(GetLastError() == ERROR_INVALID_PARAMETER, "Cannot wait for INTROvert to exit."); return; }
     const auto result = WaitForSingleObject(process, DWORD(t.exitWaitSeconds * 1000)); CloseHandle(process);
-    require(result == WAIT_OBJECT_0, "Introvert did not exit; no application files were changed.");
+    require(result == WAIT_OBJECT_0, "INTROvert did not exit; no application files were changed.");
 }
 #else
 pid_t launch(const fs::path &program, const std::vector<std::string> &arguments)
@@ -63,7 +63,7 @@ void waitForParent(const InstallTransaction &t)
 {
     const auto until = Clock::now() + std::chrono::seconds(t.exitWaitSeconds);
     while (kill(pid_t(t.parentPid), 0) == 0 || errno == EPERM) {
-        require(Clock::now() < until, "Introvert did not exit; no application files were changed."); pause();
+        require(Clock::now() < until, "INTROvert did not exit; no application files were changed."); pause();
     }
 }
 #endif
@@ -150,7 +150,7 @@ int installTransaction(const InstallTransaction &t)
         waitForParent(t);
         parentExited=true;
 #ifdef __APPLE__
-        require(t.target.filename() == "Introvert.app" && t.payload.filename() == "Introvert.app", "The update must contain Introvert.app.");
+        require(t.target.filename() == "Introvert.app" && t.payload.filename() == "Introvert.app", "The update must contain a valid INTROvert application bundle.");
         require(wait(launch("/usr/bin/codesign", {"--verify","--deep","--strict",t.payload.string()})) == 0, "The staged application's integrity signature is invalid.");
         fs::rename(t.target, backup); backedUp = true;
         fs::rename(t.payload, t.target);
@@ -205,7 +205,7 @@ int installTransaction(const InstallTransaction &t)
                 }
 #endif
             }
-            std::ofstream(t.workspace / "result.txt") << "The update failed. Introvert was reopened; try again from Settings.\n";
+            std::ofstream(t.workspace / "result.txt") << "The update failed. INTROvert was reopened; try again from Settings.\n";
             if (parentExited && fs::exists(executable(t.target))) restartOld(t);
         } catch (...) {}
         return 1;

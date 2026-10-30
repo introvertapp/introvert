@@ -79,7 +79,7 @@ QSet<QString> columns(QSqlDatabase &db, const QString &table)
 AppSettings loadApp(QSqlDatabase &db)
 {
     auto query = execute(db, QStringLiteral("SELECT timestamp_format,tv_show_listing_type,media_provider FROM app_settings WHERE id=1"));
-    require(query.next(), "Introvert app_settings row is missing.");
+    require(query.next(), "INTROvert app_settings row is missing.");
     for (int i : {0, 1, 2}) require(query.value(i).metaType().id() == QMetaType::QString,
                                   "Incompatible application settings values.");
     AppSettings result{query.value(0).toString(), query.value(1).toString(), query.value(2).toString()};
@@ -159,21 +159,21 @@ void ProviderSettings::validate() const
 
 SettingsStore::SettingsStore(QString databasePath) : m_path(std::move(databasePath))
 {
-    require(!m_path.isEmpty(), "Introvert database path is empty.");
+    require(!m_path.isEmpty(), "INTROvert database path is empty.");
 }
 
 void SettingsStore::initialize() const
 {
-    require(QDir().mkpath(QFileInfo(m_path).absolutePath()), "Cannot create Introvert application data directory.");
+    require(QDir().mkpath(QFileInfo(m_path).absolutePath()), "Cannot create INTROvert application data directory.");
     Connection connection(m_path);
     auto &db = connection.db;
     execute(db, QStringLiteral("PRAGMA journal_mode=WAL"));
     restrictPermissions(m_path);
     auto versionQuery = execute(db, QStringLiteral("PRAGMA user_version"));
-    require(versionQuery.next(), "Cannot read Introvert database version.");
+    require(versionQuery.next(), "Cannot read INTROvert database version.");
     const int version = versionQuery.value(0).toInt();
     versionQuery.finish();
-    require(version >= 0 && version <= 2, "Unsupported Introvert database version.");
+    require(version >= 0 && version <= 2, "Unsupported INTROvert database version.");
     Transaction transaction(db);
     if (version == 0) {
         execute(db, QStringLiteral("CREATE TABLE IF NOT EXISTS app_settings ("
@@ -328,7 +328,7 @@ AppSettings SettingsStore::update(const QString &field, const QVariant &value) c
     Transaction transaction(connection.db);
     const auto binding = value.metaType().id() == QMetaType::QString ? QVariant(text(value.toString())) : value;
     auto query = execute(connection.db, "UPDATE app_settings SET " + field + "=? WHERE id=1", {binding});
-    require(query.numRowsAffected() == 1, "Introvert app_settings row is missing.");
+    require(query.numRowsAffected() == 1, "INTROvert app_settings row is missing.");
     const auto result = loadApp(connection.db);
     transaction.commit();
     return result;
@@ -364,7 +364,7 @@ QVariantMap SettingsStore::endpointDefaults()
     return {{"introdb_enabled", true}, {"introdb_api_url", "https://api.introdb.app/submit"},
         {"introdb_lookup_url", "https://api.introdb.app/segments"}, {"theintrodb_enabled", false},
         {"theintrodb_base_url", "https://api.theintrodb.org/v4"}, {"api_timeout_ms", 10000},
-        {"api_delay_seconds", 5}, {"save_submissions_local_db", false}};
+        {"api_delay_seconds", 5}, {"save_submissions_local_db", true}};
 }
 
 void SettingsStore::validateEndpoints(const QVariantMap &values)

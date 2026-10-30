@@ -31,7 +31,7 @@ void finiteNumbers(const QVariant &value)
 
 QVariantMap testNotification(std::optional<double> now)
 {
-    return {{"event", "notification.test"}, {"test", true}, {"title", "Introvert notification test"},
+    return {{"event", "notification.test"}, {"test", true}, {"title", "INTROvert notification test"},
         {"message", QString::fromUtf8("Seinfeld • S01 • 24 segments • 4.5 min")}, {"show", QVariantMap{{"title", "Seinfeld"}}},
         {"seasons", QVariantList{"S01"}}, {"segmentCount", 24}, {"duration", "4.5 min"}, {"durationMs", 270000},
         {"sentAt", iso(now.value_or(QDateTime::currentMSecsSinceEpoch() / 1000.))}};
@@ -79,7 +79,7 @@ WebhookRequest prepareWebhook(const QString &value, const QString &secret, const
     const auto payload = discord ? QVariantMap{{"content", "**" + notification.value("title").toString() + "**\n" + notification.value("message").toString()}} : notification;
     finiteNumbers(payload);
     request.body = QJsonDocument::fromVariant(payload).toJson(QJsonDocument::Compact);
-    request.headers = {{"Content-Type", "application/json"}, {"Accept", "application/json"}, {"User-Agent", "Introvert/" INTROVERT_VERSION}};
+    request.headers = {{"Content-Type", "application/json"}, {"Accept", "application/json"}, {"User-Agent", "INTROvert/" INTROVERT_VERSION}};
     if (!key.isEmpty() && !discord) {
         request.headers["Authorization"] = "Bearer " + key.toUtf8(); request.headers["X-Introvert-Webhook-Key"] = key.toUtf8();
     }

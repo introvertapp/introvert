@@ -100,7 +100,7 @@ Offer detectorReleaseOffer(const QJsonArray &releases, const QString &installed,
         if (catalog["schema_version"].toInt() != 1 || catalog["id"] != "introvert-detector" || catalog["version"] != candidate)
             throw std::runtime_error("Detector release catalogue identity does not match the release.");
         if (catalog["interface_version"].toInt() != 1 || catalog["result_schema_version"].toInt() != 1 || catalog["qt_version"] != qt
-            || newerVersion(catalog["minimum_app_version"].toString(), app)) { incompatible = "The available detector requires a newer or compatible Introvert app."; continue; }
+            || newerVersion(catalog["minimum_app_version"].toString(), app)) { incompatible = "The available detector requires a newer or compatible INTROvert app."; continue; }
         Offer offer;
         const auto name = "Introvert-Detector-" + candidate + '-' + os + '-' + arch + ".tar";
         QJsonObject expected;

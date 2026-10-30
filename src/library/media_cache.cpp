@@ -36,7 +36,7 @@ MediaCache::MediaCache(QString artworkRoot, QString databasePath, CacheLimits li
 
 std::unique_ptr<sql::Connection> MediaCache::connect()
 {
-    if (!QDir().mkpath(QFileInfo(m_path).absolutePath())) throw DatabaseError("Cannot access Introvert app.db.");
+    if (!QDir().mkpath(QFileInfo(m_path).absolutePath())) throw DatabaseError("Cannot access INTROvert app.db.");
     auto connection = std::make_unique<sql::Connection>(m_path);
     auto &db = connection->db;
     sql::execute(db, "PRAGMA synchronous=NORMAL");

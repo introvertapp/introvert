@@ -87,7 +87,7 @@ Source resolve(const ProviderConfig &config, const QString &episode, const Cance
             || !path.scheme().isEmpty() || path.hasQuery() || path.hasFragment() || key.contains('\\') || controls)
             throw ProviderError("Plex did not return a supported media stream.");
         return {QUrl::fromEncoded((base + key).toUtf8(), QUrl::StrictMode),
-                {{"X-Plex-Token", config.credential->toUtf8()}, {"X-Plex-Product", "Introvert"}}, timeout};
+                {{"X-Plex-Token", config.credential->toUtf8()}, {"X-Plex-Product", "INTROvert"}}, timeout};
     }
     const bool jellyfin = config.provider == ProviderId::Jellyfin;
     const QString label = jellyfin ? "Jellyfin" : "Emby", prefix = jellyfin ? "" : "/emby";

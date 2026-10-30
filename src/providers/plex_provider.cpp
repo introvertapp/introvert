@@ -14,7 +14,7 @@ namespace {
 
 QMap<QByteArray, QByteArray> headers(const ProviderConfig &config)
 {
-    return {{"X-Plex-Token", config.credential.value_or(QString()).toUtf8()}, {"X-Plex-Product", "Introvert"}};
+    return {{"X-Plex-Token", config.credential.value_or(QString()).toUtf8()}, {"X-Plex-Product", "INTROvert"}};
 }
 
 QList<ImportedSegment> markers(const QJsonArray &values)

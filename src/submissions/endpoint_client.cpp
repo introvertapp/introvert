@@ -182,7 +182,7 @@ EndpointClient::Response EndpointClient::request(QString url, const QVariantMap 
         encoded.append(quote(field.key()) + '=' + quote(string(field.value())));
     }
     if (!encoded.isEmpty()) url += '?' + QString::fromLatin1(encoded.join('&'));
-    QMap<QByteArray, QByteArray> headers{{"Accept", "application/json"}, {"User-Agent","Introvert"}};
+    QMap<QByteArray, QByteArray> headers{{"Accept", "application/json"}, {"User-Agent","INTROvert"}};
     if (authenticated && m_key && !m_key->isEmpty())
         headers[m_endpoint == "introdb_app" ? "X-API-Key" : "Authorization"]
             = (m_endpoint == "introdb_app" ? *m_key : "Bearer " + m_key->trimmed()).toUtf8();

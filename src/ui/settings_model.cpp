@@ -25,7 +25,7 @@ void startOperation(QThreadPool &pool, QObject *owner, std::function<OperationRe
         OperationResult result;
         try { result = work(); }
         catch (const SettingsError &error) { result.error = errorText(error); }
-        catch (...) { result.error = QStringLiteral("Cannot access Introvert settings or API keys in app.db."); }
+        catch (...) { result.error = QStringLiteral("Cannot access INTROvert settings or API keys in app.db."); }
         // The owner's destructor joins its pool before QObject destruction.
         // Qt drops an undelivered callback when its context is destroyed.
         QMetaObject::invokeMethod(owner, [finished, result] { finished(result); }, Qt::QueuedConnection);
@@ -354,7 +354,7 @@ void SettingsModel::update(const QString &field, const QVariant &value)
             && result.mediaProvider == m_snapshot.mediaProvider) return;
         m_snapshot = result; emit changed();
     } catch (const SettingsError &failure) { emit error(errorText(failure)); }
-    catch (...) { emit error(QStringLiteral("Cannot save Introvert preferences in app.db.")); }
+    catch (...) { emit error(QStringLiteral("Cannot save INTROvert preferences in app.db.")); }
 }
 void SettingsModel::setDetectionResources(const QString &value)
 {

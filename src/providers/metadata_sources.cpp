@@ -60,7 +60,7 @@ MetadataClient::Record MetadataClient::identify(const QString &source,const Show
     const auto key=credentials.value(source).toString().trimmed();
     if(source!="tvmaze" && key.isEmpty())throw ProviderError("Save the selected provider's API credentials in Settings → Media.");
     const auto root=m_bases.value(source).toString();
-    QMap<QByteArray,QByteArray> headers{{"Accept","application/json"},{"User-Agent","Introvert"}};
+    QMap<QByteArray,QByteArray> headers{{"Accept","application/json"},{"User-Agent","INTROvert"}};
     auto request=[&](const QString &path,QVariantMap query=QVariantMap(),std::optional<QJsonObject> body=std::nullopt) {
         QUrl url(root+path);QUrlQuery parameters;
         for(auto i=query.begin();i!=query.end();++i)parameters.addQueryItem(i.key(),i.value().toString());
@@ -224,7 +224,7 @@ QPair<QString,QString> MetadataClient::artwork(const QString &source,const Recor
     QUrlQuery query;query.addQueryItem("source",origin);url.setQuery(query);
     wait(m_delay,cancel);
     detail::HttpExchange response;
-    try {response=detail::exchange(url,{{"client-key",key.toUtf8()},{"Accept","application/json"},{"User-Agent","Introvert"}},10,20*1024*1024,cancel,{},true);}
+    try {response=detail::exchange(url,{{"client-key",key.toUtf8()},{"Accept","application/json"},{"User-Agent","INTROvert"}},10,20*1024*1024,cancel,{},true);}
     catch(const detail::HttpFailure &) {throw ProviderError("fanart.tv could not be reached. Check network access and retry.");}
     if(response.status!=200)throw ProviderError("fanart.tv request failed. Check API access or retry later.",response.status);
     const auto value=QJsonValue::fromJson(response.data);

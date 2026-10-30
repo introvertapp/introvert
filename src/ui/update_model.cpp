@@ -35,7 +35,7 @@ UpdateModel::UpdateModel(std::optional<SettingsStore> store, QObject *parent, QN
     if (m_store) m_automatic = m_store->loadUpdates().value("automatic").toBool();
     m_timer.setInterval(60 * 60 * 1000);
     connect(&m_timer, &QTimer::timeout, this, &UpdateModel::automaticCheck);
-    m_message = enabled() ? "Check for a new version of Introvert." : "Update checks are disabled in UI preview.";
+    m_message = enabled() ? "Check for a new version of INTROvert." : "Update checks are disabled in UI preview.";
 }
 UpdateModel::~UpdateModel() { close(); }
 QString UpdateModel::installedVersion() const { return QCoreApplication::applicationVersion().isEmpty() ? QStringLiteral(INTROVERT_VERSION) : QCoreApplication::applicationVersion(); }
@@ -78,11 +78,11 @@ void UpdateModel::finishChecks(const QString &error)
 {
     m_detectorCandidate = error.isEmpty() ? m_offer : updates::Offer{};
     m_busy = false;
-    if (!m_appOffer.version.isEmpty()) { m_offer = m_appOffer; m_detectorOffer = false; m_message = "Introvert " + m_offer.version + " is available."; }
+    if (!m_appOffer.version.isEmpty()) { m_offer = m_appOffer; m_detectorOffer = false; m_message = "INTROvert " + m_offer.version + " is available."; }
     else if (!m_offer.version.isEmpty()) { m_detectorOffer = true; m_message = "Detector " + m_offer.version + " is available (installed " + m_installedDetector + ")."; }
     else if (!error.isEmpty()) m_message = error;
     else if (!m_appCheckError.isEmpty()) m_message = m_appCheckError;
-    else m_message = "Introvert and detector are up to date. Detector " + m_installedDetector + ".";
+    else m_message = "INTROvert and detector are up to date. Detector " + m_installedDetector + ".";
     if (error.isEmpty() && m_appCheckError.isEmpty()) m_store->recordUpdateCheck(QDateTime::currentSecsSinceEpoch());
     emit changed();
 }
@@ -99,7 +99,7 @@ void UpdateModel::request(const QUrl &url, bool downloading, int redirects)
     if(!m_access || m_accessOrigin!=origin){m_access=std::make_unique<providers::AccessRetry>(url);m_accessOrigin=origin;}
     QNetworkRequest outgoing(url);
     outgoing.setAttribute(QNetworkRequest::RedirectPolicyAttribute,QNetworkRequest::ManualRedirectPolicy);
-    outgoing.setRawHeader("User-Agent", "Introvert/" + installedVersion().toUtf8());
+    outgoing.setRawHeader("User-Agent", "INTROvert/" + installedVersion().toUtf8());
     outgoing.setRawHeader("Accept", downloading ? "application/octet-stream" : "application/vnd.github+json");
     outgoing.setTransferTimeout(std::chrono::milliseconds(m_access->pending()?std::max(1,m_access->remainingMs()):60000));
     auto *reply = m_transport->get(outgoing); m_reply = reply; reply->setReadBufferSize(64*1024);
@@ -164,7 +164,7 @@ void UpdateModel::request(const QUrl &url, bool downloading, int redirects)
             if (!m_detectorFeed.isEmpty()) { checkDetector(); return; }
             m_store->recordUpdateCheck(QDateTime::currentSecsSinceEpoch());
             m_busy=false;
-            m_message=m_offer.version.isEmpty() ? "Introvert is up to date." : "Introvert "+m_offer.version+" is available.";
+            m_message=m_offer.version.isEmpty() ? "INTROvert is up to date." : "INTROvert "+m_offer.version+" is available.";
             emit changed();
         } catch(const std::exception &error) {checkFailed(QString::fromUtf8(error.what()));}
     });
@@ -203,11 +203,11 @@ void UpdateModel::download()
     if(m_closed || !enabled() || m_busy || m_ready || m_offer.version.isEmpty())return;
     ++m_generation;
     m_target = m_detectorOffer ? QFileInfo(m_store->databasePath()).absolutePath() : m_installationLocator ? m_installationLocator() : installationPath();
-    if(m_target.isEmpty()){fail("Updates can be installed only by a packaged Introvert application.");return;}
+    if(m_target.isEmpty()){fail("Updates can be installed only by a packaged INTROvert application.");return;}
     auto base=QDir::tempPath();
 #ifdef Q_OS_MACOS
     base=m_detectorOffer ? m_target : QFileInfo(m_target).absolutePath();
-    if(!QFileInfo(base).isWritable()){fail("Move Introvert to a writable Applications location before updating.");return;}
+    if(!QFileInfo(base).isWritable()){fail("Move INTROvert to a writable Applications location before updating.");return;}
 #endif
     m_workspace=std::make_unique<QTemporaryDir>(base+"/.introvert-update-XXXXXX");
     if(!m_workspace->isValid()){fail("Cannot create a private update staging directory.");return;}
@@ -215,7 +215,7 @@ void UpdateModel::download()
     m_download.setFileName(m_payload);
     if(!m_download.open(QIODevice::WriteOnly|QIODevice::NewOnly)){fail("Cannot save the application update.");return;}
     m_received=0; m_hash.reset(); m_busy=true; m_progress=0;
-    m_message=QString("Downloading %1 %2…").arg(m_detectorOffer ? "detector" : "Introvert", m_offer.version); emit changed(); request(m_offer.download,true);
+    m_message=QString("Downloading %1 %2…").arg(m_detectorOffer ? "detector" : "INTROvert", m_offer.version); emit changed(); request(m_offer.download,true);
 }
 void UpdateModel::prepare()
 {
@@ -235,7 +235,7 @@ void UpdateModel::prepare()
                 m_busy = false; m_ready = false; m_progress = 0; m_workspace.reset();
                 m_installResult.reset(); m_installCancel.reset();
                 m_message = "Detector " + installed + " installed. New scans use this version; running scans keep their current version.";
-                if (!m_appOffer.version.isEmpty()) m_message += " Introvert " + m_appOffer.version + " is also available.";
+                if (!m_appOffer.version.isEmpty()) m_message += " INTROvert " + m_appOffer.version + " is also available.";
                 emit changed();
             }, Qt::QueuedConnection);
         }));
@@ -245,7 +245,7 @@ void UpdateModel::prepare()
     QDir().mkpath(m_workspace->filePath("expanded"));
     prepareStep(0);
 #else
-    m_ready=true; m_busy=false; m_message="Update verified. Restart to install Introvert "+m_offer.version+"."; emit changed();
+    m_ready=true; m_busy=false; m_message="Update verified. Restart to install INTROvert "+m_offer.version+"."; emit changed();
 #endif
 }
 void UpdateModel::prepareStep(int step)
@@ -255,7 +255,7 @@ void UpdateModel::prepareStep(int step)
     connect(&m_process,&QProcess::errorOccurred,this,[this]{fail("Cannot prepare the application update.");});
     connect(&m_process,qOverload<int,QProcess::ExitStatus>(&QProcess::finished),this,[this,step](int code,QProcess::ExitStatus status){
         if(m_closed)return;
-        if(code!=0 || status!=QProcess::NormalExit){fail("The staged application could not be verified. Introvert was not changed.");return;}
+        if(code!=0 || status!=QProcess::NormalExit){fail("The staged application could not be verified. INTROvert was not changed.");return;}
         const auto output=m_process.readAllStandardOutput();
         if(step==0) {
             for(const auto &entry:output.split('\n')) {
@@ -280,7 +280,7 @@ void UpdateModel::prepareStep(int step)
             fail("The staged application contains an unsafe link.");return;
         }}
         m_payload=m_workspace->filePath("expanded/Introvert.app");
-        m_busy=false; m_ready=true; m_message="Update verified. Restart to install Introvert "+m_offer.version+"."; emit changed();
+        m_busy=false; m_ready=true; m_message="Update verified. Restart to install INTROvert "+m_offer.version+"."; emit changed();
     });
     if(step==0)m_process.start("/usr/bin/tar",{"-tf",m_payload});
     else if(step==1)m_process.start("/usr/bin/tar",{"-xf",m_payload,"-C",m_workspace->filePath("expanded")});
@@ -310,7 +310,7 @@ void UpdateModel::install()
 }
 void UpdateModel::reportFailedInstallation()
 {
-    m_message="The application update failed. Try again, or reinstall Introvert from GitHub Releases.";emit changed();
+    m_message="The application update failed. Try again, or reinstall INTROvert from GitHub Releases.";emit changed();
 }
 void UpdateModel::cancel()
 {

@@ -62,7 +62,7 @@ SubmissionStore::SubmissionStore(QString path, Clock clock) : m_path(std::move(p
 
 void SubmissionStore::initialize() const
 {
-    if (!QDir().mkpath(QFileInfo(m_path).absolutePath())) throw DatabaseError("Cannot access Introvert app.db.");
+    if (!QDir().mkpath(QFileInfo(m_path).absolutePath())) throw DatabaseError("Cannot access INTROvert app.db.");
     sql::Connection connection(m_path); auto &db = connection.db; sql::Transaction transaction(db);
     sql::execute(db, "CREATE TABLE IF NOT EXISTS submit_jobs("
         "id TEXT PRIMARY KEY,endpoint TEXT NOT NULL,provider TEXT NOT NULL,show_id TEXT NOT NULL,"

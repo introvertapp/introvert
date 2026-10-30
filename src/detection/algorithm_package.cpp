@@ -106,7 +106,7 @@ AlgorithmPackage inspectAlgorithmPackage(const QString &root)
         invalid("The detector package is incompatible with this app or platform.");
     version(m.value("version").toString());
     const auto appVersion = QCoreApplication::applicationVersion().isEmpty() ? QStringLiteral(INTROVERT_VERSION) : QCoreApplication::applicationVersion();
-    if (version(m.value("minimum_app_version").toString()) > version(appVersion)) invalid("The detector package requires a newer Introvert app.");
+    if (version(m.value("minimum_app_version").toString()) > version(appVersion)) invalid("The detector package requires a newer INTROvert app.");
     const auto library = m.value("library").toString(); const auto files = m.value("files").toMap();
     if (!safe(library) || !files.contains(library) || files.isEmpty() || files.size() > 127 || files.contains("detector.json")) invalid("Invalid algorithm package inventory.");
     QSet<QString> seen; qint64 total = 0;

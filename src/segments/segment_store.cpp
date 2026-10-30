@@ -41,7 +41,7 @@ QVariantMap defaults()
 
 void SegmentStore::initialize() const
 {
-    if (!QDir().mkpath(QFileInfo(m_path).absolutePath())) throw DatabaseError("Cannot access Introvert app.db.");
+    if (!QDir().mkpath(QFileInfo(m_path).absolutePath())) throw DatabaseError("Cannot access INTROvert app.db.");
     sql::Connection connection(m_path); sql::Transaction transaction(connection.db);
     initializeTables(connection.db); transaction.commit();
 }

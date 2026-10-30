@@ -53,22 +53,27 @@ Item {
         placeholderTextColor: header.theme.muted
         Accessible.name: placeholderText
         onTextEdited: header.searchChanged(text)
-        background: Rectangle { color: header.theme.card; radius: 8; border.width: parent.activeFocus ? 2 : 1; border.color: parent.activeFocus ? header.theme.accent : header.theme.border }
+        background: Rectangle { color: header.theme.card; radius: 8; border.width: 1; border.color: header.theme.border }
     }
     Row {
         anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; spacing: 8
         Repeater {
             model: [{page:"home", label:"TV Shows", icon:"▣"}, {page:"queue", label:"Submission Queue", icon:"☷"}, {page:"history", label:"Submission History", icon:"◴"}, {page:"settings", label:"Settings", icon:"⚙"}]
             AppButton {
+                id: navigationButton
                 required property var modelData
                 objectName: "navigate_" + modelData.page
                 width: 40; height: 36; implicitWidth: 40
                 text: modelData.icon; hint: modelData.label
                 fontSize: 18
                 iconName: modelData.page
-                outlineSelection: true
                 selected: header.navigation.page === modelData.page
                 theme: header.theme
+                background: Rectangle {
+                    radius: 8
+                    color: navigationButton.selected ? header.theme.accent : navigationButton.hovered ? header.theme.hover : header.theme.card
+                    border.width: 1; border.color: header.theme.border
+                }
                 onClicked: header.go(modelData.page)
             }
         }

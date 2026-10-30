@@ -144,7 +144,7 @@ Item {
                                 }
                                 RowLayout {
                                     width: parent.width; spacing: 8
-                                    Text { Layout.fillWidth: true; text: page.applicationUpdates ? "Version "+page.applicationUpdates.installedVersion : "Introvert"; color: page.theme.muted }
+                                    Text { Layout.fillWidth: true; text: page.applicationUpdates ? "Version "+page.applicationUpdates.installedVersion : "INTROvert"; color: page.theme.muted }
                                     AppButton { objectName: "checkApplicationUpdatesControl"; text: "Check for Updates"; theme: page.theme; enabled: page.applicationUpdates && page.applicationUpdates.enabled && !page.applicationUpdates.busy && !page.applicationUpdates.ready; onClicked: page.applicationUpdates.check() }
                                     AppButton {
                                         objectName: "installApplicationUpdateControl"

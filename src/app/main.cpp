@@ -19,13 +19,14 @@ Q_IMPORT_QML_PLUGIN(IntrovertUiPlugin)
 int main(int argc, char *argv[])
 {
     QCoreApplication::setOrganizationName(QStringLiteral("Introvert"));
-    QCoreApplication::setApplicationName(QStringLiteral("Introvert"));
+    QCoreApplication::setApplicationName(QStringLiteral("INTROvert"));
     QCoreApplication::setApplicationVersion(QStringLiteral(INTROVERT_VERSION));
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     QGuiApplication application(argc, argv);
+    application.setApplicationDisplayName(QStringLiteral("INTROvert"));
     application.setWindowIcon(QIcon(QStringLiteral(":/introvert/assets/app_icon.png")));
     QCommandLineParser parser;
-    parser.setApplicationDescription(QStringLiteral("Launch Introvert"));
+    parser.setApplicationDescription(QStringLiteral("Launch INTROvert"));
     parser.addHelpOption();
     parser.addVersionOption();
     QCommandLineOption preview(QStringLiteral("ui-preview"),QStringLiteral("UI preview with isolated temporary data and credentials"));
@@ -83,9 +84,9 @@ int main(int argc, char *argv[])
     } catch (const std::invalid_argument &error) {
         QTextStream(stderr) << error.what() << '\n';
     } catch (const introvert::DatabaseError &error) {
-        QTextStream(stderr) << "Cannot start Introvert: " << error.what() << '\n';
+        QTextStream(stderr) << "Cannot start INTROvert: " << error.what() << '\n';
     } catch (...) {
-        QTextStream(stderr) << "Cannot start Introvert. Check application-data access and the Qt runtime.\n";
+        QTextStream(stderr) << "Cannot start INTROvert. Check application-data access and the Qt runtime.\n";
     }
     return 1;
 }

@@ -16,13 +16,13 @@ StoragePaths StoragePaths::resolve()
 {
     const auto base = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
     if (base.trimmed().isEmpty())
-        throw std::runtime_error("OS did not provide an Introvert application data directory");
+        throw std::runtime_error("OS did not provide an INTROvert application data directory");
     return fromRoot(QDir(base).filePath(QStringLiteral("Introvert")));
 }
 
 StoragePaths StoragePaths::fromRoot(const QString &root)
 {
-    if (root.isEmpty()) throw std::runtime_error("Introvert application data directory is empty");
+    if (root.isEmpty()) throw std::runtime_error("INTROvert application data directory is empty");
     return {root, QDir(root).filePath(QStringLiteral("data/app.db")),
             QDir(root).filePath(QStringLiteral("data/media-image-cache"))};
 }
@@ -30,7 +30,7 @@ StoragePaths StoragePaths::fromRoot(const QString &root)
 void StoragePaths::prepare() const
 {
     if (!QDir().mkpath(QDir(root).filePath(QStringLiteral("data"))))
-        throw std::runtime_error("Cannot create Introvert application data directory");
+        throw std::runtime_error("Cannot create INTROvert application data directory");
 }
 
 } // namespace introvert

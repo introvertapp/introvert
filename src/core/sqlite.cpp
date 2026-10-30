@@ -12,9 +12,9 @@ void require(bool condition, const char *message) { if (!condition) throw Databa
 QSqlQuery execute(QSqlDatabase &db, const QString &statement, const QVariantList &values)
 {
     QSqlQuery query(db);
-    require(query.prepare(statement), "Cannot access Introvert settings in app.db. Check database access.");
+    require(query.prepare(statement), "Cannot access INTROvert settings in app.db. Check database access.");
     for (const auto &value : values) query.addBindValue(value);
-    require(query.exec(), "Cannot save or read Introvert settings in app.db. Check database access.");
+    require(query.exec(), "Cannot save or read INTROvert settings in app.db. Check database access.");
     return query;
 }
 
@@ -27,7 +27,7 @@ void restrictPermissions(const QString &path)
         const auto file = path + suffix;
         if (QFileInfo::exists(file))
             require(QFile::setPermissions(file, QFileDevice::ReadOwner | QFileDevice::WriteOwner) || !QFileInfo::exists(file),
-                    "Cannot protect Introvert app.db permissions.");
+                    "Cannot protect INTROvert app.db permissions.");
     }
 #else
     Q_UNUSED(path);
@@ -42,7 +42,7 @@ Connection::Connection(const QString &path)
     db.setConnectOptions(QStringLiteral("QSQLITE_BUSY_TIMEOUT=5000"));
     if (!db.open()) {
         release();
-        throw DatabaseError("Cannot open Introvert app.db. Check database access.");
+        throw DatabaseError("Cannot open INTROvert app.db. Check database access.");
     }
     try {
         execute(db, QStringLiteral("PRAGMA busy_timeout=5000"));
@@ -60,7 +60,7 @@ Transaction::Transaction(QSqlDatabase &db) : m_db(db) { execute(m_db, QStringLit
 Transaction::~Transaction() { if (!m_committed) m_db.rollback(); }
 void Transaction::commit()
 {
-    require(m_db.commit(), "Cannot commit Introvert settings to app.db. Check database access.");
+    require(m_db.commit(), "Cannot commit INTROvert settings to app.db. Check database access.");
     m_committed = true;
 }
 

@@ -29,7 +29,7 @@ ApplicationSession::ApplicationSession(bool preview, const std::optional<QString
         m_updateTestNetwork = std::make_unique<updates::LocalDetectorFeed>(localDetectorFeed);
     }
     m_runtime = std::make_unique<QTemporaryDir>();
-    if (!m_runtime->isValid()) throw std::runtime_error("Cannot create Introvert runtime storage.");
+    if (!m_runtime->isValid()) throw std::runtime_error("Cannot create INTROvert runtime storage.");
     m_navigation = std::make_unique<NavigationModel>();
     if (preview) {
 #ifdef INTROVERT_PACKAGED

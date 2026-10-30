@@ -27,7 +27,7 @@ ApplicationWindow {
     objectName: "introvertWindow"
     visible: true
     width: 1200; height: 810; minimumWidth: 870; minimumHeight: 570
-    title: uiPreview ? "Introvert — UI preview" : "Introvert"
+    title: uiPreview ? "INTROvert — UI preview" : "INTROvert"
     color: colors.background
     font.pixelSize: 14
     font.weight: Font.Medium
@@ -45,7 +45,7 @@ ApplicationWindow {
     Shortcut { sequence: StandardKey.Quit; onActivated: Qt.quit() }
     menuBar: MenuBar {
         visible: Qt.platform.os === "osx"
-        Menu { title: "Window"; Action { text: "Show Introvert"; onTriggered: {window.show();window.raise();window.requestActivate()} } }
+        Menu { title: "Window"; Action { text: "Show INTROvert"; onTriggered: {window.show();window.raise();window.requestActivate()} } }
     }
     UiTheme { id: colors; objectName: "applicationTheme" }
     Loader { id: previewLoader; active: window.uiPreview; source: "PreviewData.qml" }
