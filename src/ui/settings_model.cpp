@@ -149,8 +149,8 @@ bool ProviderSettingsModel::save(CredentialAction action, const QString &credent
     try {
         m_store.saveProvider({m_provider, m_provider == "local" ? QString() : m_address,
                              m_provider == "local" ? m_address : QString(), m_images, m_timeout}, action, credential);
-    } catch (const SettingsError &error) { m_message = errorText(error); emit changed(); return false; }
-    catch (...) { m_message = QStringLiteral("Save failed. Check app.db access and retry."); emit changed(); return false; }
+    } catch (const SettingsError &error) { m_message = errorText(error); emit errorOccurred(m_message); emit changed(); return false; }
+    catch (...) { m_message = QStringLiteral("Save failed. Check app.db access and retry."); emit errorOccurred(m_message); emit changed(); return false; }
     m_edited = false;
     m_drafts.remove(m_provider);
     m_savedAddress = m_address; m_savedImages = m_images;
@@ -187,6 +187,7 @@ void EndpointSettingsModel::activate()
         [this](const OperationResult &result) {
             if (m_closed) return;
             m_busy = false; m_message = result.error;
+            if (!result.error.isEmpty()) emit errorOccurred(result.error);
             if (result.error.isEmpty()) m_keyStatus = result.status;
             if (m_revision > m_persistedRevision && result.error.isEmpty()) m_timer.start();
             emit changed();
@@ -200,7 +201,7 @@ void EndpointSettingsModel::save()
     if (m_busy) { m_timer.start(); return; }
     m_timer.stop();
     try { SettingsStore::validateEndpoints(m_values); }
-    catch (const SettingsError &error) { m_message = errorText(error); emit changed(); return; }
+    catch (const SettingsError &error) { m_message = errorText(error); emit errorOccurred(m_message); emit changed(); return; }
     const auto revision = m_revision;
     m_busy = true;
     startOperation(m_pool, this, [store = m_store, values = m_values, keys = m_keys] {
@@ -209,6 +210,7 @@ void EndpointSettingsModel::save()
     }, [this, revision](const OperationResult &result) {
         if (m_closed) return;
         m_busy = false; m_message = result.error;
+        if (!result.error.isEmpty()) emit errorOccurred(result.error);
         if (result.error.isEmpty()) {
             m_persistedRevision = revision; m_keyStatus = result.status;
             if (m_revision == revision) { m_values = result.values; m_keys.clear(); }
@@ -269,7 +271,7 @@ void WebhookSettingsModel::activate()
     }, [this](const OperationResult &result) {
         if (m_closed) return;
         m_busy = false;
-        if (!result.error.isEmpty()) m_message = result.error;
+        if (!result.error.isEmpty()) { m_message = result.error; emit errorOccurred(result.error); }
         if (result.error.isEmpty()) m_hasKey = result.status["key"].toBool();
         if (m_revision > m_persistedRevision && result.error.isEmpty()) m_timer.start();
         emit changed();
@@ -291,7 +293,7 @@ void WebhookSettingsModel::save()
     }, [this, revision](const OperationResult &result) {
         if (m_closed) return;
         m_busy = false;
-        if (!result.error.isEmpty()) m_message = result.error;
+        if (!result.error.isEmpty()) { m_message = result.error; emit errorOccurred(result.error); }
         if (result.error.isEmpty()) {
             m_hasKey = result.status["key"].toBool(); m_persistedRevision = revision;
             if (m_revision == revision) { m_values = result.values; m_key.reset(); }
@@ -321,6 +323,7 @@ void WebhookSettingsModel::test()
         if (m_closed) return;
         m_busy = false;
         m_message = result.error.isEmpty() ? QStringLiteral("Test webhook notification sent.") : result.error;
+        if (!result.error.isEmpty()) emit errorOccurred(result.error);
         if (m_revision > m_persistedRevision && result.error.isEmpty()) m_timer.start();
         emit changed();
     });

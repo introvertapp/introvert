@@ -32,8 +32,10 @@ void LocalMetadataModel::start(Kind kind, Work work)
         QMetaObject::invokeMethod(this, [this, kind, generation, keyRevision, result = std::move(result), error] {
             if (m_closed || generation != m_generation) return;
             m_busy = false; m_message = error;
+            if (!error.isEmpty()) emit errorOccurred(error);
             if (result) {
                 m_status=result->status;m_message=m_status.value("error").toString();
+                if (!m_message.isEmpty()) emit errorOccurred(m_message);
                 if(m_message.isEmpty())m_message=m_status.value("message").toString();
                 if(kind==Kind::Status) {
                     if(keyRevision==m_keyRevision && !m_pendingCredentials.contains("tmdb"))m_hasKey=result->hasKey;
@@ -61,7 +63,7 @@ void LocalMetadataModel::activate()
         m_credential=m_credentials.value("tmdb").toString();m_hasKey=!m_credential.isEmpty();
         if(!m_busy)start(Kind::Status,[this,root=m_root](quint64){return Result{m_store.hasCredential("metadata:tmdb"),m_service.recover(root)};});
         emit changed();
-    } catch(...) {m_message="Cannot load Local metadata settings. Check the media folder configuration and app.db access.";emit changed();}
+    } catch(...) {m_message="Cannot load Local metadata settings. Check the media folder configuration and app.db access.";emit errorOccurred(m_message);emit changed();}
 }
 
 void LocalMetadataModel::setOption(const QString &name,const QString &value)
@@ -75,7 +77,7 @@ void LocalMetadataModel::setOption(const QString &name,const QString &value)
             auto *media=qobject_cast<ProviderSettingsModel *>(m_library.m_settings.mediaSettings());
             media->setFetchImages(value!="off");media->flush();
         }
-    } catch(const SettingsError &error) {m_message=QString::fromUtf8(error.what());emit changed();}
+    } catch(const SettingsError &error) {m_message=QString::fromUtf8(error.what());emit errorOccurred(m_message);emit changed();}
 }
 
 void LocalMetadataModel::identify(const QString &showId,const QString &providerId)
@@ -93,7 +95,7 @@ void LocalMetadataModel::identify(const QString &showId,const QString &providerI
         sql::execute(connection.db,"INSERT INTO local_metadata_matches VALUES(?,?,?) ON CONFLICT(show_id,provider) DO UPDATE SET provider_id=excluded.provider_id",
             {showId,provider,providerId.trimmed()});
         m_targetShow=showId;fetch();
-    } catch(...) {m_message="Cannot save the show identification. Check app.db access.";emit changed();}
+    } catch(...) {m_message="Cannot save the show identification. Check app.db access.";emit errorOccurred(m_message);emit changed();}
 }
 
 void LocalMetadataModel::queueCredential(const QString &provider,const QString &key)
@@ -113,7 +115,7 @@ void LocalMetadataModel::flushKey()
             m_store.setCredential("metadata:"+i.key(),i.value().isEmpty()?std::nullopt:std::optional<QString>(i.value()));
         }
         m_pendingCredentials.clear();m_hasKey=m_store.hasCredential("metadata:tmdb");m_message.clear();emit keySaved();emit changed();
-    } catch(...) {m_message="Cannot save metadata credentials. Check API key format and app.db access.";emit changed();}
+    } catch(...) {m_message="Cannot save metadata credentials. Check API key format and app.db access.";emit errorOccurred(m_message);emit changed();}
 }
 void LocalMetadataModel::saveKey(const QString &key) {queueKey(key);m_timer.stop();flushKey();}
 
@@ -128,7 +130,7 @@ void LocalMetadataModel::fetch()
     ProviderConfig config(ProviderId::Local);
     config.localRoot = key.saved.localRoot;
     try {config.fetchImages = m_store.loadLocalMetadata(LocalProvider::rootPath(config)).value("artwork").toString()!="off";}
-    catch(...) {m_message="Cannot load Local artwork settings. Check app.db access and retry.";emit changed();return;}
+    catch(...) {m_message="Cannot load Local artwork settings. Check app.db access and retry.";emit errorOccurred(m_message);emit changed();return;}
     m_timer.stop();flushKey();
     if(!m_pendingCredentials.isEmpty())return;
     const auto target=m_targetShow;m_targetShow.clear();

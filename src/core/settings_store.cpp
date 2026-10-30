@@ -227,6 +227,13 @@ void SettingsStore::initialize() const
     execute(db, QStringLiteral("INSERT OR IGNORE INTO detection_settings(id) VALUES(1)"));
     if (!columns(db, "detection_settings").contains("visual_refinement_enabled"))
         execute(db, QStringLiteral("ALTER TABLE detection_settings ADD COLUMN visual_refinement_enabled INTEGER NOT NULL DEFAULT 1 CHECK(visual_refinement_enabled IN (0,1))"));
+    execute(db, QStringLiteral("CREATE TABLE IF NOT EXISTS in_app_notification_settings(id INTEGER PRIMARY KEY CHECK(id=1),"
+        "enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),"
+        "detection_complete INTEGER NOT NULL DEFAULT 1 CHECK(detection_complete IN (0,1)),"
+        "errors INTEGER NOT NULL DEFAULT 1 CHECK(errors IN (0,1)),"
+        "application_updates INTEGER NOT NULL DEFAULT 1 CHECK(application_updates IN (0,1)),"
+        "detector_updates INTEGER NOT NULL DEFAULT 1 CHECK(detector_updates IN (0,1)))"));
+    execute(db, QStringLiteral("INSERT OR IGNORE INTO in_app_notification_settings(id) VALUES(1)"));
     execute(db, QStringLiteral("PRAGMA user_version=2"));
     transaction.commit();
     restrictPermissions(m_path);
@@ -301,6 +308,26 @@ void SettingsStore::setVisualRefinementEnabled(bool enabled) const
     Connection connection(m_path);
     auto row=execute(connection.db,"UPDATE detection_settings SET visual_refinement_enabled=? WHERE id=1",{enabled?1:0});
     require(row.numRowsAffected()==1,"Visual refinement preference is missing.");
+}
+
+QVariantMap SettingsStore::inAppNotificationDefaults()
+{
+    return {{"enabled", true}, {"detection_complete", true}, {"errors", true}, {"application_updates", true}, {"detector_updates", true}};
+}
+QVariantMap SettingsStore::loadInAppNotifications() const
+{
+    Connection connection(m_path);
+    auto row = execute(connection.db, "SELECT enabled,detection_complete,errors,application_updates,detector_updates FROM in_app_notification_settings WHERE id=1");
+    require(row.next(), "In-app notification preferences are missing.");
+    return {{"enabled", row.value(0).toBool()}, {"detection_complete", row.value(1).toBool()}, {"errors", row.value(2).toBool()},
+        {"application_updates", row.value(3).toBool()}, {"detector_updates", row.value(4).toBool()}};
+}
+void SettingsStore::setInAppNotificationPreference(const QString &name, bool enabled) const
+{
+    require(inAppNotificationDefaults().contains(name), "Unknown in-app notification preference.");
+    Connection connection(m_path);
+    auto row = execute(connection.db, "UPDATE in_app_notification_settings SET " + name + "=? WHERE id=1", {enabled ? 1 : 0});
+    require(row.numRowsAffected() == 1, "In-app notification preferences are missing.");
 }
 
 QVariantMap SettingsStore::loadUpdates() const

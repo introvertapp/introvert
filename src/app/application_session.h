@@ -16,6 +16,8 @@ namespace introvert {
 class NavigationModel;
 class WindowLifecycle;
 namespace ui {
+class LogModel;
+class NotificationModel;
 class PreviewSettings;
 class SettingsModel;
 class LibraryModel;
@@ -36,7 +38,11 @@ public:
     QObject *root() const;
     void close();
 private:
+    void refreshUpdateNotifications();
     bool m_preview, m_closed = false, m_loaded = false;
+    std::unique_ptr<ui::LogModel> m_logs;
+    std::unique_ptr<ui::NotificationModel> m_notifications;
+    QString m_applicationNotice, m_detectorNotice, m_applicationOfferVersion, m_detectorOfferVersion;
     std::unique_ptr<QTemporaryDir> m_runtime;
     std::optional<QByteArray> m_previousQmlCache;
     std::unique_ptr<NavigationModel> m_navigation;

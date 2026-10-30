@@ -7,6 +7,7 @@ Column {
     property var segmentManager: null
     property var endpointSettings: null
     property var webhookSettings: null
+    property var notificationSettings: null
     property var shows: []
     spacing: section === "endpoints" ? 12 : 16
     readonly property var fields: [
@@ -47,6 +48,48 @@ Column {
         }
     }
     Column {
+        objectName: "inAppNotificationSection"
+        visible: panel.section === "notifications"; width: parent.width; spacing: 12
+        Text { text: "In-app notifications"; color: panel.theme.text; font.pixelSize: 15; font.bold: true }
+        Text { width: parent.width; text: "Choose which alerts appear inside Introvert."; color: panel.theme.muted; font.pixelSize: 13; wrapMode: Text.Wrap }
+        Item {
+            width: parent.width; height: 34
+            Text { anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; text: "Enabled"; color: panel.theme.text; font.pixelSize: 15; font.bold: true }
+            SegmentSwitch {
+                objectName: "toggle_in_app_enabled"
+                anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                enabled: Boolean(panel.notificationSettings)
+                checked: panel.notificationSettings ? panel.notificationSettings.preferences.enabled : true
+                Accessible.name: "Enable in-app notifications"
+                onToggled: if(panel.notificationSettings) panel.notificationSettings.setPreference("enabled", checked)
+            }
+        }
+        Column {
+            width: parent.width; spacing: 4
+            enabled: Boolean(panel.notificationSettings && panel.notificationSettings.preferences.enabled)
+            opacity: enabled ? 1 : .45
+            Repeater {
+                model: [{key:"detection_complete", label:"Detection completion"}, {key:"errors", label:"Errors"},
+                        {key:"application_updates", label:"Application updates"}, {key:"detector_updates", label:"Detector updates"}]
+                Item {
+                    required property var modelData
+                    width: parent.width; height: 34
+                    Text { anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; text: parent.modelData.label; color: panel.theme.text; font.pixelSize: 14 }
+                    SegmentSwitch {
+                        objectName: "toggle_in_app_" + parent.modelData.key
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                        checked: panel.notificationSettings ? Boolean(panel.notificationSettings.preferences[parent.modelData.key]) : true
+                        Accessible.name: parent.modelData.label + " notifications"
+                        onToggled: if(panel.notificationSettings) panel.notificationSettings.setPreference(parent.modelData.key, checked)
+                    }
+                }
+            }
+        }
+        Text { width: parent.width; text: "Update alerts appear when automatic update checks are enabled."; color: panel.theme.muted; font.pixelSize: 12; wrapMode: Text.Wrap }
+        Rectangle { width: parent.width; height: 1; color: panel.theme.border }
+    }
+    Column {
+        objectName: "webhookNotificationSection"
         visible: panel.section === "notifications"; width: parent.width; spacing: 16
         enabled: Boolean(panel.webhookSettings)
         Text { text: "Webhook notifications"; color: panel.theme.text; font.pixelSize: 15; font.bold: true }

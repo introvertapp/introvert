@@ -107,7 +107,7 @@ void SegmentManagementModel::inlineChange(const QString &id, const QString &kind
         if(m_library.m_editLocks.blocked(context->detail.show,context->episode.seasonNumber.value_or(-1)))throw SegmentError("Season timestamps cannot be edited during detection");
         if (type != "recap" && type != "intro" && type != "credits" && type != "preview") throw SegmentError("Unsupported segment type");
         if (times) value = qMakePair(parseTime(times->first), parseTime(times->second));
-    } catch (const SegmentError &error) { m_message = QString::fromUtf8(error.what()); emit changed(); return; }
+    } catch (const SegmentError &error) { m_message = QString::fromUtf8(error.what()); emit errorOccurred(m_message); emit changed(); return; }
     start(Kind::Inline, [this, context = *context, id, type, value](const Cancellation &cancel) {
         checkCancelled(cancel);
         const auto edit=m_library.m_editLocks.edit({{context.detail.show,context.episode.seasonNumber.value_or(-1)}});
@@ -192,7 +192,7 @@ void SegmentManagementModel::deleteBulk(const QVariantList &targets)
             plan.append(target);
         }
         if(!canDelete(targets))throw SegmentError("Season timestamps cannot be deleted during detection");
-    } catch (const SegmentError &error) { m_message = QString::fromUtf8(error.what()); emit changed(); return; }
+    } catch (const SegmentError &error) { m_message = QString::fromUtf8(error.what()); emit errorOccurred(m_message); emit changed(); return; }
     const auto key = *m_key;
     start(Kind::Bulk, [this, key, plan](const Cancellation &cancel) {
         const auto config = m_catalog.config(key.saved, cancel);
@@ -230,6 +230,7 @@ void SegmentManagementModel::finished(Kind kind, quint64 generation, const std::
 {
     if (m_closed || generation != m_generation) return;
     m_busy = false; m_message = error;
+    if (!error.isEmpty()) emit errorOccurred(error);
     if (result) {
         if (kind == Kind::Browse) m_detail = result->detail;
         else if (kind == Kind::Inline) m_library.updateSegments(result->revision, result->episode, result->values, result->edited);

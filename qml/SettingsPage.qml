@@ -8,6 +8,8 @@ Item {
     property var theme
     property var mediaLibrary: null
     property var applicationUpdates: null
+    property var applicationLogs: null
+    property var appNotifications: null
     required property var appSettings
     readonly property real navigationReveal: settingsSplit.panelReveal
     function toggleNavigationWidth() { settingsSplit.togglePanelWidth() }
@@ -81,7 +83,8 @@ Item {
                     SettingsTabButton { objectName: "settingsTab_detection"; width: tabButtons.width; text: "Detection"; subtitle: "Analysis and resource use"; iconName: "clock"; theme: page.theme; labelReveal: page.navigationReveal; selected: page.activeTab === "detection"; onClicked: page.activeTab = "detection" }
                     SettingsTabButton { objectName: "settingsTab_endpoints"; width: tabButtons.width; text: "Endpoints"; subtitle: "Submission and lookup APIs"; iconName: "endpoints"; theme: page.theme; labelReveal: page.navigationReveal; selected: page.activeTab === "endpoints"; onClicked: page.activeTab = "endpoints" }
                     SettingsTabButton { objectName: "settingsTab_segments"; width: tabButtons.width; text: "Segments"; subtitle: "Manage segment timestamps"; iconName: "segments"; theme: page.theme; labelReveal: page.navigationReveal; selected: page.activeTab === "segments"; onClicked: page.activeTab = "segments" }
-                    SettingsTabButton { objectName: "settingsTab_notifications"; width: tabButtons.width; text: "Notifications"; subtitle: "Segment detection alerts"; iconName: "notifications"; theme: page.theme; labelReveal: page.navigationReveal; selected: page.activeTab === "notifications"; onClicked: page.activeTab = "notifications" }
+                    SettingsTabButton { objectName: "settingsTab_notifications"; width: tabButtons.width; text: "Notifications"; subtitle: "In-app alerts and webhooks"; iconName: "notifications"; theme: page.theme; labelReveal: page.navigationReveal; selected: page.activeTab === "notifications"; onClicked: page.activeTab = "notifications" }
+                    SettingsTabButton { objectName: "settingsTab_logs"; width: tabButtons.width; text: "Logs"; subtitle: "Backend events and errors"; iconName: "logs"; theme: page.theme; labelReveal: page.navigationReveal; selected: page.activeTab === "logs"; onClicked: page.activeTab = "logs" }
                     }
                 }
             }
@@ -114,7 +117,7 @@ Item {
                                 : page.activeTab === "media" ? "Media"
                                 : page.activeTab === "detection" ? "Detection"
                                 : page.activeTab === "endpoints" ? "Endpoints"
-                                : page.activeTab === "segments" ? "Segment deletion" : "Notifications"
+                                : page.activeTab === "segments" ? "Segment deletion" : page.activeTab === "logs" ? "Logs" : "Notifications"
                             width: parent.width
                             id: sectionHeading
                             objectName: "settingsSectionHeading"
@@ -416,16 +419,22 @@ Item {
                             }
                         }
 
+                        LogsPage {
+                            visible: page.activeTab === "logs"
+                            width: parent.width
+                            height: Math.max(280, contentScroll.height - sectionHeading.height - 34)
+                            theme: page.theme; backend: page.applicationLogs
+                        }
                         LibrarySettings { id: localExtras; visible: page.activeTab === "media" && page.appSettings.mediaProvider === "local"; width: parent.width; theme: page.theme; section: "media"; localProvider: true; mediaLibrary: page.mediaLibrary }
                         ServiceSettings {
-                            visible: page.activeTab !== "application" && page.activeTab !== "media"
+                            visible: page.activeTab !== "application" && page.activeTab !== "media" && page.activeTab !== "logs"
                             width: parent.width
-                            theme: page.theme; endpointSettings: page.appSettings.endpointSettings; webhookSettings: page.appSettings.webhookSettings; segmentManager: page.segmentManager; section: page.activeTab; preview: page.preview; shows: page.previewShows
+                            theme: page.theme; notificationSettings: page.appNotifications; endpointSettings: page.appSettings.endpointSettings; webhookSettings: page.appSettings.webhookSettings; segmentManager: page.segmentManager; section: page.activeTab; preview: page.preview; shows: page.previewShows
                         }
                     }
                 }
             }
         }
     }
-    readonly property string sectionHelp: page.activeTab === "application" ? "Display preferences and application updates. Preferences are saved automatically." : page.activeTab === "detection" ? "Configure new detection jobs. Effort controls resource use; visual refinement checks Intro boundaries and Credits starts." : page.activeTab === "media" || page.activeTab === "endpoints" ? "Settings and API keys are saved in the local app.db." : page.activeTab === "notifications" ? "Webhook settings and the optional key are saved in app.db. Enabled webhooks receive successful detection summaries." : "Manage saved segment timestamps."
+    readonly property string sectionHelp: page.activeTab === "logs" ? "Live backend events and errors. The latest 1,000 entries are kept for this session; addresses and credential fields are hidden. Clear removes the session history." : page.activeTab === "application" ? "Display preferences and application updates. Preferences are saved automatically." : page.activeTab === "detection" ? "Configure new detection jobs. Effort controls resource use; visual refinement checks Intro boundaries and Credits starts." : page.activeTab === "media" || page.activeTab === "endpoints" ? "Settings and API keys are saved in the local app.db." : page.activeTab === "notifications" ? "Choose in-app alerts and configure detection completion webhooks." : "Manage saved segment timestamps."
 }

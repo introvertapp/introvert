@@ -1,6 +1,8 @@
 #include "detection_model.h"
 #include <QCoreApplication>
 #include <QEvent>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QRunnable>
 #include <algorithm>
 
@@ -77,7 +79,11 @@ void DetectionModel::sync()
             }
         }
         m_rows = m_store.queue();
-    } catch (const DatabaseError &) { m_message = "Cannot read detection jobs from app.db"; }
+    } catch (const DatabaseError &) {
+        const QString message = "Cannot read detection jobs from app.db";
+        if (m_message != message) emit errorOccurred(message);
+        m_message = message;
+    }
     emit changed();
 }
 void DetectionModel::start(const QVariantList &values)
@@ -90,8 +96,9 @@ void DetectionModel::start(const QVariantList &values)
     auto editLock=m_library.m_editLocks.detect(detail.show,season);
     if(!editLock) {m_message="Detection is already running for this season";emit changed();return;}
     try { created = m_store.create(detail, season, kinds); }
-    catch (const DatabaseError &) { m_message = "Cannot create a detection job in app.db"; emit changed(); return; }
+    catch (const DatabaseError &) { m_message = "Cannot create a detection job in app.db"; emit errorOccurred(m_message); emit changed(); return; }
     if (created.second) {
+        emit jobStarted(detail.show.title, season);
         const auto cancel = std::make_shared<std::atomic_bool>(false); m_jobs.insert(created.first, {cancel,editLock,*m_library.m_key,detail.show.identity}); const auto id = created.first;
         const auto gate=editLock.get();
         m_pool.start(QRunnable::create([this, id, detail, season, kinds, saved, cancel,gate] {
@@ -126,6 +133,38 @@ void DetectionModel::finished(const QString &id, const detection::DetectionUpdat
     m_jobs.remove(id);
     emit m_library.changed();
     m_message = error; sync();
+    if (!error.isEmpty()) { emit errorOccurred(error); return; }
+    // Read the completed job by identity, including when its show is no longer
+    // open. Do not infer completion from the current screen or replay history.
+    try {
+        for (const auto &value : m_store.rows()) {
+            const auto row = value.toMap(); if (row.value("id").toString() != id) continue;
+            const auto result = QJsonDocument::fromJson(row.value("result").toString().toUtf8()).object().toVariantMap();
+            const auto diagnostics = QJsonDocument::fromJson(row.value("diagnostics").toString().toUtf8()).object().toVariantMap();
+            const auto failures = diagnostics.value("failures").toList();
+            QString message = row.value("message").toString();
+            if (row.value("status") == "complete") {
+                const auto count = result.value("updated").toMap().size();
+                message = count == 0 ? "No new timestamps were saved." : QString("Timestamps saved for %1 %2.").arg(count).arg(count == 1 ? "episode" : "episodes");
+                if (!failures.isEmpty()) message += " Some media could not be analyzed; review the season's results.";
+                else if (!diagnostics.value("matching_warnings").toList().isEmpty()) message += " Some comparisons had limited evidence.";
+            }
+            emit jobFinished(row.value("title").toString(), row.value("season").toInt(), row.value("status").toString(), message);
+            for (const auto &value : failures) {
+                const auto failure = value.toMap();
+                auto codes = failure.value("codes").toStringList().join(", "); codes.replace('_', ' ');
+                const auto stage = failure.value("stage").toString();
+                emit diagnosticMessage("warning", QString("%1, season %2: %3 could not finish. %4")
+                    .arg(row.value("title").toString()).arg(row.value("season").toInt()).arg(stage.isEmpty() ? "A media comparison" : stage, codes));
+            }
+            const auto webhook = result.value("webhook").toMap();
+            if (webhook.value("attempted").toBool()) {
+                if (webhook.value("success").toBool()) emit diagnosticMessage("info", "Detection completion webhook delivered.");
+                else emit errorOccurred("Detection finished, but its webhook notification could not be delivered. Check Settings → Notifications.");
+            }
+            break;
+        }
+    } catch (const DatabaseError &) { emit errorOccurred("Cannot read the completed detection job from app.db."); }
 }
 void DetectionModel::close()
 {

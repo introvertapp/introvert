@@ -73,6 +73,7 @@ public:
     void updateSegments(quint64 revision, const QString &id, const segments::SegmentValues &values, bool edited);
 signals:
     void changed();
+    void errorOccurred(const QString &message);
     void cacheRebuildFailed(const QString &message);
 private:
     friend class LocalMetadataModel;
@@ -160,6 +161,7 @@ public:
     void close();
 signals:
     void changed();
+    void errorOccurred(const QString &message);
     void keySaved();
     void configurationChanged();
 private:

@@ -8,5 +8,5 @@ TextField {
     font.weight: Font.Medium
     color: palette.text
     placeholderTextColor: palette.placeholderText
-    background: Rectangle { color: control.palette.base; border.color: control.activeFocus ? control.palette.highlight : control.palette.mid; border.width: control.activeFocus ? 2 : 1; radius: 6 }
+    background: Rectangle { color: control.palette.base; border.color: control.palette.mid; border.width: 1; radius: 6 }
 }

@@ -64,7 +64,7 @@ EditorModel::EditorModel(LibraryModel &library, SegmentStore store, QObject *par
     connect(&m_player, &QMediaPlayer::errorOccurred, this, [this] {
         if (m_closed) return;
         m_priming = false; m_ready = false; m_primeActive = false;
-        m_message = "Cannot decode episode media with Qt Multimedia."; emit changed();
+        m_message = "Cannot decode episode media with Qt Multimedia."; emit errorOccurred(m_message); emit changed();
     });
     connect(&library, &LibraryModel::changed, this, &EditorModel::libraryChanged);
 }
@@ -154,7 +154,7 @@ void EditorModel::open(const Episode &episode)
     try {
         if (episode.identity.provider != ProviderId::Local) settings = m_library.m_store.loadProvider(providerName(episode.identity.provider));
     } catch (...) {
-        m_busy = false; m_priming = false; m_message = "Cannot access the segment database or episode media file."; emit changed(); return;
+        m_busy = false; m_priming = false; m_message = "Cannot access the segment database or episode media file."; emit errorOccurred(m_message); emit changed(); return;
     }
     submit(Kind::Load, [this, context, settings](const Cancellation &cancel) {
         Result result; checkCancelled(cancel);
@@ -196,7 +196,7 @@ void EditorModel::finished(Kind kind, quint64 generation, const std::shared_ptr<
     m_busy = false;
     if (!error.isEmpty()) {
         if (kind == Kind::Load) m_priming = false;
-        m_message = error;
+        m_message = error; emit errorOccurred(error);
     } else if (result && kind == Kind::Load) {
         m_baseline = result->values; m_message = result->message;
         m_library.updateSegments(m_context->revision, m_context->episode.identity.itemId, m_baseline, result->edited);
@@ -239,7 +239,7 @@ void EditorModel::save(const QVariantList &rows)
             if (value != baseline) changes[kinds[index]] = value;
         }
         if (changes.isEmpty()) throw SegmentError("No segment changes to save");
-    } catch (const SegmentError &error) { m_message = QString::fromUtf8(error.what()); emit changed(); return; }
+    } catch (const SegmentError &error) { m_message = QString::fromUtf8(error.what()); emit errorOccurred(m_message); emit changed(); return; }
     const auto context = *m_context; const auto length = duration();
     m_busy = true; m_message.clear();
     submit(Kind::Save, [this, context, length, changes](const Cancellation &) {
@@ -340,7 +340,7 @@ void EditorModel::setPreference(const QString &key, int value)
     try {
         m_store.setPreference(key, value); m_preferences = m_store.preferences();
         if (key == "speed") m_player.setPlaybackRate(playbackRate(value));
-    } catch (...) { m_message = "Cannot save editor preference"; }
+    } catch (...) { m_message = "Cannot save editor preference"; emit errorOccurred(m_message); }
     emit changed();
 }
 void EditorModel::status(QMediaPlayer::MediaStatus value)

@@ -41,6 +41,7 @@ public:
     void close();
 signals:
     void changed();
+    void errorOccurred(const QString &message);
     void prepared();
     void enqueued();
 private:

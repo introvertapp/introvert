@@ -23,6 +23,10 @@ public:
     void close();
 signals:
     void changed();
+    void errorOccurred(const QString &message);
+    void jobFinished(const QString &title, int season, const QString &status, const QString &message);
+    void diagnosticMessage(const QString &level, const QString &message);
+    void jobStarted(const QString &title, int season);
 private:
     struct Job { providers::Cancellation cancel; std::shared_ptr<segments::EditLocks::Lease> editLock; CatalogSelection selection; providers::ProviderIdentity show; };
     struct Pending { quint64 generation; CatalogSelection selection; providers::ProviderIdentity show; detection::DetectionUpdates updates; };

@@ -186,13 +186,33 @@ void SubmissionModel::finished(Kind kind, quint64 generation, const QVariant &va
 {
     if (m_closed) return;
     if (kind == Kind::Snapshot) {
+        const auto failureKey = [](const QVariantMap &row) {
+            return row.value("jobId").toString() + '\n' + row.value("code").toString() + '\n' + row.value("error").toString();
+        };
+        QSet<QString> previousFailures;
+        for (const auto &entry : m_queue + m_history) {
+            const auto row = entry.toMap(); if (row.value("status") == "Fail") previousFailures.insert(failureKey(row));
+        }
         const auto row = value.toMap(); m_queue = row.value("queue").toList(); m_history = row.value("history").toList();
+        // The first snapshot is history, not a new failure. Report subsequent
+        // endpoint failures even when their show is no longer on screen.
+        if (m_haveStatusSnapshot) for (const auto &entry : m_queue + m_history) {
+            const auto failed = entry.toMap(); const auto key = failureKey(failed);
+            if (failed.value("status") != "Fail" || previousFailures.contains(key)) continue;
+            previousFailures.insert(key);
+            emit errorOccurred(QString("Could not submit %1, %2 to %3. %4").arg(failed.value("show").toString(),
+                failed.value("code").toString(), failed.value("endpoint").toString(), failed.value("error").toString()));
+        }
         m_statistics = row.value("statistics").toMap(); m_endpoints = row.value("endpoints").toList();
         m_rawStatuses = row.value("statuses").toMap(); m_haveStatusSnapshot = true;
         m_statuses = visibleStatuses(m_rawStatuses, generation);
-    } else if (kind == Kind::Error) m_message = error;
+    } else if (kind == Kind::Error) {
+        if (m_message != error) emit errorOccurred(error);
+        m_message = error;
+    }
     else if (generation == m_generation) {
         m_busy = false; m_message = error;
+        if (!error.isEmpty()) emit errorOccurred(error);
         if (value.isValid()) {
             if (kind == Kind::Prepare) {
                 m_plan = value.toMap(); const auto &plan = *m_plan;

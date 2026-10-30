@@ -66,6 +66,10 @@ public:
     bool visualRefinementEnabled() const;
     void setVisualRefinementEnabled(bool enabled) const;
 
+    static QVariantMap inAppNotificationDefaults();
+    QVariantMap loadInAppNotifications() const;
+    void setInAppNotificationPreference(const QString &name, bool enabled) const;
+
     QVariantMap loadUpdates() const;
     void setAutomaticUpdates(bool automatic) const;
     void recordUpdateCheck(qint64 checkedAt) const;

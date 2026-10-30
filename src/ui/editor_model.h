@@ -120,6 +120,7 @@ private:
     QString m_message;
 signals:
     void changed();
+    void errorOccurred(const QString &message);
     void loaded();
     void saved();
     void catalogChanged();

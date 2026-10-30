@@ -33,6 +33,7 @@ public:
     void close();
 signals:
     void changed();
+    void errorOccurred(const QString &message);
     void deleted();
 private:
     enum class Kind { Browse, Inline, Bulk };

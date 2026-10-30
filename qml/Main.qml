@@ -42,13 +42,15 @@ ApplicationWindow {
     palette.highlightedText: colors.text
     palette.mid: colors.border
     palette.placeholderText: colors.muted
-    Shortcut { sequence: StandardKey.Quit; onActivated: Qt.quit() }
+    Shortcut { objectName: "quitShortcut"; sequences: [StandardKey.Quit]; onActivated: Qt.quit() }
     menuBar: MenuBar {
         visible: Qt.platform.os === "osx"
         Menu { title: "Window"; Action { text: "Show INTROvert"; onTriggered: {window.show();window.raise();window.requestActivate()} } }
     }
     UiTheme { id: colors; objectName: "applicationTheme" }
     Loader { id: previewLoader; active: window.uiPreview; source: "PreviewData.qml" }
+    property var applicationLogs: null
+    property var appNotifications: null
     function explain(title, message) { action.title = title; action.message = message; action.confirmText = "Close"; action.open() }
     function openShow(show) { appNavigation.navigate("home"); selectedShow = show; if(mediaLibrary && !uiPreview) { openingShowRequest=true; try { mediaLibrary.openShow(show.id) } finally { openingShowRequest=false } } }
     function openEditor() { editor.open() }
@@ -62,6 +64,7 @@ ApplicationWindow {
         function onChanged() { if(!window.uiPreview && !window.openingShowRequest && window.mediaLibrary.busy && !window.mediaLibrary.show.id) window.selectedShow=null }
     }
     ColumnLayout {
+        id: shellLayout
         anchors.fill: parent; anchors.margins: 20; spacing: 20
         AppHeader {
             id: appHeader
@@ -103,7 +106,7 @@ ApplicationWindow {
                 items: window.presentation ? window.presentation.history : window.submissions ? window.submissions.history : window.historyItems
                 onShowOpened: function(record) { if(window.presentation) window.openShow(window.presentation.shows[0]); else if(record && record.showId) { window.appSettings.setMediaProvider(record.providerId); window.openShow({id:record.showId,title:record.show}) } }
             }
-            SettingsPage { applicationUpdates: window.applicationUpdates; segmentManager: window.uiPreview ? null : window.segmentManager; theme: colors; appSettings: window.appSettings; mediaLibrary: window.uiPreview ? null : window.mediaLibrary; preview: window.uiPreview; previewShows: window.presentation ? window.presentation.shows : [] }
+            SettingsPage { appNotifications: window.appNotifications; applicationLogs: window.applicationLogs; applicationUpdates: window.applicationUpdates; segmentManager: window.uiPreview ? null : window.segmentManager; theme: colors; appSettings: window.appSettings; mediaLibrary: window.uiPreview ? null : window.mediaLibrary; preview: window.uiPreview; previewShows: window.presentation ? window.presentation.shows : [] }
             ShowPage {
                 id: showDetails
                 headerInset: pages.y+20
@@ -131,6 +134,7 @@ ApplicationWindow {
         function onPrepared() { review.open() }
         function onEnqueued() { review.close(); showDetails.clearSelection() }
     }
+    NotificationStack { theme: colors; backend: window.appNotifications; headerBottom: window.contentItem.y + shellLayout.y + appHeader.y + appHeader.height }
     ActionDialog { id: action; theme: colors }
     ReviewDialog { id: review; backend: window.uiPreview ? null : window.submissions; theme: colors; showTitle: window.selectedShow ? window.selectedShow.title : "No show selected"; preview: window.uiPreview; selectedEpisodes: showDetails.selectedCount; selectedSegments: showDetails.selectedSegmentCount; selectedTypes: showDetails.selectedTypes; activeSeason: showDetails.season; endpoint: showDetails.endpoint }
     EditorDialog { id: editor; previewEpisodes: window.presentation ? window.presentation.episodes : window.episodeItems; previewSeasonNumbers: [showDetails.season]; backend: window.videoEditor; theme: colors; timestampFormat: window.appSettings.timestampFormat; preview: window.uiPreview; showTitle: window.selectedShow ? window.selectedShow.title : "Video segment editor" }

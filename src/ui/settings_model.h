@@ -39,6 +39,7 @@ public:
     Q_INVOKABLE bool saveCredentialDraft(bool edited, const QString &credential);
 signals:
     void changed();
+    void errorOccurred(const QString &message);
     void saved();
     void cleared();
 private:
@@ -74,6 +75,7 @@ public:
     void close();
 signals:
     void changed();
+    void errorOccurred(const QString &message);
     void saved();
 private:
     void edited();
@@ -112,6 +114,7 @@ public:
     void close();
 signals:
     void changed();
+    void errorOccurred(const QString &message);
     void saved();
 private:
     void edited();

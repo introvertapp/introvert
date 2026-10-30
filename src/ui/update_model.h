@@ -66,6 +66,9 @@ public:
     Q_INVOKABLE void cancel();
 signals:
     void changed();
+    void errorOccurred(const QString &message);
+    void offerChanged(const QString &kind, const QString &version);
+    void diagnosticMessage(const QString &message);
     void restartRequested();
 private:
     void automaticCheck();

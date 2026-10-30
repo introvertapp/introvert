@@ -19,6 +19,7 @@ Canvas {
         if(name==="clock") { c.lineWidth=2;c.arc(12,12,10,0,Math.PI*2);line(12,6,12,12);line(12,12,16,14) }
         else if(name==="home") { c.rect(2,7,20,14); line(7,2,12,7);line(12,7,17,2) }
         else if(name==="queue" || name==="segments") { for(var y=6;y<=18;y+=6){line(8,y,21,y);line(3,y,4,y)} }
+        else if(name==="logs") { c.rect(4,2,16,20); for(var l=7;l<=17;l+=5){line(8,l,16,l)} }
         else if(name==="history") { c.arc(12,12,9,-2.4,3.9);line(3,3,3,9);line(3,9,9,9);line(12,7,12,12);line(12,12,16,14) }
         else if(name==="settings") {
             for(var i=0;i<24;i++){ var r=(i%3===0 || i%3===1)?10:8; var a=i*Math.PI/12; if(i===0)c.moveTo(12+r*Math.cos(a),12+r*Math.sin(a));else c.lineTo(12+r*Math.cos(a),12+r*Math.sin(a)) }

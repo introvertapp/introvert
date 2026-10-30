@@ -59,7 +59,7 @@ void UpdateModel::check()
 {
     if (!enabled() || m_closed || m_busy || m_ready) return;
     ++m_generation; m_offer = {}; m_appOffer = {}; m_detectorCandidate = {}; m_appCheckError.clear(); m_checkingDetector = false; m_detectorOffer = false; m_metadata.clear(); m_busy = true; m_progress = 0;
-    m_message = "Checking for updates…"; emit changed();
+    m_message = "Checking for updates…"; emit diagnosticMessage(m_message); emit changed();
     request(m_feed,false);
 }
 void UpdateModel::enableDetectorUpdates(QUrl feed)
@@ -84,6 +84,11 @@ void UpdateModel::finishChecks(const QString &error)
     else if (!m_appCheckError.isEmpty()) m_message = m_appCheckError;
     else m_message = "INTROvert and detector are up to date. Detector " + m_installedDetector + ".";
     if (error.isEmpty() && m_appCheckError.isEmpty()) m_store->recordUpdateCheck(QDateTime::currentSecsSinceEpoch());
+    if (m_appCheckError.isEmpty()) emit offerChanged("application", m_appOffer.version);
+    if (error.isEmpty()) emit offerChanged("detector", m_detectorCandidate.version);
+    if (!error.isEmpty()) emit errorOccurred(error);
+    if (!m_appCheckError.isEmpty()) emit errorOccurred(m_appCheckError);
+    if (error.isEmpty() && m_appCheckError.isEmpty()) emit diagnosticMessage(m_message);
     emit changed();
 }
 void UpdateModel::checkFailed(const QString &message)
@@ -167,7 +172,8 @@ void UpdateModel::request(const QUrl &url, bool downloading, int redirects)
             m_store->recordUpdateCheck(QDateTime::currentSecsSinceEpoch());
             m_busy=false;
             m_message=m_offer.version.isEmpty() ? "INTROvert is up to date." : "INTROvert "+m_offer.version+" is available.";
-            emit changed();
+            emit offerChanged("application", m_offer.version);
+            emit diagnosticMessage(m_message); emit changed();
         } catch(const std::exception &error) {checkFailed(QString::fromUtf8(error.what()));}
     });
 }
@@ -217,7 +223,7 @@ void UpdateModel::download()
     m_download.setFileName(m_payload);
     if(!m_download.open(QIODevice::WriteOnly|QIODevice::NewOnly)){fail("Cannot save the application update.");return;}
     m_received=0; m_hash.reset(); m_busy=true; m_progress=0;
-    m_message=QString("Downloading %1 %2…").arg(m_detectorOffer ? "detector" : "INTROvert", m_offer.version); emit changed(); request(m_offer.download,true);
+    m_message=QString("Downloading %1 %2…").arg(m_detectorOffer ? "detector" : "INTROvert", m_offer.version); emit diagnosticMessage(m_message); emit changed(); request(m_offer.download,true);
 }
 void UpdateModel::prepare()
 {
@@ -238,7 +244,8 @@ void UpdateModel::prepare()
                 m_installResult.reset(); m_installCancel.reset();
                 m_message = "Detector " + installed + " installed. New scans use this version; running scans keep their current version.";
                 if (!m_appOffer.version.isEmpty()) m_message += " INTROvert " + m_appOffer.version + " is also available.";
-                emit changed();
+                emit offerChanged("detector", {});
+                emit diagnosticMessage(m_message); emit changed();
             }, Qt::QueuedConnection);
         }));
         return;
@@ -247,7 +254,7 @@ void UpdateModel::prepare()
     QDir().mkpath(m_workspace->filePath("expanded"));
     prepareStep(0);
 #else
-    m_ready=true; m_busy=false; m_message="Update verified. Restart to install INTROvert "+m_offer.version+"."; emit changed();
+    m_ready=true; m_busy=false; m_message="Update verified. Restart to install INTROvert "+m_offer.version+"."; emit diagnosticMessage(m_message); emit changed();
 #endif
 }
 void UpdateModel::prepareStep(int step)
@@ -282,7 +289,7 @@ void UpdateModel::prepareStep(int step)
             fail("The staged application contains an unsafe link.");return;
         }}
         m_payload=m_workspace->filePath("expanded/Introvert.app");
-        m_busy=false; m_ready=true; m_message="Update verified. Restart to install INTROvert "+m_offer.version+"."; emit changed();
+        m_busy=false; m_ready=true; m_message="Update verified. Restart to install INTROvert "+m_offer.version+"."; emit diagnosticMessage(m_message); emit changed();
     });
     if(step==0)m_process.start("/usr/bin/tar",{"-tf",m_payload});
     else if(step==1)m_process.start("/usr/bin/tar",{"-xf",m_payload,"-C",m_workspace->filePath("expanded")});
@@ -312,7 +319,7 @@ void UpdateModel::install()
 }
 void UpdateModel::reportFailedInstallation()
 {
-    m_message="The application update failed. Try again, or reinstall INTROvert from GitHub Releases.";emit changed();
+    m_message="The application update failed. Try again, or reinstall INTROvert from GitHub Releases.";emit errorOccurred(m_message);emit changed();
 }
 void UpdateModel::cancel()
 {
@@ -326,6 +333,7 @@ void UpdateModel::cancel()
     if (m_installResult && !m_installResult->isEmpty()) {
         m_installedDetector = *m_installResult; m_detectorCandidate = {}; m_offer = m_appOffer; m_detectorOffer = false;
         m_message = "Detector " + *m_installResult + " installed. New scans use this version.";
+        emit offerChanged("detector", {});
     }
     else m_message=m_detectorOffer ? "Detector update cancelled. The previous detector remains available." : "Update cancelled. The installed application was not changed.";
     if (m_detectorOffer && !m_appOffer.version.isEmpty()) { m_offer = m_appOffer; m_detectorOffer = false; }
@@ -334,7 +342,7 @@ void UpdateModel::cancel()
 void UpdateModel::fail(const QString &message)
 {
     if(m_closed)return;
-    cancel();m_message=message;emit changed();
+    cancel();m_message=message;emit errorOccurred(message);emit changed();
 }
 void UpdateModel::close()
 {

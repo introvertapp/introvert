@@ -11,12 +11,15 @@
 #include "ui/submission_model.h"
 #include "ui/detection_model.h"
 #include "ui/update_model.h"
+#include "ui/log_model.h"
+#include "ui/notification_model.h"
 #include "updates/local_detector_feed.h"
 #include "notifications/webhook_service.h"
 #include <QQmlApplicationEngine>
 #include <QTemporaryDir>
 #include <QCoreApplication>
 #include <QDir>
+#include <type_traits>
 
 namespace introvert {
 
@@ -28,6 +31,13 @@ ApplicationSession::ApplicationSession(bool preview, const std::optional<QString
         updates::LocalDetectorFeed::validateSession(*dataRoot);
         m_updateTestNetwork = std::make_unique<updates::LocalDetectorFeed>(localDetectorFeed);
     }
+    m_logs = std::make_unique<ui::LogModel>();
+    m_notifications = std::make_unique<ui::NotificationModel>();
+    m_logs->startCapture();
+    m_logs->record("info", "Application", "Introvert " + QCoreApplication::applicationVersion() + " started.");
+    QObject::connect(m_logs.get(), &ui::LogModel::runtimeError, m_notifications.get(), [this] {
+        m_notifications->post("Application error", "A background error occurred.", {}, false, "errors", {}, "Open Settings → Logs for details.");
+    });
     m_runtime = std::make_unique<QTemporaryDir>();
     if (!m_runtime->isValid()) throw std::runtime_error("Cannot create INTROvert runtime storage.");
     m_navigation = std::make_unique<NavigationModel>();
@@ -43,6 +53,7 @@ ApplicationSession::ApplicationSession(bool preview, const std::optional<QString
         const auto paths = dataRoot ? StoragePaths::resolve(*dataRoot) : StoragePaths::resolve();
         paths.prepare();
         SettingsStore settings(paths.database); settings.initialize();
+        m_notifications->loadPreferences(settings);
         segments::SegmentStore segments(paths.database); segments.initialize();
         submissions::SubmissionStore submissions(paths.database); submissions.initialize();
         m_settings = std::make_unique<ui::SettingsModel>(settings);
@@ -56,10 +67,76 @@ ApplicationSession::ApplicationSession(bool preview, const std::optional<QString
         m_detector = std::make_unique<ui::DetectionModel>(*m_library, settings, segments, nullptr,
             [webhook = notifications::WebhookService(settings)](const auto &job) { return webhook.deliverCompletion(job); });
     }
+    const auto observeError = [this](auto *model, const QString &category) {
+        using Model = std::remove_pointer_t<decltype(model)>;
+        QObject::connect(model, &Model::errorOccurred, m_logs.get(), [this, category](const QString &message) {
+            m_logs->record("error", category, message);
+            m_notifications->post(category + " error", message);
+        });
+    };
+    observeError(m_notifications.get(), "Notification settings");
+    observeError(m_updates.get(), "Updates");
+    QObject::connect(m_notifications.get(), &ui::NotificationModel::preferencesChanged, m_logs.get(), [this] { refreshUpdateNotifications(); });
+    QObject::connect(m_updates.get(), &ui::UpdateModel::diagnosticMessage, m_logs.get(), [this](const QString &message) {
+        m_logs->record("info", "Updates", message);
+    });
+    QObject::connect(m_updates.get(), &ui::UpdateModel::offerChanged, m_logs.get(), [this](const QString &kind, const QString &version) {
+        if (kind == "application") m_applicationOfferVersion = version;
+        else if (kind == "detector") m_detectorOfferVersion = version;
+        refreshUpdateNotifications();
+    });
+    QObject::connect(m_updates.get(), &ui::UpdateModel::changed, m_logs.get(), [this] { refreshUpdateNotifications(); });
+    if (m_settings) {
+        QObject::connect(m_settings.get(), &ui::SettingsModel::error, m_logs.get(), [this](const QString &message) {
+            m_logs->record("error", "Settings", message); m_notifications->post("Settings error", message);
+        });
+        observeError(qobject_cast<ui::ProviderSettingsModel *>(m_settings->mediaSettings()), "Media settings");
+        observeError(qobject_cast<ui::EndpointSettingsModel *>(m_settings->endpointSettings()), "Endpoint settings");
+        observeError(qobject_cast<ui::WebhookSettingsModel *>(m_settings->webhookSettings()), "Webhook");
+        observeError(m_library.get(), "Library");
+        observeError(qobject_cast<ui::LocalMetadataModel *>(m_library->localMetadata()), "Metadata");
+        observeError(m_editor.get(), "Editor");
+        observeError(m_segments.get(), "Segments");
+        observeError(m_submissions.get(), "Submissions");
+        observeError(m_detector.get(), "Detection");
+        QObject::connect(m_library.get(), &ui::LibraryModel::cacheRebuildFailed, m_logs.get(), [this](const QString &message) {
+            m_logs->record("error", "Library", message); m_notifications->post("Cache rebuild failed", message);
+        });
+        QObject::connect(m_detector.get(), &ui::DetectionModel::diagnosticMessage, m_logs.get(), [this](const QString &level, const QString &message) {
+            m_logs->record(level, "Detection", message);
+        });
+        QObject::connect(m_detector.get(), &ui::DetectionModel::jobStarted, m_logs.get(), [this](const QString &title, int season) {
+            m_logs->record("info", "Detection", QString("Detection queued for %1, season %2.").arg(title).arg(season));
+        });
+        QObject::connect(m_detector.get(), &ui::DetectionModel::jobFinished, m_logs.get(),
+            [this](const QString &title, int season, const QString &status, const QString &message) {
+                const auto detail = QString("%1, season %2. %3").arg(title).arg(season).arg(message);
+                m_logs->record(status == "failed" ? "error" : "info", "Detection", detail);
+                const auto context = QString("%1 · Season %2").arg(title).arg(season);
+                if (status == "complete") m_notifications->post("Detection complete", message, {}, false, "detection_complete", context);
+                else if (status == "failed") m_notifications->post("Detection failed", message, {}, false, "errors", context);
+            });
+    }
     // Framework compilation cache is temporary, separate from canonical app.db
     // and fetched artwork. Preview never resolves or opens application storage.
     if (qEnvironmentVariableIsSet("QML_DISK_CACHE_PATH")) m_previousQmlCache = qgetenv("QML_DISK_CACHE_PATH");
     qputenv("QML_DISK_CACHE_PATH", (m_runtime->path() + "/qml-cache").toUtf8());
+}
+
+void ApplicationSession::refreshUpdateNotifications()
+{
+    const auto offer = [this](const QString &kind, const QString &type, const QString &version, QString &current) {
+        const auto key = m_updates->automatic() && m_notifications->allows(type) && !version.isEmpty() ? kind + ":" + version : QString();
+        if (key == current) return;
+        if (!current.isEmpty()) m_notifications->withdraw(current);
+        current = key;
+        if (!key.isEmpty()) m_notifications->post(kind + " update available",
+            "A new version is available.", key, true, type, "Version " + version, "Open Settings → Application to update.");
+    };
+    // Only validated offer events replace these versions. A failed refresh must
+    // not silently dismiss a persistent notice from an earlier successful check.
+    offer("Introvert", "application_updates", m_applicationOfferVersion, m_applicationNotice);
+    offer("Detector", "detector_updates", m_detectorOfferVersion, m_detectorNotice);
 }
 
 ApplicationSession::~ApplicationSession() { close(); }
@@ -81,7 +158,9 @@ bool ApplicationSession::load()
         {"videoEditor", QVariant::fromValue<QObject *>(m_editor.get())},
         {"submissions", QVariant::fromValue<QObject *>(m_submissions.get())},
         {"detector", QVariant::fromValue<QObject *>(m_detector.get())},
-        {"applicationUpdates", QVariant::fromValue<QObject *>(m_updates.get())}});
+        {"applicationUpdates", QVariant::fromValue<QObject *>(m_updates.get())},
+        {"applicationLogs", QVariant::fromValue<QObject *>(m_logs.get())},
+        {"appNotifications", QVariant::fromValue<QObject *>(m_notifications.get())}});
     m_engine->loadFromModule("Introvert.Ui", "Main");
     if (m_engine->rootObjects().isEmpty()) return false;
     m_root = m_engine->rootObjects().first();
@@ -127,6 +206,8 @@ void ApplicationSession::close()
     if (m_previousQmlCache) qputenv("QML_DISK_CACHE_PATH", *m_previousQmlCache);
     else qunsetenv("QML_DISK_CACHE_PATH");
     m_runtime.reset();
+    if (m_logs) m_logs->stopCapture();
+    m_notifications.reset(); m_logs.reset();
 }
 
 } // namespace introvert

@@ -147,6 +147,7 @@ void LibraryModel::refresh(bool force, bool clearLocal)
         m_showCancel->store(true); ++m_showGeneration; m_showActive = false; m_catalogLoading = false;
         m_shows.clear(); m_episodes.clear(); m_busy = false; m_state = "error";
         m_message = "Cannot load saved media configuration. Check application database access and retry.";
+        emit errorOccurred(m_message);
         emit changed(); return;
     }
     if (!force && !clearLocal && m_key == previous && m_catalogLoading) return;
@@ -269,6 +270,7 @@ void LibraryModel::openShow(const QString &id)
 void LibraryModel::finished(Kind kind, quint64 generation, const std::optional<Result> &result, const QString &error)
 {
     if (m_closed || generation != (kind == Kind::Show ? m_showGeneration : m_generation)) return;
+    if (!error.isEmpty() && kind != Kind::Rebuild) emit errorOccurred(error);
     if (kind == Kind::Library || kind == Kind::Rebuild) {
         m_catalogLoading = false;
         if (result) {
