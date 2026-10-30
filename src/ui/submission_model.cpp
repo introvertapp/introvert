@@ -18,6 +18,7 @@ SubmissionModel::SubmissionModel(LibraryModel &library, SettingsStore settings, 
 {
     m_pool.setMaxThreadCount(1);
     connect(&library, &LibraryModel::changed, this, &SubmissionModel::libraryChanged);
+    libraryChanged();
 }
 
 SubmissionModel::~SubmissionModel() { close(); }
@@ -27,9 +28,10 @@ bool SubmissionModel::Context::operator==(const Context &other) const
     return revision == other.revision && key == other.key && season == other.season && identity == other.identity;
 }
 
-std::optional<SubmissionModel::Context> SubmissionModel::context() const
+std::optional<SubmissionModel::Context> SubmissionModel::context(bool includeIdentity) const
 {
     if (!m_library.m_detail) return {};
+    if (!includeIdentity) return Context{m_library.m_detailRevision, m_library.selection(), m_library.season(), {}};
     const auto &detail=*m_library.m_detail;
     QStringList identity{detail.show.externalIds.imdb.value_or(QString()),detail.show.externalIds.tmdb.value_or(QString()),detail.show.externalIds.tvdb.value_or(QString())};
     for(const auto &season:detail.seasons)for(const auto &episode:season.episodes)
@@ -39,8 +41,45 @@ std::optional<SubmissionModel::Context> SubmissionModel::context() const
 
 void SubmissionModel::libraryChanged()
 {
-    if (m_closed || !m_context || context() == m_context) return;
+    if (m_closed) return;
+    const auto current = context(false);
+    if (current != m_feedbackContext) {
+        m_feedbackContext = current; ++m_feedbackGeneration;
+        m_feedbackInitialized = false; m_statusBaseline.clear(); m_message.clear();
+        for (auto &value : m_statuses) {
+            auto row = value.toMap(); row["segments"] = QVariantMap(); value = row;
+        }
+        // Reattach to known active work immediately, even while the worker is
+        // awaiting an HTTP response and cannot publish another snapshot yet.
+        if (m_haveStatusSnapshot) m_statuses = visibleStatuses(m_rawStatuses, m_feedbackGeneration.load());
+        emit changed();
+    }
+    if (!m_context || context() == m_context) return;
     ++m_generation; m_plan.reset(); m_review.clear(); m_context.reset(); m_busy = false; emit changed();
+}
+
+QVariantMap SubmissionModel::visibleStatuses(QVariantMap statuses, quint64 generation)
+{
+    const bool stale = generation != m_feedbackGeneration.load();
+    const bool current = !stale && m_feedbackContext.has_value();
+    for (auto episode = statuses.begin(); episode != statuses.end(); ++episode) {
+        auto row = episode.value().toMap(); QVariantMap visible;
+        const auto segments = row.value("segments").toMap();
+        for (auto segment = segments.begin(); segment != segments.end(); ++segment) {
+            auto state = segment.value().toMap();
+            const auto activity = state.take("activity").toString();
+            const auto key = episode.key() + '\n' + segment.key();
+            const bool active = QStringList{"WAITING", "PROCESSING", "RATE LIMITED"}.contains(state.value("result").toString());
+            // A delayed terminal snapshot from before navigation must never
+            // turn into fresh feedback on the next snapshot of this visit.
+            if (stale && !active) m_statusBaseline[key] = activity;
+            if (current && !m_feedbackInitialized && !active) m_statusBaseline[key] = activity;
+            if (current && (active || m_statusBaseline.value(key) != activity)) visible[segment.key()] = state;
+        }
+        row["segments"] = visible; episode.value() = row;
+    }
+    if (current) m_feedbackInitialized = true;
+    return stale ? m_statuses : statuses;
 }
 
 void SubmissionModel::start()
@@ -93,8 +132,9 @@ void SubmissionModel::run()
             finished(kind, generation, value, error);
         }, Qt::QueuedConnection);
     };
-    QVariantMap previous;
+    QVariantMap previous; std::optional<quint64> previousGeneration;
     const auto publish = [&] {
+        const auto generation = m_feedbackGeneration.load();
         const auto settings = m_settings.loadEndpoints();
         QVariantList endpoints;
         for (const auto &id : {QString("introdb_app"), QString("theintrodb_org")}) {
@@ -103,8 +143,10 @@ void SubmissionModel::run()
         }
         const auto snapshot = m_store.snapshot();
         const QVariantMap value{{"queue", snapshot.queue}, {"history", snapshot.history}, {"statistics", snapshot.statistics},
-            {"endpoints", endpoints}, {"statuses", m_store.episodeStatuses()}};
-        if (value != previous) { previous = value; post(Kind::Snapshot, 0, value); }
+            {"endpoints", endpoints}, {"statuses", m_store.episodeStatuses(true)}};
+        if (value != previous || previousGeneration != generation) {
+            previous = value; previousGeneration = generation; post(Kind::Snapshot, generation, value);
+        }
     };
     while (!m_stop->load()) {
         try {
@@ -145,7 +187,9 @@ void SubmissionModel::finished(Kind kind, quint64 generation, const QVariant &va
     if (m_closed) return;
     if (kind == Kind::Snapshot) {
         const auto row = value.toMap(); m_queue = row.value("queue").toList(); m_history = row.value("history").toList();
-        m_statistics = row.value("statistics").toMap(); m_endpoints = row.value("endpoints").toList(); m_statuses = row.value("statuses").toMap();
+        m_statistics = row.value("statistics").toMap(); m_endpoints = row.value("endpoints").toList();
+        m_rawStatuses = row.value("statuses").toMap(); m_haveStatusSnapshot = true;
+        m_statuses = visibleStatuses(m_rawStatuses, generation);
     } else if (kind == Kind::Error) m_message = error;
     else if (generation == m_generation) {
         m_busy = false; m_message = error;

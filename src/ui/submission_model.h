@@ -61,8 +61,9 @@ private:
         QString endpoint;
         QVariantMap plan;
     };
-    std::optional<Context> context() const;
+    std::optional<Context> context(bool includeIdentity = true) const;
     void libraryChanged();
+    QVariantMap visibleStatuses(QVariantMap statuses, quint64 generation);
     void push(Command command);
     void run();
     void finished(Kind kind, quint64 generation, const QVariant &value, const QString &error);
@@ -76,10 +77,15 @@ private:
     std::condition_variable m_wake;
     std::deque<Command> m_commands;
     std::optional<Context> m_context;
+    std::optional<Context> m_feedbackContext;
     std::optional<QVariantMap> m_plan;
     QVariantList m_queue, m_history, m_endpoints;
-    QVariantMap m_statistics, m_review, m_statuses;
+    QVariantMap m_statistics, m_review, m_statuses, m_rawStatuses;
     QString m_message;
+    QMap<QString, QString> m_statusBaseline;
+    std::atomic<quint64> m_feedbackGeneration{0};
+    bool m_feedbackInitialized = false;
+    bool m_haveStatusSnapshot = false;
     quint64 m_generation = 0;
     bool m_busy = false, m_started = false, m_closed = false;
 };

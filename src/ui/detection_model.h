@@ -40,6 +40,7 @@ private:
     QVariantMap m_status;
     QVariantList m_rows;
     QString m_message;
+    QString m_displayJob;
     std::optional<QString> m_context;
     bool m_closed = false;
 };

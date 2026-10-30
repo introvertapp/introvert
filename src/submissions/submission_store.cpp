@@ -222,10 +222,10 @@ bool SubmissionStore::processOne(const SettingsStore &settings, const providers:
     finish(*selected, completion); return true;
 }
 
-QVariantMap SubmissionStore::episodeStatuses() const
+QVariantMap SubmissionStore::episodeStatuses(bool includeActivity) const
 {
     sql::Connection connection(m_path);
-    const auto records = rows(connection.db, "SELECT j.provider,j.show_id,i.episode_id,i.kind,i.status,i.comparison,i.error,i.http_status,j.endpoint,i.start,i.end,i.updated,i.status_revision "
+    const auto records = rows(connection.db, "SELECT j.provider,j.show_id,i.episode_id,i.kind,i.status,i.comparison,i.error,i.http_status,j.endpoint,i.start,i.end,i.updated,i.status_revision,i.id,i.revision "
         "FROM submit_items i JOIN submit_jobs j ON j.id=i.job_id ORDER BY i.updated DESC,i.id DESC");
     QVariantMap result;
     for (const auto &item : records) {
@@ -238,6 +238,8 @@ QVariantMap SubmissionStore::episodeStatuses() const
                 {"comparison", item.value("comparison").isNull() ? QString("") : item.value("comparison").toString()},
                 {"error", item.value("error")}, {"httpStatus", nullable(item.value("http_status"))}};
             if(item.value("status_revision").toLongLong()>0)current["statusRevision"]=item.value("status_revision");
+            if(includeActivity)current["activity"]=QString("%1:%2:%3").arg(item.value("id").toLongLong()).arg(item.value("revision").toLongLong())
+                .arg(item.value("updated").toDouble(),0,'g',17);
             segments[kind]=current;
         }
         if (item.value("status") == "OK" || item.value("status") == "DUPLICATE") {

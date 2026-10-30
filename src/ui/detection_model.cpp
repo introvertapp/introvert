@@ -51,14 +51,20 @@ void DetectionModel::sync()
         const auto &identity = m_library.m_detail->show.identity;
         context = providers::providerName(identity.provider) + '\n' + identity.itemId + '\n' + QString::number(m_library.season());
     }
-    if (context != m_context) { m_message.clear(); m_context = context; }
+    if (context != m_context) { m_message.clear(); m_displayJob.clear(); m_context = context; }
     try {
         const auto previous = m_status;
         m_status.clear(); for (const auto &value : m_store.rows()) {
             const auto row = value.toMap(); const auto key = row.value("provider").toString() + '\n' + row.value("show_id").toString() + '\n' + row.value("season").toString();
             if (context && *context == key) {
-                m_status = row;
                 const auto state = row.value("status").toString();
+                const auto id = row.value("id").toString();
+                const bool ongoing = state == "queued" || state == "running" || m_jobs.contains(id);
+                // History remains durable, but terminal feedback belongs only
+                // to the screen visit that observed the job running.
+                if (ongoing) m_displayJob = id;
+                else if (m_displayJob != id) break;
+                m_status = row;
                 if (m_jobs.contains(row.value("id").toString()) && state != "queued" && state != "running") {
                     // SQLite can finish before the queued GUI result delivery.
                     // Publish completion only after every episode has refreshed.

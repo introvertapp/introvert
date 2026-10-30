@@ -29,7 +29,7 @@ public:
     bool processOne(const SettingsStore &settings, const providers::Cancellation &cancelled,
                     const std::function<void()> &progress = {}) const;
     SubmissionSnapshot snapshot() const;
-    QVariantMap episodeStatuses() const;
+    QVariantMap episodeStatuses(bool includeActivity = false) const;
 private:
     QString m_path;
     Clock m_clock;
