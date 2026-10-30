@@ -1,10 +1,25 @@
 #include "visual_credits.h"
 #include <QRegularExpression>
+#include <QDebug>
+#include <mutex>
 #import <Vision/Vision.h>
 #import <Foundation/Foundation.h>
 #import <CoreGraphics/CoreGraphics.h>
 
 namespace introvert::detection {
+namespace {
+VNRecognizeTextRequest *textRequest(VNRequestTextRecognitionLevel level)
+{
+    auto request=[[[VNRecognizeTextRequest alloc] init] autorelease];
+    request.revision=VNRecognizeTextRequestRevision3; request.recognitionLevel=level;
+    request.usesLanguageCorrection=NO; request.automaticallyDetectsLanguage=YES; request.minimumTextHeight=.012;
+    return request;
+}
+QString recognitionError(NSError *error)
+{
+    return error ? QString("%1/%2").arg(QString::fromUtf8([error.domain UTF8String])).arg(error.code) : QStringLiteral("no_error_details");
+}
+}
 QVariantMap visualCreditsDescription()
 {
     @autoreleasepool {
@@ -16,9 +31,9 @@ QVariantMap visualCreditsDescription()
         } else return {{"available",false},{"reason","text_backend_unavailable"}};
         const QVariantList configuration{
             QVariantList{"os",QString::fromUtf8([NSProcessInfo.processInfo.operatingSystemVersionString UTF8String])},
-            QVariantList{"request_revision",3},QVariantList{"recognition","accurate"},QVariantList{"language","automatic"},
+            QVariantList{"request_revision",3},QVariantList{"recognition","accurate-fallback-fast-on-error-v1"},QVariantList{"language","automatic"},
             QVariantList{"language_correction",false},QVariantList{"pixels","rgb24-960x540-fit-pad-v1"}};
-        return {{"available",true},{"extractor","vision-credit-text"},{"version","vision-text-r3-v2"},{"schema","1"},
+        return {{"available",true},{"extractor","vision-credit-text"},{"version","vision-text-r3-v3"},{"schema","1"},
             {"width",960},{"height",540},{"frames_per_second",1.},{"refinement_frames_per_second",4.},{"columns",visualFeatureColumns},
             {"edge_radius_seconds",5.},{"configuration",configuration}};
         } @catch (NSException *) { return {{"available",false},{"reason","text_backend_unavailable"}}; }
@@ -37,14 +52,26 @@ QVariantList observeCreditFrame(const QByteArray &rgb, int width, int height, co
         CGImageRef image=CGImageCreate(size_t(width),size_t(height),8,24,size_t(width)*3,color,kCGImageAlphaNone,provider,nullptr,false,kCGRenderingIntentDefault);
         CGColorSpaceRelease(color); CGDataProviderRelease(provider);
         if (!image) throw DetectionError("visual_image_failed","Cannot construct a scoped video image.");
-        VNRecognizeTextRequest *request=[[[VNRecognizeTextRequest alloc] init] autorelease];
-        request.revision=VNRecognizeTextRequestRevision3; request.recognitionLevel=VNRequestTextRecognitionLevelAccurate;
-        request.usesLanguageCorrection=NO; request.automaticallyDetectsLanguage=YES; request.minimumTextHeight=.012;
+        VNRecognizeTextRequest *request=textRequest(VNRequestTextRecognitionLevelAccurate);
         VNImageRequestHandler *handler=nil;
         @try { handler=[[[VNImageRequestHandler alloc] initWithCGImage:image options:@{}] autorelease]; }
         @finally { CGImageRelease(image); }
-        NSError *error=nil; const BOOL ok=[handler performRequests:@[request] error:&error];
-        if (!ok) { throw DetectionError("visual_text_failed","Text recognition did not complete."); }
+        NSError *error=nil;
+        if (![handler performRequests:@[request] error:&error]) {
+            checkCancelled(cancel);
+            const auto accurateError=recognitionError(error);
+            // Some OS/runtime combinations advertise the accurate model but fail
+            // to compile it. Retry once with Vision's independent character path;
+            // empty successful recognition is not a failure and is never retried.
+            static std::once_flag recoveryNotice;
+            std::call_once(recoveryNotice,[&] {qWarning().noquote()<<"Vision accurate text recognition failed ("+accurateError+"); retrying with fast recognition.";});
+            request=textRequest(VNRequestTextRecognitionLevelFast); error=nil;
+            if (![handler performRequests:@[request] error:&error]) {
+                checkCancelled(cancel);
+                throw DetectionError("visual_text_failed",QString("Text recognition did not complete (accurate: %1; fast: %2).")
+                    .arg(accurateError,recognitionError(error)));
+            }
+        }
         static const QRegularExpression roles(QStringLiteral("\\b(directors?|producers?|production|written|writers?|cast|music|editors?|editing|sound|camera|photography|costumes?|makeup|executive|assistants?|starring|screenplay|created|design)\\b"),QRegularExpression::CaseInsensitiveOption);
         QList<VisualTextLine> lines;
         for (VNRecognizedTextObservation *observation in request.results) {

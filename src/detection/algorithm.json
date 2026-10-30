@@ -1,7 +1,7 @@
 {
   "id": "introvert-detector",
   "name": "INTROvert Detector",
-  "version": "0.48.0",
+  "version": "0.48.1",
   "interface_version": 1,
   "result_schema_version": 1,
   "minimum_app_version": "0.1.7",
