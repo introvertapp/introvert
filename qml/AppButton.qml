@@ -62,7 +62,7 @@ Button {
         anchors.fill: parent
         visible: control.iconName === ""
         text: control.text
-        color: control.primary ? "white" : control.subtle ? (control.hovered ? "#c7ffffff" : "#7affffff") : control.theme.text
+        color: control.primary ? "white" : control.subtle ? (control.hovered || control.selected ? "#c7ffffff" : "#7affffff") : control.theme.text
         font.pixelSize: control.fontSize
         font.weight: control.subtle ? Font.Bold : control.selected ? Font.Bold : Font.DemiBold
         font.family: control.subtle ? (Qt.platform.os === "osx" ? "Menlo" : Qt.platform.os === "windows" ? "Consolas" : "monospace") : control.font.family

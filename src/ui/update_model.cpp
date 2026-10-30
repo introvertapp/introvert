@@ -157,10 +157,12 @@ void UpdateModel::request(const QUrl &url, bool downloading, int redirects)
             if (m_checkingDetector) {
                 if (!document.isArray()) throw std::runtime_error("GitHub returned invalid detector release information.");
                 m_offer = updates::detectorReleaseOffer(document.array(), m_installedDetector, installedVersion(), updates::platform(), updates::architecture(), QT_VERSION_STR);
+                m_detectorLatestVersion = updates::latestDetectorVersion(document.array(), installedVersion(), updates::platform(), updates::architecture(), QT_VERSION_STR);
                 finishChecks(); return;
             }
             if(!document.isObject())throw std::runtime_error("GitHub returned invalid release information.");
             m_offer=updates::releaseOffer(document.object(),installedVersion(),updates::platform(),updates::architecture(),m_packageFormat.isNull()?linuxFormat():m_packageFormat);
+            m_latestVersion = updates::latestApplicationVersion(document.object());
             if (!m_detectorFeed.isEmpty()) { checkDetector(); return; }
             m_store->recordUpdateCheck(QDateTime::currentSecsSinceEpoch());
             m_busy=false;

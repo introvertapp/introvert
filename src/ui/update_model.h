@@ -25,9 +25,12 @@ class UpdateModel final : public QObject {
     Q_PROPERTY(int progress READ progress NOTIFY changed)
     Q_PROPERTY(QString installedVersion READ installedVersion CONSTANT)
     Q_PROPERTY(QString availableVersion READ availableVersion NOTIFY changed)
+    Q_PROPERTY(bool applicationUpdateAvailable READ applicationUpdateAvailable NOTIFY changed)
+    Q_PROPERTY(QString latestVersion READ latestVersion NOTIFY changed)
     Q_PROPERTY(QString message READ message NOTIFY changed)
     Q_PROPERTY(QString detectorInstalledVersion READ detectorInstalledVersion NOTIFY changed)
     Q_PROPERTY(QString detectorAvailableVersion READ detectorAvailableVersion NOTIFY changed)
+    Q_PROPERTY(QString detectorLatestVersion READ detectorLatestVersion NOTIFY changed)
     Q_PROPERTY(QString updateKind READ updateKind NOTIFY changed)
 public:
     explicit UpdateModel(std::optional<SettingsStore> store, QObject *parent = nullptr,
@@ -42,9 +45,12 @@ public:
     int progress() const { return m_progress; }
     QString installedVersion() const;
     QString availableVersion() const { return m_offer.version; }
+    bool applicationUpdateAvailable() const { return !m_appOffer.version.isEmpty() || (!m_detectorOffer && !m_offer.version.isEmpty()); }
+    QString latestVersion() const { return m_latestVersion; }
     QString message() const { return m_message; }
     QString detectorInstalledVersion() const { return m_installedDetector; }
     QString detectorAvailableVersion() const { return m_detectorCandidate.version; }
+    QString detectorLatestVersion() const { return m_detectorLatestVersion; }
     QString updateKind() const { return m_detectorOffer ? "detector" : "application"; }
     void start();
     void close();
@@ -77,7 +83,7 @@ private:
     QNetworkAccessManager *m_transport;
     QUrl m_feed, m_detectorFeed;
     updates::Offer m_appOffer, m_detectorCandidate;
-    QString m_appCheckError, m_installedDetector;
+    QString m_appCheckError, m_installedDetector, m_latestVersion, m_detectorLatestVersion;
     bool m_checkingDetector = false, m_detectorOffer = false;
     QPointer<QNetworkReply> m_reply;
     QProcess m_process;

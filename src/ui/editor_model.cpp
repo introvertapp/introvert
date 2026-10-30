@@ -43,16 +43,19 @@ double playbackRate(int index)
 }
 
 EditorModel::EditorModel(LibraryModel &library, SegmentStore store, QObject *parent)
-    : QObject(parent), m_library(library), m_store(std::move(store)), m_audio(this), m_buffer(this), m_player(this),
+    : QObject(parent), m_library(library), m_store(std::move(store)), m_audio(this), m_buffer(this), m_videoSink(this), m_player(this),
       m_preferences(m_store.preferences())
 {
     m_pool.setMaxThreadCount(1);
     m_player.setAudioOutput(&m_audio); m_player.setAudioBufferOutput(&m_buffer);
+    m_player.setVideoSink(&m_videoSink);
     connect(&m_buffer, &QAudioBufferOutput::audioBufferReceived, this, [this](const QAudioBuffer &buffer) {
         if (!m_closed && playing() && !muted() && buffer.isValid()) { m_levels = editor::audioLevels(buffer, m_levels); emit changed(); }
     });
     connect(&m_player, &QMediaPlayer::positionChanged, this, &EditorModel::changed);
     connect(&m_player, &QMediaPlayer::durationChanged, this, &EditorModel::changed);
+    connect(&m_player, &QMediaPlayer::tracksChanged, this, &EditorModel::subtitlesChanged);
+    connect(&m_player, &QMediaPlayer::activeTracksChanged, this, &EditorModel::subtitlesChanged);
     connect(&m_player, &QMediaPlayer::playbackStateChanged, this, [this] {
         if (!playing()) m_levels = {0, 0};
         emit changed();
@@ -81,6 +84,19 @@ QString EditorModel::episodeTitle() const
     const auto &episode = m_context->episode;
     return "Episode " + (episode.episodeNumber ? QString::number(*episode.episodeNumber) : QString("None"))
         + " — " + episode.title.value_or(QString());
+}
+
+QVariantList EditorModel::subtitleTracks() const
+{
+    QVariantList result;
+    for (const auto &track : m_player.subtitleTracks()) {
+        auto label = track.stringValue(QMediaMetaData::Title).trimmed();
+        const auto language = track.stringValue(QMediaMetaData::Language).trimmed();
+        if (!language.isEmpty() && language != label)
+            label = label.isEmpty() ? language : label + " · " + language;
+        result.append(label.isEmpty() ? QString("Subtitle %1").arg(result.size() + 1) : label);
+    }
+    return result;
 }
 
 QVariantMap EditorModel::segmentValues() const
@@ -117,15 +133,19 @@ void EditorModel::openEpisode(const QString &id)
 void EditorModel::resetMedia()
 {
     m_priming = false; m_ready = false; m_primeActive = false; m_pendingSeek.reset();
+    m_activeSubtitleTrack = -1;
     m_player.stop(); m_player.setSource(QUrl());
+    m_videoSink.setSubtitleText({}); m_videoSink.setVideoFrame({});
+    if (m_outputSink) { m_outputSink->setSubtitleText({}); m_outputSink->setVideoFrame({}); }
     m_stream.reset(); m_levels = {0, 0}; m_ready = false;
+    emit subtitlesChanged();
 }
 
 void EditorModel::open(const Episode &episode)
 {
     m_cancel->store(true); m_cancel = std::make_shared<std::atomic_bool>(false); ++m_generation;
     resetMedia();
-    if (auto *sink = m_player.videoSink()) bindSink(sink);
+    if (m_outputSink) bindSink(m_outputSink);
     m_context->episode = episode; m_baseline.clear();
     m_season = int(episode.seasonNumber.value_or(-1)); refreshCatalog();
     m_busy = true; m_message.clear(); m_priming = true; emit loaded();
@@ -255,16 +275,36 @@ void EditorModel::refreshCatalog()
 void EditorModel::attachVideoSink(QObject *value)
 {
     auto *sink = qobject_cast<QVideoSink *>(value);
-    if (m_closed || !sink || m_player.videoSink() == sink) return;
-    m_player.setVideoSink(sink); bindSink(sink);
+    if (m_closed || !sink) return;
+    m_videoSink.setRhi(sink->rhi());
+    if (m_outputSink != sink) bindSink(sink);
 }
 void EditorModel::bindSink(QVideoSink *sink)
 {
-    disconnect(m_sinkConnection);
-    m_sinkConnection = connect(sink, &QVideoSink::videoFrameChanged, this,
+    disconnect(m_sinkConnection); disconnect(m_subtitleConnection); disconnect(m_sinkDestroyedConnection);
+    m_outputSink = sink;
+    m_sinkDestroyedConnection = connect(sink, &QObject::destroyed, this, [this] { m_videoSink.setRhi(nullptr); });
+    m_sinkConnection = connect(&m_videoSink, &QVideoSink::videoFrameChanged, this,
         [this, generation = m_generation, guard = QPointer<QVideoSink>(sink)](const QVideoFrame &frame) {
-            if (guard && generation == m_generation && m_player.videoSink() == guard.data()) firstFrame(frame);
+            if (m_closed || !guard || generation != m_generation || m_outputSink != guard) return;
+            guard->setSubtitleText(m_activeSubtitleTrack < 0 ? QString() : m_videoSink.subtitleText());
+            guard->setVideoFrame(frame); firstFrame(frame);
         });
+    m_subtitleConnection = connect(&m_videoSink, &QVideoSink::subtitleTextChanged, this,
+        [this, generation = m_generation, guard = QPointer<QVideoSink>(sink)] {
+            if (!m_closed && guard && generation == m_generation && m_outputSink == guard) updateSubtitlePresentation();
+        });
+}
+void EditorModel::updateSubtitlePresentation()
+{
+    if (!m_outputSink) return;
+    m_outputSink->setSubtitleText(m_activeSubtitleTrack < 0 ? QString() : m_videoSink.subtitleText());
+    const auto frame = m_videoSink.videoFrame();
+    if (frame.isValid()) {
+        // Re-present the same decoded frame, including while paused. Both
+        // updates occur together on the UI thread; playback never seeks.
+        m_outputSink->setVideoFrame({}); m_outputSink->setVideoFrame(frame);
+    }
 }
 void EditorModel::seek(double seconds)
 {
@@ -281,6 +321,19 @@ void EditorModel::toggleMuted()
     if (m_closed) return;
     m_audio.setMuted(!muted()); m_levels = {0, 0}; emit changed();
 }
+void EditorModel::setActiveSubtitleTrack(int index)
+{
+    if (m_closed || !ready() || index < -1 || index >= m_player.subtitleTracks().size()) return;
+    if (index == m_activeSubtitleTrack) return;
+    m_activeSubtitleTrack = index;
+    if (index >= 0 && index != m_player.activeSubtitleTrack()) {
+        m_videoSink.setSubtitleText({});
+        m_player.setActiveSubtitleTrack(index);
+    }
+    // Keep the decoder selected when hidden. Qt rebuilds the demuxer on actual
+    // track changes, which can disturb audio even when just disabling captions.
+    updateSubtitlePresentation(); emit subtitlesChanged();
+}
 void EditorModel::setPreference(const QString &key, int value)
 {
     if (m_closed) return;
@@ -296,6 +349,9 @@ void EditorModel::status(QMediaPlayer::MediaStatus value)
     if (value == QMediaPlayer::LoadedMedia || value == QMediaPlayer::BufferedMedia) {
         m_ready = true;
         if (m_pendingSeek) {
+            // Prepare the first subtitle decoder before playback starts. On/off
+            // can then change presentation without touching audio or demuxing.
+            if (!m_player.subtitleTracks().isEmpty()) m_player.setActiveSubtitleTrack(0);
             const auto position = *m_pendingSeek; m_pendingSeek.reset(); m_primeActive = true;
             // Qt's paused decoder prepares a video frame without starting audio.
             seek(position); m_player.pause();

@@ -83,6 +83,7 @@ Dialog {
     }
     function loadBackend() {
         if(!backend || preview)return
+        subtitleMenu.close()
         videoTapTimer.stop();pendingVideoTap=null;skipFade.stop();skipOverlay.opacity=0
         var values=backend.segmentValues
         initialSegments=segmentTemplates.map(function(item) {
@@ -126,7 +127,7 @@ Dialog {
     onOpened: {
         if(backend && !preview) { drawerOpen=backend.preferences.drawer;frameStepIndex=backend.preferences.frameStep;playbackSpeedIndex=backend.preferences.speed }
     }
-    onClosed: { videoTapTimer.stop();pendingVideoTap=null;skipFade.stop();skipOverlay.opacity=0;if(backend && !preview)backend.unload();closeAfterSave=false;pendingNavigation=null;resumeAfterSave=false }
+    onClosed: { subtitleMenu.close();videoTapTimer.stop();pendingVideoTap=null;skipFade.stop();skipOverlay.opacity=0;if(backend && !preview)backend.unload();closeAfterSave=false;pendingNavigation=null;resumeAfterSave=false }
     Connections {
         target: editor.backend || null
         function onLoaded() { editor.loadBackend() }
@@ -372,6 +373,43 @@ Dialog {
                         AppButton { iconName: "play"; objectName: "editorAutoPlayControl"; iconOpacity: hovered || selected ? 1 : .4; glyphOnly: true; hint: "Video auto-play "+(editor.backend && editor.backend.preferences.autoPlay?"on":"off"); selected: Boolean(editor.backend && editor.backend.preferences.autoPlay); implicitWidth: 26; implicitHeight: 26; enabled: Boolean(editor.backend); theme: editor.theme; onClicked: editor.backend.setPreference("autoPlay",editor.backend.preferences.autoPlay?0:1) }
                         AppButton { objectName: "editorFrameStepControl"; subtle: true; text: "⏴"+[5,10,20][editor.frameStepIndex]+"⏵"; implicitWidth: 44; implicitHeight: 26; fontSize: 11; hint: "Arrow keys move "+[5,10,20][editor.frameStepIndex]+" frames"; theme: editor.theme; onClicked: editor.frameStepIndex=(editor.frameStepIndex+1)%3 }
                         AppButton { objectName: "editorSpeedControl"; subtle: true; text: "⏵ "+[1,-2,-3][editor.playbackSpeedIndex]+"x"; implicitWidth: 44; implicitHeight: 26; fontSize: 11; hint: "Playback speed "+[1,-2,-3][editor.playbackSpeedIndex]+"x (click to cycle)"; theme: editor.theme; onClicked: editor.playbackSpeedIndex=(editor.playbackSpeedIndex+1)%3 }
+                        AppButton {
+                            id: subtitleControl; objectName: "editorSubtitleControl"
+                            subtle: true; text: "SUB"; fontSize: 11
+                            implicitWidth: 44; implicitHeight: 26; theme: editor.theme
+                            enabled: Boolean(!editor.preview && editor.backend && editor.backend.ready && editor.backend.subtitleTracks.length)
+                            selected: Boolean(editor.backend && editor.backend.activeSubtitleTrack >= 0)
+                            hint: !enabled ? "No embedded subtitles" : editor.backend.subtitleTracks.length > 1 ? "Select subtitles" : selected ? "Disable subtitles" : "Enable subtitles"
+                            onClicked: {
+                                if(editor.backend.subtitleTracks.length > 1) subtitleMenu.open()
+                                else editor.backend.setActiveSubtitleTrack(selected ? -1 : 0)
+                            }
+                            Menu {
+                                id: subtitleMenu; objectName: "editorSubtitleMenu"
+                                x: 0; y: subtitleControl.height+4; width: 240; padding: 5; popupType: Popup.Item
+                                background: Rectangle { color: editor.theme.field; radius: 8; border.color: editor.theme.border }
+                                ButtonGroup { id: subtitleSelection }
+                                MenuItem {
+                                    objectName: "editorSubtitlesOff"; text: "Off"; checkable: true
+                                    ButtonGroup.group: subtitleSelection
+                                    checked: !editor.backend || editor.backend.activeSubtitleTrack < 0
+                                    onTriggered: if(editor.backend) editor.backend.setActiveSubtitleTrack(-1)
+                                }
+                                Instantiator {
+                                    model: editor.backend ? editor.backend.subtitleTracks : []
+                                    delegate: MenuItem {
+                                        required property int index
+                                        required property string modelData
+                                        objectName: "editorSubtitleTrack_"+index; text: modelData; checkable: true
+                                        ButtonGroup.group: subtitleSelection
+                                        checked: Boolean(editor.backend && editor.backend.activeSubtitleTrack === index)
+                                        onTriggered: editor.backend.setActiveSubtitleTrack(index)
+                                    }
+                                    onObjectAdded: function(index,object) {subtitleMenu.insertItem(index+1,object)}
+                                    onObjectRemoved: function(index,object) {subtitleMenu.removeItem(object)}
+                                }
+                            }
+                        }
                         AppButton { objectName: "editorMuteControl"; iconOpacity: hovered ? 1 : .55; glyphOnly: true; iconSize: 17; iconName: editor.backend && editor.backend.muted ? "volume-muted" : "volume"; hint: editor.backend && editor.backend.muted ? "Unmute audio" : "Mute audio"; implicitWidth: 26; implicitHeight: 26; enabled: Boolean(editor.backend); theme: editor.theme; onClicked: editor.backend.toggleMuted() }
                     }
                     RowLayout {

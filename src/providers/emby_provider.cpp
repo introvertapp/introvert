@@ -156,9 +156,7 @@ QList<QJsonObject> EmbyProvider::items(const ProviderConfig &config, const QStri
 
 QString EmbyProvider::web(const ProviderConfig &config, const QString &key, const std::optional<QString> &server) const
 {
-    const auto route = m_provider == ProviderId::Emby ? "item" : "details";
-    return detail::baseUrl(config.remoteUrl.value_or(QString())) + "/web/index.html#!/" + route
-        + "?id=" + detail::quote(key) + (server && !server->isEmpty() ? "&serverId=" + detail::quote(*server) : QString());
+    return itemWebUrl(config.remoteUrl.value_or(QString()), {m_provider, key, server});
 }
 
 ShowSummary EmbyProvider::show(const ProviderConfig &config, const QJsonObject &item, bool includeImages) const

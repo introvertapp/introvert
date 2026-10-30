@@ -53,8 +53,19 @@ Rectangle {
             Layout.fillWidth: true; spacing: 8; Layout.preferredHeight: 24
             Text {
                 text: row.episode.number + ". " + row.episode.title
+                enabled: !row.preview && Boolean(row.episode.itemUrl)
                 color: row.theme.text; font.pixelSize: 17; font.weight: Font.Bold
                 elide: Text.ElideRight; Layout.maximumWidth: row.width-160
+                MouseArea {
+                    id: episodeLink
+                    objectName: "openEpisode_" + row.episode.id
+                    anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.Link; Accessible.name: "Open " + row.episode.title + " in media server"
+                    onClicked: Qt.openUrlExternally(row.episode.itemUrl)
+                    Keys.onReturnPressed: Qt.openUrlExternally(row.episode.itemUrl)
+                    Keys.onSpacePressed: Qt.openUrlExternally(row.episode.itemUrl)
+                }
             }
             AppButton {
                 objectName: "openEditor_" + row.episode.id
@@ -63,7 +74,6 @@ Rectangle {
                 onClicked: row.editorRequested()
             }
             Item { Layout.fillWidth: true }
-            Text { visible: row.episode.status === "Edited"; text: "Edited"; color: "#ffb833"; font.pixelSize: 12 }
         }
         ColumnLayout {
             spacing: 10; Layout.fillWidth: true

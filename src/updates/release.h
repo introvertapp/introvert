@@ -20,6 +20,9 @@ bool newerVersion(const QString &candidate, const QString &installed);
 QString platform();
 QString architecture();
 bool trustedDownload(const QUrl &url);
+QString latestApplicationVersion(const QJsonObject &release);
+QString latestDetectorVersion(const QJsonArray &releases, const QString &appVersion,
+    const QString &platform, const QString &arch, const QString &qtVersion);
 Offer releaseOffer(const QJsonObject &release, const QString &installed,
                    const QString &platform, const QString &arch, const QString &packageFormat = {});
 

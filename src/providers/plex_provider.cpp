@@ -111,9 +111,7 @@ QList<QJsonObject> PlexProvider::items(const ProviderConfig &config, const QStri
 
 QString PlexProvider::web(const ProviderConfig &config, const QString &key) const
 {
-    if (!m_machine || m_machine->isEmpty()) return {};
-    return detail::baseUrl(config.remoteUrl.value_or(QString())) + "/web/index.html#!/server/"
-        + detail::quote(*m_machine) + "/details?key=" + detail::quote("/library/metadata/" + key);
+    return itemWebUrl(config.remoteUrl.value_or(QString()), {ProviderId::Plex, key, m_machine});
 }
 
 ShowSummary PlexProvider::show(const ProviderConfig &config, const QJsonObject &item, bool includeImages) const

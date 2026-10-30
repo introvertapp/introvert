@@ -57,6 +57,10 @@ struct ProviderIdentity {
     std::optional<QString> serverId;
 };
 
+// Browser links are rebuilt from the current server address and cached identity;
+// authentication values and item links never need to be stored in media records.
+QString itemWebUrl(const QString &serverUrl, const ProviderIdentity &identity);
+
 struct ExternalIds {
     std::optional<QString> imdb, tmdb, tvdb, zap2it, tvmaze;
 };

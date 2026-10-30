@@ -353,6 +353,7 @@ QVariantList LibraryModel::episodesForSeason(int number) const
                 for (const auto &item : episode.importedSegments) segments[segmentName(item.type)] = {item.startSeconds, item.endSeconds};
             QVariantMap row{{"id", episode.identity.itemId}, {"providerId", providerName(episode.identity.provider)},
                 {"showId", m_detail->show.identity.itemId}, {"title", episode.title.value_or(QString())},
+                {"itemUrl", m_key ? itemWebUrl(m_key->saved.remoteUrl, episode.identity) : QString()},
                 {"number", episode.episodeNumber ? QVariant(*episode.episodeNumber) : QVariant()},
                 {"season", episode.seasonNumber ? QVariant(*episode.seasonNumber) : QVariant()},
                 {"status", m_segments.edited.contains(episode.identity.itemId) ? QString("Edited")

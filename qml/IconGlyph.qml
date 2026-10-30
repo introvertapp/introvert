@@ -27,6 +27,7 @@ Canvas {
         else if(name==="media") { c.rect(3,3,18,7);c.rect(3,14,18,7);line(6,6,7,6);line(6,17,7,17);line(11,6,18,6);line(11,17,18,17) }
         else if(name==="application") { for(var j=0;j<3;j++){var x=5+j*7;line(x,3,x,21);c.rect(x-2,j===1?13:6,4,4)} }
         else if(name==="endpoints") {line(4,20,20,4);line(10,4,20,4);line(20,4,20,14)}
+        else if(name==="download") {line(12,3,12,15);line(7,10,12,15);line(12,15,17,10);c.moveTo(4,16);c.lineTo(4,21);c.lineTo(20,21);c.lineTo(20,16)}
         else if(name==="notifications") {c.moveTo(4,17);c.lineTo(6,14);c.lineTo(6,9);c.arc(12,9,6,Math.PI,0);c.lineTo(18,14);c.lineTo(20,17);c.closePath();c.moveTo(10,20);c.arc(12,20,2,Math.PI,0,true)}
         c.stroke()
     }

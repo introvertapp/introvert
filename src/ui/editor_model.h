@@ -6,6 +6,7 @@
 #include <QAudioBufferOutput>
 #include <QAudioOutput>
 #include <QMediaPlayer>
+#include <QPointer>
 #include <QVideoSink>
 #include <array>
 
@@ -29,6 +30,8 @@ class EditorModel final : public QObject {
     Q_PROPERTY(bool hasPrevious READ hasPrevious NOTIFY changed)
     Q_PROPERTY(bool hasNext READ hasNext NOTIFY changed)
     Q_PROPERTY(bool muted READ muted NOTIFY changed)
+    Q_PROPERTY(QVariantList subtitleTracks READ subtitleTracks NOTIFY subtitlesChanged)
+    Q_PROPERTY(int activeSubtitleTrack READ activeSubtitleTrack NOTIFY subtitlesChanged)
     Q_PROPERTY(QString episodeId READ episodeId NOTIFY changed)
     Q_PROPERTY(QVariantList seasons READ seasons NOTIFY catalogChanged)
     Q_PROPERTY(QVariantList episodes READ episodes NOTIFY catalogChanged)
@@ -52,6 +55,8 @@ public:
     bool hasPrevious() const { return neighbor(-1).has_value(); }
     bool hasNext() const { return neighbor(1).has_value(); }
     bool muted() const { return m_audio.isMuted(); }
+    QVariantList subtitleTracks() const;
+    int activeSubtitleTrack() const { return m_activeSubtitleTrack; }
     QString episodeId() const { return m_context ? m_context->episode.identity.itemId : QString(); }
     QVariantList seasons() const { return m_seasons; }
     QVariantList episodes() const { return m_episodes; }
@@ -65,6 +70,7 @@ public:
     Q_INVOKABLE void togglePlayback();
     Q_INVOKABLE void pause();
     Q_INVOKABLE void toggleMuted();
+    Q_INVOKABLE void setActiveSubtitleTrack(int index);
     Q_INVOKABLE void setPreference(const QString &key, int value);
     Q_INVOKABLE void unload();
     void close();
@@ -85,6 +91,7 @@ private:
     void status(QMediaPlayer::MediaStatus value);
     void firstFrame(const QVideoFrame &frame);
     void bindSink(QVideoSink *sink);
+    void updateSubtitlePresentation();
     void resetMedia();
     void libraryChanged();
     void refreshCatalog();
@@ -92,8 +99,10 @@ private:
     segments::SegmentStore m_store;
     QAudioOutput m_audio;
     QAudioBufferOutput m_buffer;
+    QVideoSink m_videoSink;
     QMediaPlayer m_player;
-    QMetaObject::Connection m_sinkConnection;
+    QPointer<QVideoSink> m_outputSink;
+    QMetaObject::Connection m_sinkConnection, m_subtitleConnection, m_sinkDestroyedConnection;
     QThreadPool m_pool;
     providers::Cancellation m_cancel = std::make_shared<std::atomic_bool>(false);
     std::optional<EpisodeContext> m_context;
@@ -102,6 +111,7 @@ private:
     QVariantList m_seasons, m_episodes;
     int m_season = -1;
     int m_publishedSeason = -1;
+    int m_activeSubtitleTrack = -1;
     std::array<double, 2> m_levels{0, 0};
     std::unique_ptr<editor::RangeStream> m_stream;
     std::optional<double> m_pendingSeek;
@@ -113,6 +123,7 @@ signals:
     void loaded();
     void saved();
     void catalogChanged();
+    void subtitlesChanged();
 };
 
 } // namespace introvert::ui

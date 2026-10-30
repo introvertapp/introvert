@@ -47,14 +47,21 @@ bool trustedDownload(const QUrl &url)
         && (url.host() == "github.com" || url.host() == "release-assets.githubusercontent.com"
             || url.host() == "objects.githubusercontent.com");
 }
-Offer releaseOffer(const QJsonObject &release, const QString &installed, const QString &os,
-                   const QString &arch, const QString &format)
+QString latestApplicationVersion(const QJsonObject &release)
 {
     if (release["draft"].toBool(true) || release["prerelease"].toBool(true)) return {};
     const auto tag = release["tag_name"].toString();
     if (!tag.startsWith('v')) throw std::runtime_error("Release has an unsupported version.");
     const auto candidate = tag.mid(1);
-    if (!newerVersion(candidate, installed)) return {};
+    version(candidate);
+    return candidate;
+}
+Offer releaseOffer(const QJsonObject &release, const QString &installed, const QString &os,
+                   const QString &arch, const QString &format)
+{
+    const auto candidate = latestApplicationVersion(release);
+    if (candidate.isEmpty() || !newerVersion(candidate, installed)) return {};
+    const auto tag = "v" + candidate;
     if ((arch != "arm64" && arch != "x86_64") || (os == "windows" && arch != "x86_64"))
         throw std::runtime_error("No application update is available for this architecture.");
     QString suffix;
@@ -84,14 +91,17 @@ Offer releaseOffer(const QJsonObject &release, const QString &installed, const Q
 } // namespace introvert::updates
 
 namespace introvert::updates {
-Offer detectorReleaseOffer(const QJsonArray &releases, const QString &installed, const QString &app, const QString &os, const QString &arch, const QString &qt)
+namespace {
+Offer selectDetectorRelease(const QJsonArray &releases, const QString *installed, const QString &app, const QString &os, const QString &arch, const QString &qt)
 {
     Offer selected; QString incompatible;
     const QString begin = "<!-- introvert-detector-catalog-v1\n", end = "\n-->";
     for (const auto &value : releases) {
         const auto release = value.toObject(); const auto tag = release.value("tag_name").toString();
         if (!tag.startsWith("detector-v") || release.value("draft").toBool(true) || release.value("prerelease").toBool(true)) continue;
-        const auto candidate = tag.mid(10); if (!newerVersion(candidate, installed)) continue;
+        const auto candidate = tag.mid(10);
+        if (installed) { if (!newerVersion(candidate, *installed)) continue; }
+        else version(candidate);
         const auto body = release.value("body").toString(); const auto first = body.indexOf(begin), last = body.indexOf(end, first + begin.size());
         if (first < 0 || last < 0 || body.indexOf(begin, first + 1) >= 0) throw std::runtime_error("Detector release is missing its update catalogue.");
         const auto document = QJsonDocument::fromJson(body.mid(first + begin.size(), last - first - begin.size()).toUtf8());
@@ -125,5 +135,35 @@ Offer detectorReleaseOffer(const QJsonArray &releases, const QString &installed,
     }
     if (selected.name.isEmpty() && !incompatible.isEmpty()) throw std::runtime_error(incompatible.toStdString());
     return selected;
+}
+}
+Offer detectorReleaseOffer(const QJsonArray &releases, const QString &installed, const QString &app, const QString &os, const QString &arch, const QString &qt)
+{
+    return selectDetectorRelease(releases, &installed, app, os, arch, qt);
+}
+QString latestDetectorVersion(const QJsonArray &releases, const QString &app, const QString &os, const QString &arch, const QString &qt)
+{
+    QString latest;
+    for (const auto &release : releases) {
+        try {
+            const auto metadata = release.toObject();
+            if (metadata["tag_name"].toString() == "v" + app && latestApplicationVersion(metadata) == app) {
+                // App releases also publish their bundled detector version. It
+                // is display metadata, not an independently installable offer.
+                static const QRegularExpression bundled("^Bundled detector ([0-9]+\\.[0-9]+\\.[0-9]+)(?:\\s|$)", QRegularExpression::MultilineOption);
+                const auto match = bundled.match(metadata["body"].toString());
+                if (match.hasMatch()) {
+                    const auto candidate = match.captured(1); version(candidate);
+                    if (latest.isEmpty() || newerVersion(candidate, latest)) latest = candidate;
+                }
+            }
+            const auto offer = selectDetectorRelease(QJsonArray{release}, nullptr, app, os, arch, qt);
+            if (!offer.version.isEmpty() && (latest.isEmpty() || newerVersion(offer.version, latest))) latest = offer.version;
+        } catch (const std::exception &) {
+            // Invalid or incompatible historical releases are not "Latest".
+            // Upgrade eligibility and its errors still use detectorReleaseOffer.
+        }
+    }
+    return latest;
 }
 } // namespace introvert::updates

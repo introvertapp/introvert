@@ -1,7 +1,22 @@
 #include "contracts.h"
+#include "json_values.h"
 #include <QStringList>
 
 namespace introvert::providers {
+
+QString itemWebUrl(const QString &serverUrl, const ProviderIdentity &identity)
+{
+    if (serverUrl.isEmpty() || identity.itemId.isEmpty() || identity.provider == ProviderId::Local) return {};
+    const auto base = detail::baseUrl(serverUrl) + "/web/index.html#!/";
+    if (identity.provider == ProviderId::Plex) {
+        if (!identity.serverId || identity.serverId->isEmpty()) return {};
+        return base + "server/" + detail::quote(*identity.serverId) + "/details?key="
+            + detail::quote("/library/metadata/" + identity.itemId);
+    }
+    return base + (identity.provider == ProviderId::Emby ? "item" : "details")
+        + "?id=" + detail::quote(identity.itemId)
+        + (identity.serverId && !identity.serverId->isEmpty() ? "&serverId=" + detail::quote(*identity.serverId) : QString());
+}
 
 QString normalizedEpisodeOrder(QString value)
 {

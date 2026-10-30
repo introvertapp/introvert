@@ -16,6 +16,29 @@ Item {
     property bool preview: false
     property var segmentManager: null
     property var previewShows: []
+    component VersionBadge: Rectangle {
+        id: badge
+        property string text: "—"
+        property bool offered: false
+        implicitWidth: 132; implicitHeight: 34; radius: 8
+        color: offered ? "#33d17a" : page.theme.field; border.color: offered ? "#33d17a" : page.theme.border
+        Accessible.role: Accessible.StaticText; Accessible.name: text
+        Row {
+            anchors.centerIn: parent; spacing: 7
+            IconGlyph {
+                objectName: badge.objectName+"_download"
+                visible: badge.offered; name: "download"; width: 16; height: 16
+                anchors.verticalCenter: parent.verticalCenter; color: "#102116"
+            }
+            Text {
+                width: Math.min(implicitWidth,badge.width-16-(badge.offered ? 23 : 0))
+                text: badge.text; textFormat: Text.PlainText
+                color: badge.offered ? "#102116" : badge.text === "—" ? page.theme.muted : page.theme.text
+                font.pixelSize: 13; font.weight: Font.DemiBold
+                horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight
+            }
+        }
+    }
     FolderDialog { id: localFolder; objectName: "localBrowseDialog"; title: "Local media path"; onAccepted: page.appSettings.mediaSettings.setDirectoryUrl(selectedFolder.toString()) }
 
     Rectangle {
@@ -142,10 +165,37 @@ Item {
                                         onActivated: function(index) { page.applicationUpdates.setAutomatic(index===1) }
                                     }
                                 }
+                                GridLayout {
+                                    objectName: "updateVersionGrid"
+                                    width: parent.width; columns: 3; columnSpacing: 10; rowSpacing: 8
+                                    Item { Layout.fillWidth: true }
+                                    Text { Layout.preferredWidth: 132; text: "Installed"; color: page.theme.muted; font.pixelSize: 12; horizontalAlignment: Text.AlignHCenter }
+                                    Text { Layout.preferredWidth: 132; text: "Latest"; color: page.theme.muted; font.pixelSize: 12; horizontalAlignment: Text.AlignHCenter }
+                                    Text { Layout.fillWidth: true; text: "INTROvert"; color: page.theme.text }
+                                    VersionBadge {
+                                        objectName: "installedApplicationVersion"
+                                        text: page.applicationUpdates && page.applicationUpdates.installedVersion ? "v"+page.applicationUpdates.installedVersion : "—"
+                                    }
+                                    VersionBadge {
+                                        objectName: "availableApplicationVersion"
+                                        offered: Boolean(page.applicationUpdates && page.applicationUpdates.applicationUpdateAvailable)
+                                        text: page.applicationUpdates && page.applicationUpdates.latestVersion ? "v"+page.applicationUpdates.latestVersion : "—"
+                                    }
+                                    Text { objectName: "detectorVersionLabel"; Layout.fillWidth: true; text: "Detector"; color: page.theme.text }
+                                    VersionBadge {
+                                        objectName: "installedDetectorVersion"
+                                        text: page.applicationUpdates && page.applicationUpdates.detectorInstalledVersion ? "v"+page.applicationUpdates.detectorInstalledVersion : "—"
+                                    }
+                                    VersionBadge {
+                                        objectName: "availableDetectorVersion"
+                                        offered: Boolean(page.applicationUpdates && page.applicationUpdates.detectorAvailableVersion)
+                                        text: page.applicationUpdates && page.applicationUpdates.detectorLatestVersion ? "v"+page.applicationUpdates.detectorLatestVersion : "—"
+                                    }
+                                }
                                 RowLayout {
                                     width: parent.width; spacing: 8
-                                    Text { Layout.fillWidth: true; text: page.applicationUpdates ? "Version "+page.applicationUpdates.installedVersion : "INTROvert"; color: page.theme.muted }
-                                    AppButton { objectName: "checkApplicationUpdatesControl"; text: "Check for Updates"; theme: page.theme; enabled: page.applicationUpdates && page.applicationUpdates.enabled && !page.applicationUpdates.busy && !page.applicationUpdates.ready; onClicked: page.applicationUpdates.check() }
+                                    Item { Layout.fillWidth: true }
+                                    AppButton { objectName: "checkApplicationUpdatesControl"; text: page.applicationUpdates && page.applicationUpdates.busy ? "Cancel" : "Check for Updates"; theme: page.theme; enabled: page.applicationUpdates && page.applicationUpdates.enabled && (!page.applicationUpdates.ready || page.applicationUpdates.busy); onClicked: {if(page.applicationUpdates.busy)page.applicationUpdates.cancel();else page.applicationUpdates.check()} }
                                     AppButton {
                                         objectName: "installApplicationUpdateControl"
                                         visible: page.applicationUpdates && page.applicationUpdates.availableVersion!=="" && page.applicationUpdates.updateKind==="application"
@@ -154,11 +204,11 @@ Item {
                                         theme: page.theme
                                         onClicked: {if(page.applicationUpdates.ready)page.applicationUpdates.install();else page.applicationUpdates.download()}
                                     }
-                                    AppButton { objectName: "cancelApplicationUpdateControl"; visible: page.applicationUpdates && page.applicationUpdates.busy; text: "Cancel"; theme: page.theme; onClicked: page.applicationUpdates.cancel() }
                                 }
                                 RowLayout {
+                                    visible: Boolean(page.applicationUpdates && page.applicationUpdates.detectorAvailableVersion)
                                     width: parent.width; spacing: 8
-                                    Text { objectName: "detectorVersionLabel"; Layout.fillWidth: true; text: page.applicationUpdates ? "Detector "+page.applicationUpdates.detectorInstalledVersion : "Detector"; color: page.theme.muted }
+                                    Item { Layout.fillWidth: true }
                                     AppButton {
                                         objectName: "installDetectorUpdateControl"
                                         visible: page.applicationUpdates && page.applicationUpdates.detectorAvailableVersion!==""
@@ -167,7 +217,6 @@ Item {
                                         onClicked: page.applicationUpdates.downloadDetector()
                                     }
                                 }
-                                Text { objectName: "applicationUpdateStatus"; width: parent.width; text: page.applicationUpdates ? page.applicationUpdates.message : "Update checks are unavailable."; wrapMode: Text.Wrap; color: page.theme.muted; font.pixelSize: 13 }
                                 Rectangle {
                                     visible: page.applicationUpdates && page.applicationUpdates.busy && page.applicationUpdates.progress>0
                                     width: parent.width; height: 3; color: page.theme.field
