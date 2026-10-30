@@ -1,9 +1,15 @@
-# Introvert
+# INTROvert
 
-Introvert is a desktop application for detecting, reviewing, and editing TV
+INTROvert is a desktop application for detecting, reviewing, and editing TV
 episode segment timestamps. It combines automated intro and credits detection
 with a video editor for manually matching segment boundaries to the exact frames
 of an episode.
+
+<p align="center">
+  <a href="assets/screenshots/tv_shows.png"><img src="assets/screenshots/tv_shows.png" alt="INTROvert TV show library" width="32%"></a>
+  <a href="assets/screenshots/episode_details.png"><img src="assets/screenshots/episode_details.png" alt="INTROvert episode details and segment timestamps" width="32%"></a>
+  <a href="assets/screenshots/video_editor.png"><img src="assets/screenshots/video_editor.png" alt="INTROvert video editor and segment timeline" width="32%"></a>
+</p>
 
 Automated detection compares recurring audio across episodes in a season to find
 intros and credits. Optional visual refinement helps refine intro boundaries and
@@ -17,7 +23,7 @@ timestamps entirely by hand. Recap, Intro, Credits, and Preview segments can all
 be edited, with keyboard shortcuts and episode navigation keeping the review
 workflow close to the video.
 
-Introvert also brings the surrounding timestamp workflow into one application:
+INTROvert also brings the surrounding timestamp workflow into one application:
 
 - **Media libraries:** Browse episodes from Plex, Emby, Jellyfin, or local media
   folders, including network storage.
