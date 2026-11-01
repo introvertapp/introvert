@@ -110,8 +110,6 @@ ApplicationSession::ApplicationSession(bool preview, const std::optional<QString
         });
         QObject::connect(m_detector.get(), &ui::DetectionModel::jobFinished, m_logs.get(),
             [this](const QString &title, int season, const QString &status, const QString &message) {
-                const auto detail = QString("%1, season %2. %3").arg(title).arg(season).arg(message);
-                m_logs->record(status == "failed" ? "error" : "info", "Detection", detail);
                 const auto context = QString("%1 · Season %2").arg(title).arg(season);
                 if (status == "complete") m_notifications->post("Detection complete", message, {}, false, "detection_complete", context);
                 else if (status == "failed") m_notifications->post("Detection failed", message, {}, false, "errors", context);

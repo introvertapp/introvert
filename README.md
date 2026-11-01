@@ -12,9 +12,14 @@ of an episode.
 </p>
 
 Automated detection compares recurring audio across episodes in a season to find
-intros and credits. Optional visual refinement helps refine intro boundaries and
-the beginning of credits. Detected timestamps can be reviewed and adjusted
-against the original video before they are shared.
+intros and credits on macOS, Windows, and Linux. Season-wide audio agreement helps
+recover partial matches while retaining supported alternate sequences. Optional refinement uses short,
+low-resolution video scans near the detected boundaries on every platform.
+It looks for supported black-frame transitions and scene cuts without reading
+credit text. Resolved audio boundaries skip video refinement. Uncertain intro
+starts can expand to a preceding black-frame transition while retaining the matched
+audio; unsupported transitions retain their audio boundaries. Detected
+timestamps can be reviewed and adjusted against the original video before sharing.
 
 The video editor supports frame-by-frame navigation, a zoomable timeline, audio
 levels, and precise timestamp entry. These controls make it possible to check

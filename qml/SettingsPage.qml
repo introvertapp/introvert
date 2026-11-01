@@ -18,14 +18,21 @@ Item {
     property bool preview: false
     property var segmentManager: null
     property var previewShows: []
-    component VersionBadge: Rectangle {
+    component VersionBadge: AbstractButton {
         id: badge
-        property string text: "—"
+        text: "—"
         property bool offered: false
-        implicitWidth: 132; implicitHeight: 34; radius: 8
-        color: offered ? "#33d17a" : page.theme.field; border.color: offered ? "#33d17a" : page.theme.border
-        Accessible.role: Accessible.StaticText; Accessible.name: text
-        Row {
+        property string actionLabel: text
+        readonly property color color: offered ? "#33d17a" : page.theme.field
+        implicitWidth: 132; implicitHeight: 34; padding: 0
+        enabled: false
+        activeFocusOnTab: enabled
+        hoverEnabled: enabled
+        Accessible.role: offered ? Accessible.Button : Accessible.StaticText
+        Accessible.name: offered ? actionLabel : text
+        HoverHandler { cursorShape: badge.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor }
+        background: Rectangle { radius: 8; color: badge.color; border.color: badge.offered ? "#33d17a" : page.theme.border }
+        contentItem: Item { Row {
             anchors.centerIn: parent; spacing: 7
             IconGlyph {
                 objectName: badge.objectName+"_download"
@@ -39,7 +46,7 @@ Item {
                 font.pixelSize: 13; font.weight: Font.DemiBold
                 horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight
             }
-        }
+        } }
     }
     FolderDialog { id: localFolder; objectName: "localBrowseDialog"; title: "Local media path"; onAccepted: page.appSettings.mediaSettings.setDirectoryUrl(selectedFolder.toString()) }
 
@@ -183,6 +190,9 @@ Item {
                                         objectName: "availableApplicationVersion"
                                         offered: Boolean(page.applicationUpdates && page.applicationUpdates.applicationUpdateAvailable)
                                         text: page.applicationUpdates && page.applicationUpdates.latestVersion ? "v"+page.applicationUpdates.latestVersion : "—"
+                                        actionLabel: "Download Introvert " + text
+                                        enabled: offered && page.applicationUpdates.enabled && !page.applicationUpdates.busy && !page.applicationUpdates.ready
+                                        onClicked: page.applicationUpdates.downloadApplication()
                                     }
                                     Text { objectName: "detectorVersionLabel"; Layout.fillWidth: true; text: "Detector"; color: page.theme.text }
                                     VersionBadge {
@@ -193,31 +203,20 @@ Item {
                                         objectName: "availableDetectorVersion"
                                         offered: Boolean(page.applicationUpdates && page.applicationUpdates.detectorAvailableVersion)
                                         text: page.applicationUpdates && page.applicationUpdates.detectorLatestVersion ? "v"+page.applicationUpdates.detectorLatestVersion : "—"
-                                    }
-                                }
-                                RowLayout {
-                                    width: parent.width; spacing: 8
-                                    Item { Layout.fillWidth: true }
-                                    AppButton { objectName: "checkApplicationUpdatesControl"; text: page.applicationUpdates && page.applicationUpdates.busy ? "Cancel" : "Check for Updates"; theme: page.theme; enabled: page.applicationUpdates && page.applicationUpdates.enabled && (!page.applicationUpdates.ready || page.applicationUpdates.busy); onClicked: {if(page.applicationUpdates.busy)page.applicationUpdates.cancel();else page.applicationUpdates.check()} }
-                                    AppButton {
-                                        objectName: "installApplicationUpdateControl"
-                                        visible: page.applicationUpdates && page.applicationUpdates.availableVersion!=="" && page.applicationUpdates.updateKind==="application"
-                                        enabled: page.applicationUpdates && !page.applicationUpdates.busy
-                                        text: page.applicationUpdates && page.applicationUpdates.ready ? "Restart to Install" : "Download Update"
-                                        theme: page.theme
-                                        onClicked: {if(page.applicationUpdates.ready)page.applicationUpdates.install();else page.applicationUpdates.download()}
-                                    }
-                                }
-                                RowLayout {
-                                    visible: Boolean(page.applicationUpdates && page.applicationUpdates.detectorAvailableVersion)
-                                    width: parent.width; spacing: 8
-                                    Item { Layout.fillWidth: true }
-                                    AppButton {
-                                        objectName: "installDetectorUpdateControl"
-                                        visible: page.applicationUpdates && page.applicationUpdates.detectorAvailableVersion!==""
-                                        enabled: page.applicationUpdates && !page.applicationUpdates.busy && !page.applicationUpdates.ready
-                                        text: "Download Detector Update"; theme: page.theme
+                                        actionLabel: "Download detector " + text
+                                        enabled: offered && page.applicationUpdates.enabled && !page.applicationUpdates.busy && !page.applicationUpdates.ready
                                         onClicked: page.applicationUpdates.downloadDetector()
+                                    }
+                                }
+                                RowLayout {
+                                    width: parent.width; spacing: 8
+                                    Item { Layout.fillWidth: true }
+                                    AppButton {
+                                        objectName: "checkApplicationUpdatesControl"
+                                        text: page.applicationUpdates && page.applicationUpdates.busy ? "Cancel" : page.applicationUpdates && page.applicationUpdates.ready ? "Restart to Update" : "Check for Updates"
+                                        theme: page.theme
+                                        enabled: page.applicationUpdates && page.applicationUpdates.enabled
+                                        onClicked: {if(page.applicationUpdates.busy)page.applicationUpdates.cancel();else if(page.applicationUpdates.ready)page.applicationUpdates.install();else page.applicationUpdates.check()}
                                     }
                                 }
                                 Rectangle {
@@ -305,7 +304,7 @@ Item {
                                 Text {
                                     objectName: "visualRefinementDescription"; width: parent.width
                                     color: page.theme.muted; font.pixelSize: 13; wrapMode: Text.WordWrap
-                                    text: "Refines Intro starts and ends, and Credits starts, using nearby video frames. Can make detection take significantly longer. Turn off for faster audio-only detection. Applies to new scans."
+                                    text: "Refines Intro starts and ends, and Credits starts, using short, low-resolution video scans. No text recognition is used. Turn off for audio-only detection. Applies to new scans."
                                 }
                             }
                         }
@@ -436,5 +435,5 @@ Item {
             }
         }
     }
-    readonly property string sectionHelp: page.activeTab === "logs" ? "Live backend events and errors. The latest 1,000 entries are kept for this session; addresses and credential fields are hidden. Clear removes the session history." : page.activeTab === "application" ? "Display preferences and application updates. Preferences are saved automatically." : page.activeTab === "detection" ? "Configure new detection jobs. Effort controls resource use; visual refinement checks Intro boundaries and Credits starts." : page.activeTab === "media" || page.activeTab === "endpoints" ? "Settings and API keys are saved in the local app.db." : page.activeTab === "notifications" ? "Choose in-app alerts and configure detection completion webhooks." : "Manage saved segment timestamps."
+    readonly property string sectionHelp: page.activeTab === "logs" ? "Live backend events and errors. The latest 1,000 entries are kept for this session; addresses and credential fields are hidden. Clear removes the session history." : page.activeTab === "application" ? "Display preferences and application updates. Preferences are saved automatically." : page.activeTab === "detection" ? "Configure new detection jobs. Effort controls resource use; short video scans refine Intro boundaries and Credits starts." : page.activeTab === "media" || page.activeTab === "endpoints" ? "Settings and API keys are saved in the local app.db." : page.activeTab === "notifications" ? "Choose in-app alerts and configure detection completion webhooks." : "Manage saved segment timestamps."
 }

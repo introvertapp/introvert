@@ -2,8 +2,7 @@
 #include "algorithm_data.h"
 #include "audio_recurrence.h"
 #include "audio_refinement.h"
-#include "visual_credits.h"
-#include "visual_boundaries.h"
+#include "boundary_refinement.h"
 #include "algorithm_manifest.h"
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -89,16 +88,30 @@ int invoke(const char *operation, const uint8_t *data, uint64_t length, const In
         checkCancelled(cancelled); const auto request = parseAlgorithmMessage(QByteArray(reinterpret_cast<const char *>(data), qsizetype(length)));
         const auto p = parameters(request.value("parameters").toMap()); QVariantMap result;
         const auto effort=effortPolicy(request.value("effort").toString());
+        if (std::strcmp(operation,"observe_video_frame")==0 || std::strcmp(operation,"observe_boundary_frame")==0
+            || std::strcmp(operation,"visual_candidates")==0 || std::strcmp(operation,"refine_visual")==0 || std::strcmp(operation,"fuse")==0)
+            throw DetectionError("visual_unavailable","The legacy visual refinement interface has been replaced.");
         if (std::strcmp(operation, "describe") == 0) {
             const auto l = audioFingerprintLayout();
             result = {{"parameters", p.diagnostic()}, {"extractor", audioFingerprintExtractorId}, {"extractor_version", audioFingerprintExtractorVersion}, {"schema", "1"},
                 {"configuration", audioFeatureConfiguration(p)}, {"sample_rate", l.sampleRate}, {"hop_samples", l.hopSamples}, {"context_samples", l.contextSamples}, {"columns", qulonglong(audioFeatureColumns)},
-                {"finalization", "segments-v1"}, {"visual",visualCreditsDescription()},{"parallel_matches",true},{"parallel_extraction",true},{"refinement_sample_rate",8000}};
+                {"finalization", "segments-v1"}, {"visual",QVariantMap{{"available",false},{"reason","legacy_visual_refinement_replaced"}}},{"parallel_matches",true},{"parallel_extraction",true},{"refinement_sample_rate",8000}};
             auto visual=result.value("visual").toMap();
             visual["edge_radius_seconds"]=effort.value("visual_radius");visual["frames_per_second"]=effort.value("visual_fps");
             visual["refinement_frames_per_second"]=effort.value("visual_dense_fps");visual["maximum_refinement_candidates"]=effort.value("visual_candidates");
             result["visual"]=visual;result["effort"]=effort;result["parallel_visual"]=true;result["scoped_refinement"]="pair-window-v1";
-            result["visual_boundaries"]=visualBoundaryDescription();
+            result["visual_boundaries"]=QVariantMap{{"available",false},{"reason","legacy_visual_refinement_replaced"}};
+            result["boundary_refinement"]=boundaryRefinementDescription();
+#ifdef INTROVERT_AUDIO_ONLY_PLATFORM
+            result["boundary_refinement"]=QVariantMap{{"version","audio-supported-transitions-v3"},{"available",false},{"reason","audio_only_platform"}};
+            visual["reason"]="audio_only_platform";result["visual"]=visual;result["parallel_visual"]=false;
+#endif
+        } else if (std::strcmp(operation,"fuse_boundaries")==0) {
+#ifdef INTROVERT_AUDIO_ONLY_PLATFORM
+            throw DetectionError("visual_unavailable","Visual boundary refinement is unavailable.");
+#else
+            result=fuseBoundaryRefinement(request.value("audio_selected").toList(),request.value("visual").toMap(),cancelled);
+#endif
         } else if (std::strcmp(operation, "extract") == 0) {
             if (!host->read_pcm) throw std::invalid_argument("PCM reader unavailable");
             const auto kind = request.value("type").toString(); if (kind != "intro" && kind != "credits") throw std::invalid_argument("Invalid feature kind");
@@ -150,22 +163,7 @@ int invoke(const char *operation, const uint8_t *data, uint64_t length, const In
             result["refinement_windows"]=windows;
         } else if (std::strcmp(operation, "select") == 0) {
             std::vector<AudioRecurrence> matches; for (const auto &m : request.value("matches").toList()) { checkCancelled(cancelled); matches.push_back(recurrence(m.toMap())); }
-            QVariantList selected, decisions; for (const auto &s : selectAudioSegments(matches, cancelled, &decisions)) selected.append(s.diagnostic()); result["selected"] = selected; result["decisions"] = decisions;
-        } else if (std::strcmp(operation, "observe_video_frame") == 0) {
-            result["values"]=observeCreditFrame(request.value("pixels").toByteArray(),request.value("width").toInt(),request.value("height").toInt(),cancelled);
-        } else if (std::strcmp(operation, "observe_boundary_frame") == 0) {
-            result["values"]=observeBoundaryFrame(request.value("pixels").toByteArray(),request.value("width").toInt(),request.value("height").toInt(),cancelled);
-        } else if (std::strcmp(operation, "visual_candidates") == 0) {
-            result=findVisualCredits(request.value("observations").toList(),request.value("step").toDouble(),{request.value("start").toDouble(),request.value("end").toDouble()},cancelled);
-        } else if (std::strcmp(operation, "refine_visual") == 0) {
-            result["candidates"]=refineVisualCredits(request.value("candidates").toList(),request.value("observations").toList(),{request.value("start").toDouble(),request.value("end").toDouble()},cancelled);
-        } else if (std::strcmp(operation, "fuse") == 0) {
-            result=fuseCreditCandidates(request.value("audio_selected").toList(),request.value("matches").toList(),request.value("visual").toMap(),cancelled,effort.value("visual_radius").toDouble());
-            if(request.value("refine_intro_edges").toBool()) {
-                const auto refined=refineIntroVisualBoundaries(result.value("selected").toList(),request.value("visual").toMap(),cancelled);
-                auto decisions=result.value("decisions").toList();decisions.append(refined.value("decisions").toList());
-                result=refined;result["decisions"]=decisions;
-            }
+            QVariantList selected, decisions, pending; for (const auto &s : selectAudioSegments(matches, cancelled, &decisions, request.value("search_windows").toList(),&pending)) selected.append(s.diagnostic()); result["selected"] = selected; result["decisions"] = decisions; result["confirmation_candidates"]=pending;
         } else if (std::strcmp(operation, "finalize") == 0) {
             const auto kind = request.value("segment_type").toString();
             if (kind != "intro" && kind != "credits") throw std::invalid_argument("Invalid finalization kind");

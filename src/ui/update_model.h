@@ -61,6 +61,7 @@ public:
     Q_INVOKABLE void setAutomatic(bool automatic);
     Q_INVOKABLE void check();
     Q_INVOKABLE void download();
+    Q_INVOKABLE void downloadApplication();
     Q_INVOKABLE void downloadDetector();
     Q_INVOKABLE void install();
     Q_INVOKABLE void cancel();
@@ -107,7 +108,7 @@ private:
     quint64 m_generation = 0;
     QString m_accessOrigin;
     std::unique_ptr<providers::AccessRetry> m_access;
-    bool m_automatic = false, m_busy = false, m_ready = false, m_closed = false, m_handedOff = false;
+    bool m_automatic = false, m_busy = false, m_ready = false, m_closed = false, m_handedOff = false, m_started = false;
     int m_progress = 0;
     qint64 m_received = 0;
 };

@@ -2,6 +2,7 @@
 
 #include "providers/contracts.h"
 #include <QUrl>
+#include <QVariantMap>
 
 namespace introvert::editor {
 
@@ -17,6 +18,7 @@ public:
     QUrl url() const;
     void close();
     int resumedRequests() const;
+    QVariantMap diagnostics() const;
 private:
     struct State;
     explicit RangeStream(std::unique_ptr<State> state);

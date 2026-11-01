@@ -8,7 +8,7 @@ namespace introvert::detection {
 
 inline constexpr char audioCompositionVersion[] = "audio-fingerprint-v2";
 inline constexpr char audioWindowPolicyVersion[] = "hard-audio-windows-v1";
-inline constexpr char audioSelectionVersion[] = "supported-audio-match-v4";
+inline constexpr char audioSelectionVersion[] = "season-weighted-audio-v7";
 inline constexpr qint64 audioSelectionWorkLimit = 8000000;
 inline constexpr char audioFingerprintExtractorId[] = "chromaprint-audio";
 inline constexpr char audioFingerprintExtractorVersion[] = "chromaprint-1.6.2-test2-v1";
@@ -68,7 +68,8 @@ struct AudioSegment {
 // boundary support and majority interval coverage from independent peer episodes.
 // A dominant intro-duration cohort also checks short outliers, recovering only
 // independently verified, coherently aligned fragments with measured bounds.
-std::vector<AudioSegment> selectAudioSegments(const std::vector<AudioRecurrence> &matches, const Cancellation &cancel = {}, QVariantList *diagnostics = nullptr);
+std::vector<AudioSegment> selectAudioSegments(const std::vector<AudioRecurrence> &matches, const Cancellation &cancel = {}, QVariantList *diagnostics = nullptr,
+    const QVariantList &windows = {},QVariantList *confirmationCandidates = nullptr);
 
 // Pure pair matcher. Intervals retain their measured frame boundaries; no
 // invented gap scores, semantic labels or boundary correction. Supported short

@@ -1,11 +1,11 @@
 {
   "id": "introvert-detector",
   "name": "INTROvert Detector",
-  "version": "0.48.1",
+  "version": "0.51.2",
   "interface_version": 1,
   "result_schema_version": 1,
-  "minimum_app_version": "0.1.7",
+  "minimum_app_version": "0.1.17",
   "window_policy": "hard-audio-windows-v1",
-  "composition": "audio-led-visual-edges-v2",
-  "selection": "audio-led-visual-edges-v2"
+  "composition": "season-audio-validated-outliers-v2",
+  "selection": "season-audio-validated-outliers-v2"
 }

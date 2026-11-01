@@ -113,11 +113,26 @@ QVariantMap AudioMatchStatistics::diagnostic() const
 QVariantMap AudioSegment::diagnostic() const
 {
     QVariantList peers; for (const auto &peer : supportingPeers) peers.append(peer);
+    const auto refinement=evidence.value("refinement").toMap();
+    const auto season=evidence.value("season_consensus").toMap();
+    const bool consensus=season.value("support_count").toInt()>=3;
+    const bool strict=evidence.value("selection_support").toMap().value("method")=="cohort-fragments-v1";
+    const auto anchors=evidence.value("boundary_anchors").toMap();
+    const bool preciseConsensus=consensus && !season.value("coarse_endpoint_agreement").toBool();
+    const bool startProtected=strict || refinement.value("start_resolved").toBool()
+        || anchors.value("start").toMap().value("resolved").toBool() || (preciseConsensus && type!=SegmentType::Intro);
+    const bool endProtected=strict || preciseConsensus || refinement.value("end_resolved").toBool()
+        || anchors.value("end").toMap().value("resolved").toBool();
     return {{"episode", episodeId}, {"segment_type", segmentName(type)}, {"start", range.start}, {"end", range.end},
         {"peer", peer}, {"match_id", matchId}, {"frame_count", frameCount}, {"minimum_similarity", minimumSimilarity}, {"mean_similarity", meanSimilarity},
-        {"supporting_episodes", peers}, {"support_count", supportingPeers.size()}, {"evidence", evidence}};
+        {"supporting_episodes", peers}, {"support_count", supportingPeers.size()}, {"evidence", evidence},
+        {"boundary_protection",QVariantMap{{"start",startProtected},{"end",endProtected}}},
+        {"boundary_search",evidence.value("boundary_search").toMap()},
+        {"boundary_constraints",(consensus || !evidence.value("boundary_search").toMap().empty()) && type==SegmentType::Intro && !startProtected
+            ?QVariantMap{{"start","preceding_black"}}:QVariantMap{}},
+        {"requires_visual_confirmation",evidence.value("requires_visual_confirmation").toBool()}};
 }
-std::vector<AudioSegment> selectAudioSegments(const std::vector<AudioRecurrence> &matches, const Cancellation &cancel, QVariantList *diagnostics)
+std::vector<AudioSegment> selectAudioSegments(const std::vector<AudioRecurrence> &matches, const Cancellation &cancel, QVariantList *diagnostics,const QVariantList &windows,QVariantList *confirmationCandidates)
 {
     std::map<std::pair<QString, SegmentType>, std::vector<AudioSegment>> groups;
     for (const auto &m : matches) {
@@ -174,6 +189,15 @@ std::vector<AudioSegment> selectAudioSegments(const std::vector<AudioRecurrence>
             for (size_t i=0;i<candidates.size();++i) {
                 auto &c=candidates[i];
                 if (!c.range.contains(candidates[original].range) || c.range.duration()<=candidates[original].range.duration()+hop) continue;
+                const auto refined=c.evidence.value("refinement").toMap();
+                // A rare extended version may have only one full-length peer.
+                // A measured enclosure with both PCM edges resolved can retain
+                // that version while the shared inner passage supplies its
+                // semantic support. No season duration or endpoint is copied.
+                const bool resolvedEnclosure=candidates[original].supportingPeers.size()>=2
+                    && refined.value("start_resolved").toBool() && refined.value("end_resolved").toBool()
+                    && refined.value("alignment_correlation").toDouble()>=.9
+                    && c.evidence.value("coverage").toDouble()>=.9;
                 QSet<QString> starts,ends; std::map<QString,double> peers;
                 std::vector<std::tuple<double,QString,int>> events;
                 for (const auto &other:candidates) {
@@ -192,7 +216,7 @@ std::vector<AudioSegment> selectAudioSegments(const std::vector<AudioRecurrence>
                 // The same independent peers must support both outer boundaries.
                 // A long isolated match cannot borrow votes from unrelated ends.
                 const auto boundaryPeers=starts.intersect(ends).size();
-                if (boundaryPeers<2) continue;
+                if (boundaryPeers<2 && !resolvedEnclosure) continue;
                 std::sort(events.begin(),events.end());std::map<QString,int> active;
                 int activePeers=0;double last=c.range.start,covered=0;
                 for (const auto &event:events) {
@@ -204,15 +228,15 @@ std::vector<AudioSegment> selectAudioSegments(const std::vector<AudioRecurrence>
                     count+=std::get<2>(event);activePeers+=int(count>0)-int(wasActive);last=time;
                 }
                 const double coverage=covered/c.range.duration();
-                if (coverage<.65) continue;
+                if (coverage<.65 && !resolvedEnclosure) continue;
                 c.supportingPeers.clear();strengths[i]=0;
                 for (const auto &peer:peers) {c.supportingPeers.append(peer.first);strengths[i]+=peer.second;}
                 strengths[i]/=peers.size();
                 if (rank(i)<=rank(original)) continue;
                 enclosures.push_back(i);
-                c.evidence["selection_support"]=QVariantMap{{"method","supported-enclosure-v1"},{"from_match_id",candidates[original].matchId},
+                c.evidence["selection_support"]=QVariantMap{{"method",resolvedEnclosure?"resolved-enclosure-v1":"supported-enclosure-v1"},{"from_match_id",candidates[original].matchId},
                     {"from_start",candidates[original].range.start},{"from_end",candidates[original].range.end},
-                    {"boundary_peer_count",boundaryPeers},{"consensus_coverage",coverage}};
+                    {"boundary_peer_count",boundaryPeers},{"consensus_coverage",coverage},{"pcm_resolved_enclosure",resolvedEnclosure}};
                 if (rank(i)>rank(best) || (rank(i)==rank(best) && unicodeLess(c.matchId,candidates[best].matchId))) best=i;
             }
             // Competing, non-nested enclosures do not resolve the original edge.
@@ -225,7 +249,9 @@ std::vector<AudioSegment> selectAudioSegments(const std::vector<AudioRecurrence>
             {"rule", audioSelectionVersion},{"enclosure_promoted",best!=original}, {"work", work}});
         if (!ambiguous) result.push_back(candidates[best]);
     }
+    const auto prior=confirmationCandidates?result:std::vector<AudioSegment>{};
     checkIntroConsistency(matches,result,cancel,work,diagnostics);
+    checkSeasonConsistency(matches,result,cancel,work,diagnostics,windows,confirmationCandidates,&prior);
     checkCancelled(cancel); return result;
 }
 std::vector<AudioRecurrence> matchAudio(const FeatureTrack &a, const FeatureTrack &b, const Cancellation &cancel,

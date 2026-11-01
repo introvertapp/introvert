@@ -5,6 +5,7 @@
 #include <QJsonObject>
 #include <QRunnable>
 #include <algorithm>
+#include <cmath>
 
 namespace introvert::ui {
 DetectionModel::DetectionModel(LibraryModel &library, SettingsStore settings, segments::SegmentStore segments,
@@ -149,7 +150,17 @@ void DetectionModel::finished(const QString &id, const detection::DetectionUpdat
                 if (!failures.isEmpty()) message += " Some media could not be analyzed; review the season's results.";
                 else if (!diagnostics.value("matching_warnings").toList().isEmpty()) message += " Some comparisons had limited evidence.";
             }
-            emit jobFinished(row.value("title").toString(), row.value("season").toInt(), row.value("status").toString(), message);
+            const auto status=row.value("status").toString();
+            const QMap<QString,QString> providers{{"plex","Plex"},{"emby","Emby"},{"jellyfin","Jellyfin"},{"local","Local files"}};
+            const auto provider=providers.value(row.value("provider").toString(),"Media server");
+            bool durationOk=false;double durationMs=result.value("durationMs").toDouble(&durationOk);
+            if(!durationOk || !std::isfinite(durationMs) || durationMs<0)
+                durationMs=std::max(0.,(row.value("updated").toDouble()-row.value("created").toDouble())*1000.);
+            const auto outcome=status=="complete"?"Detection complete":status=="cancelled"?"Detection stopped":"Detection failed";
+            emit diagnosticMessage(status=="failed"?"error":"info",QString("%1 · %2, season %3 · %4 · Duration: %5 s. %6")
+                .arg(provider,row.value("title").toString()).arg(row.value("season").toInt())
+                .arg(outcome,QString::number(durationMs/1000.,'f',1),message));
+            emit jobFinished(row.value("title").toString(), row.value("season").toInt(), status, message);
             for (const auto &value : failures) {
                 const auto failure = value.toMap();
                 auto codes = failure.value("codes").toStringList().join(", "); codes.replace('_', ' ');

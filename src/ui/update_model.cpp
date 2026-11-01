@@ -39,7 +39,19 @@ UpdateModel::UpdateModel(std::optional<SettingsStore> store, QObject *parent, QN
 }
 UpdateModel::~UpdateModel() { close(); }
 QString UpdateModel::installedVersion() const { return QCoreApplication::applicationVersion().isEmpty() ? QStringLiteral(INTROVERT_VERSION) : QCoreApplication::applicationVersion(); }
-void UpdateModel::start() { if (!m_closed && enabled()) {m_timer.start(); QTimer::singleShot(1000,this,&UpdateModel::automaticCheck);} }
+void UpdateModel::start()
+{
+    if (m_closed || m_started || !enabled()) return;
+    m_started = true; m_timer.start();
+    if (!m_automatic) return;
+    const auto generation = m_generation;
+    QTimer::singleShot(1000, this, [this, generation] {
+        // Offers are session state. A previous successful check must not leave
+        // a new session without current versions or available update actions.
+        // An explicit check before this callback already fulfills startup.
+        if (m_automatic && generation == m_generation) check();
+    });
+}
 void UpdateModel::automaticCheck()
 {
     if (!m_store || m_closed || !m_automatic || m_busy || m_ready) return;
@@ -52,7 +64,11 @@ void UpdateModel::automaticCheck()
 void UpdateModel::setAutomatic(bool automatic)
 {
     if (!m_store || m_closed) return;
-    try { m_store->setAutomaticUpdates(automatic); m_automatic = automatic; emit changed(); if(automatic)automaticCheck(); }
+    try {
+        const bool enabling = automatic && !m_automatic;
+        m_store->setAutomaticUpdates(automatic); m_automatic = automatic; emit changed();
+        if (enabling) check();
+    }
     catch (...) { fail("Cannot save update preferences in app.db."); }
 }
 void UpdateModel::check()
@@ -200,6 +216,13 @@ QString UpdateModel::linuxFormat() const
     if(runText("/usr/bin/rpm",{"-qf","--qf","%{NAME}","/opt/introvert/Introvert"})=="introvert")return "rpm";
 #endif
     return {};
+}
+void UpdateModel::downloadApplication()
+{
+    if (m_closed || !enabled() || m_busy || m_ready) return;
+    const auto candidate = m_appOffer.version.isEmpty() && !m_detectorOffer ? m_offer : m_appOffer;
+    if (candidate.version.isEmpty()) return;
+    m_detectorOffer = false; m_offer = candidate; download();
 }
 void UpdateModel::downloadDetector()
 {

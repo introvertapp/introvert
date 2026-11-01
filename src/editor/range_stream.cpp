@@ -25,12 +25,20 @@ namespace introvert::editor {
 using namespace providers;
 namespace {
 
+struct Statistics {
+    mutable std::mutex mutex;
+    QVariantMap counts;
+    void add(const QString &name,qint64 count=1) {std::lock_guard<std::mutex> lock(mutex);counts[name]=counts.value(name).toLongLong()+count;}
+    QVariantMap snapshot() const {std::lock_guard<std::mutex> lock(mutex);return counts;}
+};
+
 struct Source {
     QUrl url;
     QMap<QByteArray, QByteArray> headers;
     int timeoutMs;
     int resumeAttempts=0;
     std::shared_ptr<std::atomic_int> resumed;
+    std::shared_ptr<Statistics> statistics;
 };
 
 bool truthy(const QJsonValue &value)
@@ -86,7 +94,12 @@ Source resolve(const ProviderConfig &config, const QString &episode, const Cance
         if (!key.startsWith("/library/parts/") || !path.isValid() || !path.authority().isEmpty()
             || !path.scheme().isEmpty() || path.hasQuery() || path.hasFragment() || key.contains('\\') || controls)
             throw ProviderError("Plex did not return a supported media stream.");
-        return {QUrl::fromEncoded((base + key).toUtf8(), QUrl::StrictMode),
+        auto url=QUrl::fromEncoded((base + key).toUtf8(), QUrl::StrictMode);
+        // Analysis/editor reads need original-file bytes, not a playback
+        // decision. Without download mode PMS may reject the part with 503
+        // when it has no suitable direct-play decision.
+        url.setQuery(QStringLiteral("download=1"));
+        return {url,
                 {{"X-Plex-Token", config.credential->toUtf8()}, {"X-Plex-Product", "INTROvert"}}, timeout};
     }
     const bool jellyfin = config.provider == ProviderId::Jellyfin;
@@ -130,7 +143,7 @@ public:
     {
         socket->setParent(this); socket->setReadBufferSize(chunkBytes);
         m_timer.setSingleShot(true); m_timer.setInterval(source.timeoutMs);
-        connect(&m_timer, &QTimer::timeout, this, [this] { error(m_started ? 502 : 408); });
+        connect(&m_timer, &QTimer::timeout, this, [this] { m_source.statistics->add("timeouts");error(m_started ? 502 : 408); });
         connect(socket, &QTcpSocket::readyRead, this, [this] { readRequest(); });
         connect(socket, &QTcpSocket::bytesWritten, this, [this] { pump(); });
         connect(socket, &QTcpSocket::disconnected, this, [this] {
@@ -208,26 +221,38 @@ private:
     }
     void startRequest()
     {
+        m_source.statistics->add(m_head?"head_requests":"get_requests");
+        m_requestBodyStart=m_bodyQueued;
         m_headersChecked=false;
         m_reply = m_head ? m_manager.head(m_upstream) : m_manager.get(m_upstream);
         m_reply->setParent(this); m_reply->setReadBufferSize(chunkBytes);
         connect(m_reply, &QNetworkReply::metaDataChanged, this, [this] { pump(); });
         connect(m_reply, &QIODevice::readyRead, this, [this] { m_timer.stop(); pump(); });
-        connect(m_reply, &QNetworkReply::finished, this, [this] { pump(); });
+        connect(m_reply, &QNetworkReply::finished, this, [this] {
+            if(!m_closing && m_reply->error()!=QNetworkReply::NoError)
+                m_source.statistics->add("network_error_"+QString::number(int(m_reply->error())));
+            pump();
+        });
         m_timer.start();
         pump();
     }
-    bool resume()
+    bool resume(const QString &reason)
     {
+        // A long range can be cut several times while still delivering useful
+        // data. Count failures since the last substantial progress, rather than
+        // abandoning the whole audio window after N lifetime resumptions.
+        if(m_bodyQueued-m_retryProgress>=chunkBytes) {m_resumes=0;m_retryProgress=m_bodyQueued;}
         if(m_head || m_closing || m_resumes>=m_source.resumeAttempts)return false;
         if(m_sent && (m_end<0 || m_bodyQueued>m_end-m_start))return false;
         if(m_sent) {
             m_upstream.setRawHeader("Range","bytes="+QByteArray::number(m_start+m_bodyQueued)+'-'+QByteArray::number(m_end));
             if(!m_ifRange.isEmpty())m_upstream.setRawHeader("If-Range",m_ifRange);
         }
-        ++m_resumes; ++*m_source.resumed; m_timer.stop();
+        const bool progressed=m_bodyQueued>m_requestBodyStart;
+        ++m_resumes; ++*m_source.resumed;m_source.statistics->add("resumed_"+reason);m_timer.stop();
         m_reply->disconnect(this); if(!m_reply->isFinished())m_reply->abort();m_reply->deleteLater();m_reply=nullptr;
-        QTimer::singleShot(25*std::min(m_resumes,8),this,[this]{if(!m_closing)startRequest();});
+        const int delay=reason=="short_body" && progressed?0:25*std::min(m_resumes,8);
+        QTimer::singleShot(delay,this,[this]{if(!m_closing)startRequest();});
         return true;
     }
     bool validateHeaders(int code)
@@ -263,15 +288,16 @@ private:
         if (!m_headersChecked) {
             const auto status = m_reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
             if (!status.isValid()) {
-                if (m_reply->isFinished() && !resume()) error(502);
+                if (m_reply->isFinished() && !resume("missing_status")) error(502);
                 return;
             }
             const auto code = status.toInt();
+            m_source.statistics->add("http_"+QString::number(code));
             if (code < 200 || code >= 300) {
-                if((code==429 || code==500 || code==502 || code==503 || code==504) && resume())return;
+                if((code==429 || code==500 || code==502 || code==503 || code==504) && resume("http_"+QString::number(code)))return;
                 error(code == 416 ? 416 : 502, m_reply->rawHeader("Content-Range"));return;
             }
-            if(!validateHeaders(code)){error(502);return;}
+            if(!validateHeaders(code)){m_source.statistics->add("invalid_headers");error(502);return;}
             m_headersChecked=true;
         }
         if (!m_sent) {
@@ -292,9 +318,10 @@ private:
             if(m_source.resumeAttempts>0 && m_end>=0 && bytes.size()>m_end-m_start+1-m_bodyQueued){error(502);return;}
             if (m_socket->write(bytes) != bytes.size()) { close(); return; }
             m_bodyQueued+=bytes.size();
+            m_source.statistics->add("body_bytes",bytes.size());
         }
         if (m_reply->isFinished() && m_reply->bytesAvailable() == 0) {
-            if(m_end>=0 && m_bodyQueued<m_end-m_start+1 && resume())return;
+            if(m_end>=0 && m_bodyQueued<m_end-m_start+1 && resume("short_body"))return;
             close();return;
         }
         if (m_socket->bytesToWrite() >= outputBytes || m_reply->bytesAvailable() > 0) m_timer.stop();
@@ -306,7 +333,7 @@ private:
     QByteArray m_route, m_request;
     QNetworkReply *m_reply = nullptr;
     QNetworkRequest m_upstream;
-    qint64 m_start=0,m_end=-1,m_total=-1,m_bodyQueued=0;
+    qint64 m_start=0,m_end=-1,m_total=-1,m_bodyQueued=0,m_requestBodyStart=0,m_retryProgress=0;
     QByteArray m_validator,m_ifRange;
     int m_resumes=0; bool m_headersChecked=false;
     QTimer m_timer;
@@ -350,19 +377,21 @@ struct RangeStream::State {
     QUrl url;
     std::mutex contextMutex, closeMutex;
     std::shared_ptr<std::atomic_int> resumed;
+    std::shared_ptr<Statistics> statistics;
 };
 
 RangeStream::RangeStream(std::unique_ptr<State> state) : m_state(std::move(state)) {}
 RangeStream::~RangeStream() { close(); }
 QUrl RangeStream::url() const { return m_state->url; }
 int RangeStream::resumedRequests() const {return m_state->resumed->load();}
+QVariantMap RangeStream::diagnostics() const {return m_state->statistics->snapshot();}
 
 std::unique_ptr<RangeStream> RangeStream::open(const ProviderConfig &config, const QString &episode, const Cancellation &cancel,int resumeAttempts)
 {
     auto source = resolve(config, episode, cancel);
-    source.resumeAttempts=std::clamp(resumeAttempts,0,8);source.resumed=std::make_shared<std::atomic_int>(0);
+    source.resumeAttempts=std::clamp(resumeAttempts,0,8);source.resumed=std::make_shared<std::atomic_int>(0);source.statistics=std::make_shared<Statistics>();
     checkCancelled(cancel);
-    auto state = std::make_unique<State>(); state->resumed=source.resumed;
+    auto state = std::make_unique<State>(); state->resumed=source.resumed;state->statistics=source.statistics;
     auto *context = state.get();
     auto started = std::make_shared<std::promise<QUrl>>();
     auto future = started->get_future();
