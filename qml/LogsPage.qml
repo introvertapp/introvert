@@ -20,6 +20,7 @@ ColumnLayout {
         Layout.fillWidth: true; spacing: 8
         AppTextField {
             objectName: "logSearchControl"
+            clearButtonEnabled: true
             Layout.fillWidth: true; Layout.minimumWidth: 100
             placeholderText: "Search logs…"
             text: page.backend ? page.backend.search : ""

@@ -44,3 +44,16 @@ INTROvert also brings the surrounding timestamp workflow into one application:
 
 Timestamps and edits are stored locally. Reviewing and editing segments does not
 rewrite the media files or change the markers on a connected media server.
+
+## OS and CPU compatibility
+
+| Operating system | CPU architecture | Testing status |
+| --- | --- | --- |
+| macOS | ARM64 (Apple Silicon) | Tested |
+| macOS | x86_64 (Intel) | Tested |
+| Windows | x86_64 | Not yet tested |
+| Linux | x86_64, ARM64 | Not yet tested |
+
+Only macOS has been tested at runtime. All internal tests pass, including build,
+packaging, architecture and dependency checks for Windows and Linux. Native
+runtime and installation testing on those platforms is still pending.

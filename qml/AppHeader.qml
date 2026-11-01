@@ -43,6 +43,7 @@ Item {
     }
     AppTextField {
         objectName: "globalSearchControl"
+        clearButtonEnabled: true
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.verticalCenter: parent.verticalCenter
         width: parent.width * 0.5; height: 40

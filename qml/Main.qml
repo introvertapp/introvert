@@ -16,7 +16,13 @@ ApplicationWindow {
     property var applicationUpdates: null
     property var selectedShow: null
     property bool openingShowRequest: false
-    property string searchQuery: ""
+    property var searchQueries: ({home:"", queue:"", history:""})
+    readonly property string searchQuery: searchQueries[appNavigation.page] || ""
+    function updateSearch(text) {
+        var queries = Object.assign({}, searchQueries)
+        queries[appNavigation.page] = text
+        searchQueries = queries
+    }
     property string visualState: "ready"
     // Presentation inputs for isolated UI preview and model tests. Empty in normal startup.
     property var libraryItems: []
@@ -56,7 +62,7 @@ ApplicationWindow {
     function openEditor() { editor.open() }
     Connections {
         target: window.appNavigation
-        function onPageChanged() { if(window.mediaLibrary) window.mediaLibrary.setBrowsing(window.appNavigation.page === "home"); window.selectedShow = null; window.searchQuery = ""; if(window.mediaLibrary && !window.uiPreview) window.mediaLibrary.closeShow() }
+        function onPageChanged() { if(window.mediaLibrary) window.mediaLibrary.setBrowsing(window.appNavigation.page === "home"); window.selectedShow = null; if(window.mediaLibrary && !window.uiPreview) window.mediaLibrary.closeShow() }
     }
     Connections {
         target: window.mediaLibrary || null
@@ -78,7 +84,7 @@ ApplicationWindow {
             theme: colors; navigation: window.appNavigation; query: window.searchQuery
             showSearch: window.selectedShow === null
             onNavigationRequested: { window.selectedShow = null; if(window.mediaLibrary && !window.uiPreview) window.mediaLibrary.closeShow() }
-            onSearchChanged: function(text) { window.searchQuery = text }
+            onSearchChanged: function(text) { window.updateSearch(text) }
         }
         StackLayout {
             id: pages
@@ -91,18 +97,18 @@ ApplicationWindow {
                 headerInset: pages.y+20
                 theme: colors; appSettings: window.appSettings; appNavigation: window.appNavigation
                 preview: window.uiPreview; items: window.presentation ? window.presentation.shows : window.mediaLibrary ? window.mediaLibrary.shows : window.libraryItems
-                query: window.searchQuery; visualState: window.mediaLibrary && !window.uiPreview ? window.mediaLibrary.state : window.visualState
+                query: window.searchQueries.home; visualState: window.mediaLibrary && !window.uiPreview ? window.mediaLibrary.state : window.visualState
                 mediaLibrary: window.mediaLibrary
                 onShowOpened: function(show) { window.openShow(show) }
             }
             QueuePage {
-                theme: colors; preview: window.uiPreview; query: window.searchQuery; visualState: window.visualState
+                theme: colors; preview: window.uiPreview; query: window.searchQueries.queue; visualState: window.visualState
                 items: window.presentation ? window.presentation.queue : window.detector ? (window.submissions ? window.submissions.queue : window.queueItems).concat(window.detector.queue) : window.submissions ? window.submissions.queue : window.queueItems
                 onShowOpened: function(record) { if(window.presentation) window.openShow(window.presentation.shows[0]); else if(record && record.showId) { window.appSettings.setMediaProvider(record.providerId); window.openShow({id:record.showId,title:record.show}) } }
             }
             HistoryPage {
                 statistics: window.submissions ? window.submissions.statistics : ({})
-                theme: colors; preview: window.uiPreview; query: window.searchQuery; visualState: window.visualState
+                theme: colors; preview: window.uiPreview; query: window.searchQueries.history; visualState: window.visualState
                 items: window.presentation ? window.presentation.history : window.submissions ? window.submissions.history : window.historyItems
                 onShowOpened: function(record) { if(window.presentation) window.openShow(window.presentation.shows[0]); else if(record && record.showId) { window.appSettings.setMediaProvider(record.providerId); window.openShow({id:record.showId,title:record.show}) } }
             }
