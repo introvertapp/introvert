@@ -5,7 +5,9 @@
 #include <QCommandLineParser>
 #include <QFont>
 #include <QGuiApplication>
+#ifndef Q_OS_MACOS
 #include <QIcon>
+#endif
 #include <QQmlExtensionPlugin>
 #include <QQuickStyle>
 #include <QTextStream>
@@ -24,7 +26,10 @@ int main(int argc, char *argv[])
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     QGuiApplication application(argc, argv);
     application.setApplicationDisplayName(QStringLiteral("INTROvert"));
+    // macOS uses the native bundle icon for both Finder and the running app.
+#ifndef Q_OS_MACOS
     application.setWindowIcon(QIcon(QStringLiteral(":/introvert/assets/app_icon.png")));
+#endif
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("Launch INTROvert"));
     parser.addHelpOption();

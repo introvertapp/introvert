@@ -12,6 +12,7 @@ class DetectionModel final : public QObject {
     Q_PROPERTY(QVariantMap status READ status NOTIFY changed)
     Q_PROPERTY(QString message READ message NOTIFY changed)
     Q_PROPERTY(bool active READ active NOTIFY changed)
+    Q_PROPERTY(QVariantMap showDetection READ showDetection NOTIFY changed)
     Q_PROPERTY(QVariantMap seasonProgress READ seasonProgress NOTIFY changed)
     Q_PROPERTY(QVariantList activeSeasons READ activeSeasons NOTIFY changed)
     Q_PROPERTY(QStringList activeShowIds READ activeShowIds NOTIFY changed)
@@ -26,6 +27,7 @@ public:
     QString message() const { return m_message.isEmpty() ? m_status.value("message").toString() : m_message; }
     bool active() const { const auto state = m_status.value("status").toString(); return state == "queued" || state == "running"; }
     QVariantList activeSeasons() const;
+    QVariantMap showDetection() const { return m_showDetection; }
     QVariantMap seasonProgress() const { return m_seasonProgress; }
     QStringList activeShowIds() const { return m_activeShowIds; }
     QVariantMap libraryScan() const { return m_scan; }
@@ -51,6 +53,7 @@ private:
     void publish(const detection::DetectionUpdates &updates);
     void sync();
     void updateScanEstimate();
+    void prepareShowDetection(const CatalogSelection &selection, const providers::ProviderIdentity &show);
     QString enqueue(const providers::ShowDetail &detail, int season, const QStringList &kinds, const CatalogSelection &selection);
     QStringList validatedKinds(const QVariantList &values);
     void advanceScan();
@@ -62,7 +65,9 @@ private:
     detection::DetectionService m_service;
     QThreadPool m_pool;
     QThreadPool m_discoveryPool;
-    QVariantMap m_scan, m_seasonProgress;
+    QVariantMap m_scan, m_seasonProgress, m_showDetection;
+    QMap<QString, QSet<QString>> m_showJobs;
+    bool m_showDetectionObserved = false;
     QMap<int, QString> m_seasonJobs;
     QString m_showVisit;
     QElapsedTimer m_scanElapsed;

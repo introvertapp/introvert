@@ -34,18 +34,12 @@ Item {
     property var selectionByEpisode: ({})
     property var detectionSeasons: []
     readonly property var requestedDetectionSeasons: detectionSeasons.length ? detectionSeasons : [season]
-    readonly property bool requestedDetectionActive: Boolean(detector && requestedDetectionSeasons.some(function(number) { return detector.activeSeasons.indexOf(number) >= 0 }))
+    readonly property var detectionRun: detector ? detector.showDetection : ({})
+    readonly property bool requestedDetectionActive: Boolean(detectionRun.active)
+    readonly property real requestedDetectionProgress: detectionRun.progress === undefined ? -1 : Number(detectionRun.progress)
     function seasonDetectionProgress(number) {
         var state = detector ? detector.seasonProgress[String(number)] : null
         return state && ["queued", "running", "complete"].indexOf(state.status) >= 0 ? Number(state.progress || 0) : -1
-    }
-    readonly property real requestedDetectionProgress: {
-        var total = 0, known = 0
-        requestedDetectionSeasons.forEach(function(number) {
-            var progress = page.seasonDetectionProgress(number)
-            if(progress >= 0) { total += progress; known++ }
-        })
-        return requestedDetectionActive || known === requestedDetectionSeasons.length ? total / Math.max(1, requestedDetectionSeasons.length) : -1
     }
     function toggleDetectionSeason(number) {
         if(!detectionSeasons.length && number !== season) { detectionSeasons = [season, number]; return }
@@ -253,7 +247,7 @@ Item {
                 text: page.requestedDetectionActive ? "Stop Detection" : page.detectionSeasons.length ? "Detect "+page.detectionSeasons.length+" Season"+(page.detectionSeasons.length===1 ? "" : "s") : "Detect Segments"
                 enabled: Boolean(page.detector) && !page.loading; implicitHeight: 30; fontSize: 12; theme: page.theme
                 onClicked: {
-                    if(page.requestedDetectionActive) page.detector.stopSeasons(page.requestedDetectionSeasons)
+                    if(page.requestedDetectionActive) page.detector.stopSeasons(page.detectionRun.seasons || page.requestedDetectionSeasons)
                     else page.detector.startSeasons(page.requestedDetectionSeasons,(detectIntro.checked ? ["intro"] : []).concat(detectCredits.checked ? ["credits"] : []))
                 }
             }

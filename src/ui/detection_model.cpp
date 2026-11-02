@@ -11,6 +11,15 @@
 #include <cmath>
 
 namespace introvert::ui {
+namespace {
+QString showKey(const CatalogSelection &selection, const providers::ProviderIdentity &show)
+{
+    const auto &saved = selection.saved;
+    return QString::fromUtf8(QJsonDocument(QJsonArray{saved.provider, saved.remoteUrl, saved.localRoot,
+        show.itemId, show.serverId.value_or(QString())}).toJson(QJsonDocument::Compact));
+}
+}
+
 DetectionModel::DetectionModel(LibraryModel &library, SettingsStore settings, segments::SegmentStore segments,
     std::shared_ptr<detection::MediaDetectionRunner> runner, detection::DetectionService::Completion completion, QObject *parent)
     : QObject(parent), m_library(library), m_store(settings.databasePath()),
@@ -71,13 +80,9 @@ void DetectionModel::sync()
     }
     if (context != m_context) { m_message.clear(); m_displayJob.clear(); m_context = context; }
     QString visit;
-    if (m_library.m_detail && m_library.m_key) {
-        const auto &identity = m_library.m_detail->show.identity; const auto &saved = m_library.m_key->saved;
-        visit = QString::fromUtf8(QJsonDocument(QJsonArray{saved.provider, saved.remoteUrl, saved.localRoot,
-            identity.itemId, identity.serverId.value_or(QString())}).toJson(QJsonDocument::Compact));
-    }
-    if (visit != m_showVisit) { m_showVisit = visit; m_seasonJobs.clear(); }
-    m_seasonProgress.clear();
+    if (m_library.m_detail && m_library.m_key) visit = showKey(*m_library.m_key, m_library.m_detail->show.identity);
+    if (visit != m_showVisit) { m_showVisit = visit; m_seasonJobs.clear(); m_showDetectionObserved = false; }
+    m_seasonProgress.clear(); m_showDetection.clear();
     try {
         const auto rows = m_store.rows();
         QSet<int> seen;
@@ -94,6 +99,29 @@ void DetectionModel::sync()
             double progress = std::clamp(row.value("current").toDouble() / std::max(1., row.value("total").toDouble()), 0., 1.);
             if (job != m_jobs.cend()) { if (state != "queued") state = "running"; progress = std::min(.999, progress); }
             m_seasonProgress[QString::number(season)] = QVariantMap{{"id", id}, {"status", state}, {"progress", state == "complete" ? 1. : progress}};
+        }
+        // The overall control follows queued work, independently of temporary
+        // season selection and visit-scoped completion colors.
+        const auto group = m_showJobs.value(visit);
+        if (!visit.isEmpty() && !group.isEmpty()) {
+            bool active = false, complete = true; double progress = 0.; int count = 0;
+            QSet<int> seasons;
+            for (const auto &value : rows) {
+                const auto row = value.toMap(); const auto id = row.value("id").toString();
+                if (!group.contains(id)) continue;
+                ++count; seasons.insert(row.value("season").toInt());
+                const bool pending = m_jobs.contains(id); const auto state = row.value("status").toString();
+                active |= pending; complete &= !pending && state == "complete";
+                if (!pending && (state == "complete" || state == "failed" || state == "cancelled")) progress += 1.;
+                else progress += std::clamp(row.value("current").toDouble() / std::max(1., row.value("total").toDouble()), 0., .999);
+            }
+            if (active) m_showDetectionObserved = true;
+            if (active || m_showDetectionObserved) {
+                auto numbers = seasons.values(); std::sort(numbers.begin(), numbers.end()); QVariantList values;
+                for (int number : numbers) values.append(number);
+                m_showDetection = {{"active", active}, {"seasons", values},
+                    {"progress", active ? std::min(.999, progress / group.size()) : complete && count == group.size() ? 1. : -1.}};
+            }
         }
         const auto previous = m_status;
         m_status.clear(); for (const auto &value : rows) {
@@ -146,6 +174,11 @@ void DetectionModel::sync()
     }
     emit changed();
 }
+void DetectionModel::prepareShowDetection(const CatalogSelection &selection, const providers::ProviderIdentity &show)
+{
+    auto &group = m_showJobs[showKey(selection, show)];
+    if (std::none_of(group.cbegin(), group.cend(), [this](const QString &id) { return m_jobs.contains(id); })) group.clear();
+}
 void DetectionModel::updateScanEstimate()
 {
     qint64 seconds = -1;
@@ -174,6 +207,7 @@ void DetectionModel::startSeasons(const QVariantList &seasons, const QVariantLis
     if (m_closed || !m_library.m_detail || !m_library.m_key) return;
     m_message.clear(); const auto kinds = validatedKinds(values); if (kinds.isEmpty()) return;
     const auto detail = *m_library.m_detail; const auto selection = *m_library.m_key;
+    prepareShowDetection(selection, detail.show.identity);
     QSet<int> selected;
     for (const auto &value : seasons) {
         bool ok = false; const int number = value.toInt(&ok);
@@ -191,7 +225,9 @@ QString DetectionModel::enqueue(const providers::ShowDetail &detail, int season,
         const auto &job = it.value();
         if (job.season == season && job.show.provider == detail.show.identity.provider && job.show.itemId == detail.show.identity.itemId
             && job.show.serverId == detail.show.identity.serverId && job.selection.saved.provider == selection.saved.provider
-            && job.selection.saved.remoteUrl == selection.saved.remoteUrl && job.selection.saved.localRoot == selection.saved.localRoot) return it.key();
+            && job.selection.saved.remoteUrl == selection.saved.remoteUrl && job.selection.saved.localRoot == selection.saved.localRoot) {
+            m_showJobs[showKey(selection, detail.show.identity)].insert(it.key()); return it.key();
+        }
     }
     auto editLock = m_library.m_editLocks.detect(detail.show, season);
     if (!editLock) { m_message = "Detection is already running for this season"; return {}; }
@@ -202,6 +238,7 @@ QString DetectionModel::enqueue(const providers::ShowDetail &detail, int season,
     emit jobStarted(detail.show.title, season);
     const auto cancel = std::make_shared<std::atomic_bool>(false);
     m_jobs.insert(created.first, {cancel, editLock, selection, detail.show.identity, season, kinds});
+    m_showJobs[showKey(selection, detail.show.identity)].insert(created.first);
     const auto id = created.first; const auto saved = selection.saved; const auto gate = editLock.get();
     m_pool.start(QRunnable::create([this, id, detail, season, kinds, saved, cancel, gate] {
         detection::DetectionUpdates updates; QString error;
@@ -277,6 +314,7 @@ void DetectionModel::advanceScan()
             if (m_scanCancel->load()) { advanceScan(); return; }
             if (detail) {
                 m_scanDetail = detail;
+                prepareShowDetection(selection, detail->show.identity);
                 for (const auto &season : detail->seasons) {
                     if (!season.number || season.episodes.size() < 2) continue;
                     const auto before = QSet<QString>(m_jobs.keyBegin(), m_jobs.keyEnd());
