@@ -13,14 +13,10 @@ Column {
     spacing: 12
     Column {
         visible: extras.section === "application"; width: parent.width; spacing: 16
-        Repeater {
-            model: ["Image cache", "Media preview cache"]
-            Item {
-                required property string modelData
-                width: extras.width; height: 40
-                Column { anchors.left: parent.left; spacing: 3; Text { text: modelData; color: extras.theme.text; font.bold: true; font.pixelSize: 15 } Text { objectName: extras.section === "application" && modelData === "Media preview cache" ? "mediaPreviewCacheSummary" : ""; text: extras.mediaLibrary ? (modelData === "Image cache" ? extras.mediaLibrary.imageCacheSummary : "Not used (direct playback)") : "Unavailable"; color: extras.theme.muted; font.pixelSize: 14 } }
-                AppButton { objectName: modelData === "Image cache" ? "clearImageCacheControl" : extras.section === "application" ? "clearMediaPreviewCacheControl" : ""; anchors.right: parent.right; text: "Clear cache"; theme: extras.theme; hint: modelData === "Media preview cache" && extras.mediaLibrary ? "Direct playback does not create cached preview clips" : ""; enabled: modelData === "Image cache" && Boolean(extras.mediaLibrary) && !extras.mediaLibrary.busy; implicitHeight: 38; onClicked: extras.mediaLibrary.clearImageCache() }
-            }
+        Item {
+            width: extras.width; height: 40
+            Column { anchors.left: parent.left; spacing: 3; Text { text: "Image cache"; color: extras.theme.text; font.bold: true; font.pixelSize: 15 } Text { text: extras.mediaLibrary ? extras.mediaLibrary.imageCacheSummary : "Unavailable"; color: extras.theme.muted; font.pixelSize: 14 } }
+            AppButton { objectName: "clearImageCacheControl"; anchors.right: parent.right; text: "Clear cache"; theme: extras.theme; enabled: Boolean(extras.mediaLibrary) && !extras.mediaLibrary.busy; implicitHeight: 38; onClicked: extras.mediaLibrary.clearImageCache() }
         }
         Rectangle { width: parent.width; height: 1; color: extras.theme.border }
     }

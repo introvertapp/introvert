@@ -4,6 +4,11 @@
 
 Settings save automatically. Use these sections for everyday preferences and maintenance.
 
+Press **⌘K** on macOS or **Ctrl+K** on Windows/Linux to focus the current
+screen's search field. The shortcut hint changes to a clear button while editing
+a nonempty search. In **Settings → Segments**, focus the **TV Show** column and
+type a show's starting letters to jump to it. Pause briefly to start a new prefix.
+
 ## Display and cache
 
 In **Settings → Application**, choose your **Timestamp format** and **TV Show
@@ -43,10 +48,21 @@ Checks are **Manual** by default. **Automatic** checks at startup and periodical
 while Introvert is open; it still waits for you to download and install updates.
 App updates keep your settings and saved timestamps.
 
-## Back up your data
+## Back up or move your data
 
-Quit Introvert completely, then copy its application-data folder to a safe location.
-Restore it while Introvert is closed.
+To move to another machine, including a different operating system:
+
+1. Quit Introvert completely on both machines. On macOS, use **Cmd + Q**;
+   closing the window keeps the app running.
+2. Copy `data/app.db` from the source application-data folder into `data/` in
+   the destination application-data folder, replacing its existing database.
+   Keep a backup of the destination database first if it contains data you need.
+3. Open the same or a newer version of Introvert on the destination machine.
+
+The database carries settings, API keys, library metadata, saved timestamps and
+intentional deletions, detection records, submission queue, and history. No
+conversion is needed between macOS, Windows, and Linux. Copy after a clean quit;
+a database copied while the app is running may be missing recent changes.
 
 | System | Default folder |
 | --- | --- |
@@ -57,12 +73,16 @@ Restore it while Introvert is closed.
 Linux uses `$XDG_DATA_HOME/Introvert` when that variable is set. A custom
 `--data-dir` launch option overrides the default folder.
 
-The folder includes `data/app.db` (settings, API keys, timestamps, queue, and
-history) and `data/media-image-cache` (downloaded artwork). Keep backups private:
-the database contains your saved credentials.
+Downloaded artwork lives separately in `data/media-image-cache` and can be
+fetched again. To back up artwork too, copy the whole application-data folder
+while Introvert is closed. Keep backups private: the database contains your
+saved credentials.
 
-On macOS, closing the window keeps Introvert running. Use **Cmd + Q** to quit
-before a backup. On Windows and Linux, closing the main window exits the app.
+Local media files are separate from the database. If their paths differ on the
+new machine, choose the destination media folder in **Settings → Media**.
+Server sources must remain reachable from the new machine. Install the app
+package for the destination OS and CPU; copying the database does not require
+copying a detector package from the old machine.
 
 ## Troubleshooting
 

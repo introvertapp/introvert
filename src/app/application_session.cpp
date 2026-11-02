@@ -53,6 +53,7 @@ ApplicationSession::ApplicationSession(bool preview, const std::optional<QString
         const auto paths = dataRoot ? StoragePaths::resolve(*dataRoot) : StoragePaths::resolve();
         paths.prepare();
         SettingsStore settings(paths.database); settings.initialize();
+        m_databasePath = paths.database;
         m_notifications->loadPreferences(settings);
         segments::SegmentStore segments(paths.database); segments.initialize();
         submissions::SubmissionStore submissions(paths.database); submissions.initialize();
@@ -204,6 +205,12 @@ void ApplicationSession::close()
     m_navigation.reset();
     m_updates.reset();
     m_updateTestNetwork.reset();
+    if (!m_databasePath.isEmpty()) {
+        try { sql::checkpoint(m_databasePath); }
+        catch (const std::exception &error) {
+            if (m_logs) m_logs->record("warning", "Storage", QString::fromUtf8(error.what()));
+        }
+    }
     if (m_previousQmlCache) qputenv("QML_DISK_CACHE_PATH", *m_previousQmlCache);
     else qunsetenv("QML_DISK_CACHE_PATH");
     m_runtime.reset();

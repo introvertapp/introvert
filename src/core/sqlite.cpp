@@ -56,6 +56,14 @@ void Connection::release()
     db.close(); db = QSqlDatabase(); QSqlDatabase::removeDatabase(m_name);
 }
 
+void checkpoint(const QString &path)
+{
+    Connection connection(path);
+    auto result = execute(connection.db, QStringLiteral("PRAGMA wal_checkpoint(TRUNCATE)"));
+    require(result.next() && result.value(0).toInt() == 0,
+            "Cannot finalize app.db for copying. Close all Introvert instances before copying the database.");
+}
+
 Transaction::Transaction(QSqlDatabase &db) : m_db(db) { execute(m_db, QStringLiteral("BEGIN IMMEDIATE")); }
 Transaction::~Transaction() { if (!m_committed) m_db.rollback(); }
 void Transaction::commit()

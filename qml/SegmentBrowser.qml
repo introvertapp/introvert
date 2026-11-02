@@ -74,7 +74,44 @@ Item {
                             Layout.fillWidth: true; Layout.fillHeight: true; clip: true
                             model: column.index === 0 ? browser.showRecords.map(function(s){return s.title}) : column.index === 1 ? browser.selectedShow >= 0 ? browser.seasonNumbers.map(function(n){return "Season " + n}) : [] : browser.selectedSeason >= 0 ? browser.preview ? ["E01 · First Light", "E02 · The Signal", "E03 · Crossing Paths", "E04 · A Quiet Place"] : browser.episodeRecords.map(function(e){return "E"+String(e.number).padStart(2,"0")+" · "+e.title}) : []
                             focus: true
-                            Keys.onPressed: function(event) { if ((event.modifiers & (Qt.ControlModifier | Qt.MetaModifier)) && event.key === Qt.Key_A) { browser.selectAll(column.index,list.count); event.accepted = true } }
+                            property string typeAhead: ""
+                            property string typeAheadModelKey: ""
+                            Timer { id: typeAheadTimer; interval: 1200; onTriggered: list.typeAhead = "" }
+                            function findPrefix(prefix) {
+                                var folded = prefix.toLocaleLowerCase()
+                                for(var i=0; i<count; ++i)
+                                    if(String(model[i]).toLocaleLowerCase().indexOf(folded) === 0) return i
+                                return -1
+                            }
+                            onActiveFocusChanged: if(!activeFocus) { typeAhead = ""; typeAheadTimer.stop() }
+                            onModelChanged: {
+                                var key = JSON.stringify(model || [])
+                                if(key !== typeAheadModelKey) {
+                                    typeAheadModelKey = key; typeAhead = ""; typeAheadTimer.stop()
+                                }
+                            }
+                            Keys.onPressed: function(event) {
+                                if ((event.modifiers & (Qt.ControlModifier | Qt.MetaModifier)) && event.key === Qt.Key_A) {
+                                    browser.selectAll(column.index,list.count); event.accepted = true; return
+                                }
+                                if(column.index !== 0 || event.modifiers & (Qt.ControlModifier | Qt.MetaModifier | Qt.AltModifier)) return
+                                if(event.key === Qt.Key_Escape) { typeAhead = ""; typeAheadTimer.stop(); event.accepted = true; return }
+                                if(event.key === Qt.Key_Backspace) {
+                                    if(!typeAhead.length) return
+                                    typeAhead = typeAhead.slice(0,-1)
+                                } else {
+                                    if(!event.text.length || event.text.charCodeAt(0) < 32) return
+                                    typeAhead += event.text
+                                }
+                                typeAheadTimer.restart()
+                                var match = typeAhead.length ? findPrefix(typeAhead) : -1
+                                if(match >= 0) {
+                                    currentIndex = match
+                                    browser.pick(0,match,Qt.NoModifier)
+                                    positionViewAtIndex(match,ListView.Beginning)
+                                }
+                                event.accepted = true
+                            }
                             delegate: ItemDelegate {
                                 HoverHandler { cursorShape: Qt.PointingHandCursor }
                                 id: option
@@ -86,7 +123,7 @@ Item {
                                 highlighted: browser.selections[column.index].indexOf(index) >= 0
                                 background: Rectangle { radius: 5; color: option.highlighted ? browser.theme.selected : option.hovered ? browser.theme.hover : "transparent"; border.color: "transparent" }
                                 contentItem: Text { text: option.text; leftPadding: 8; verticalAlignment: Text.AlignVCenter; color: browser.theme.text; font.pixelSize: 14; elide: Text.ElideRight }
-                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onPressed: function(mouse) { browser.pick(column.index,option.index,mouse.modifiers); list.forceActiveFocus() } }
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onPressed: function(mouse) { list.typeAhead = ""; typeAheadTimer.stop(); browser.pick(column.index,option.index,mouse.modifiers); list.forceActiveFocus() } }
 
                             }
                             Column { visible: Boolean(column.index===1 && browser.segmentManager && browser.segmentManager.busy); width: list.width; spacing: 8; Repeater { model: 3; Skeleton { width: list.width; height: 24; theme: browser.theme } } }

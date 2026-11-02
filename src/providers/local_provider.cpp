@@ -24,6 +24,20 @@ std::optional<QString> optionalString(const QVariant &value)
     return value.isNull() ? std::nullopt : std::optional<QString>(value.toString());
 }
 QString hash(const QString &value) { return QString::fromLatin1(QCryptographicHash::hash(value.toUtf8(), QCryptographicHash::Sha1).toHex()); }
+QString catalogRoot(QSqlDatabase &db, const QString &root)
+{
+    if (!root.startsWith("//") && !root.startsWith("\\\\")) return root;
+    auto alternate = root;
+    if (root.startsWith("//")) {
+        alternate.replace('/', '\\');
+        if (alternate.split('\\', Qt::SkipEmptyParts).size() == 2) alternate += '\\';
+    } else {
+        alternate.replace('\\', '/');
+        if (alternate.endsWith('/')) alternate.chop(1);
+    }
+    auto query = sql::execute(db, "SELECT root FROM local_catalog_roots WHERE root IN (?,?) ORDER BY CASE WHEN root=? THEN 0 ELSE 1 END LIMIT 1", {root, alternate, root});
+    return query.next() ? query.value(0).toString() : root;
+}
 QString childPath(const QString &parent, const QString &name)
 {
     auto path = QDir::fromNativeSeparators(parent);
@@ -67,20 +81,31 @@ QString LocalProvider::rootPath(const ProviderConfig &config, const Cancellation
     checkCancelled(cancelled);
     if (config.provider != ProviderId::Local || !config.localRoot || config.localRoot->isEmpty())
         throw ProviderError(QStringLiteral("Choose a media folder."));
-    auto path = QDir::fromNativeSeparators(*config.localRoot);
+    auto path = *config.localRoot;
+    static const QRegularExpression windowsPath(QStringLiteral(R"(^(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+))"));
+    bool windowsAbsolute = windowsPath.match(path).hasMatch();
+    bool windows = windowsAbsolute;
+#ifdef Q_OS_WIN
+    windowsAbsolute |= path.startsWith("//");
+    windows |= !path.startsWith('/') || path.startsWith("//");
+#endif
+    // Catalog roots are identities as well as addresses. Retain the originating
+    // OS spelling when browsing a copied DB; do not prefix a foreign drive with
+    // this machine's current directory or convert a POSIX root to backslashes.
+    if (windows) path.replace('\\', '/');
+    else path = QDir::fromNativeSeparators(path);
     if (path == "~" || path.startsWith("~/")) path.replace(0, 1, QDir::homePath());
-    if (!QDir::isAbsolutePath(path)) path = QDir::currentPath() + '/' + path;
+    if (!windowsAbsolute && !path.startsWith('/') && !QDir::isAbsolutePath(path)) path = QDir::currentPath() + '/' + path;
     // Match pathlib's lexical absolute form: collapse "." and redundant slashes
     // but preserve ".." and symlink spellings used by existing catalog IDs.
     QStringList parts;
     for (const auto &part : path.split('/', Qt::SkipEmptyParts)) if (part != ".") parts.append(part);
     const auto prefix = path.startsWith("//") && !path.startsWith("///") ? "//" : path.startsWith('/') ? "/" : "";
     auto absolute = prefix + parts.join('/');
-#ifdef Q_OS_WIN
     // pathlib retains the separator on drive roots and UNC share roots.
-    if ((absolute.size() == 2 && absolute[1] == ':') || (absolute.startsWith("//") && parts.size() == 2)) absolute += '/';
-#endif
-    return QDir::toNativeSeparators(absolute);
+    if (windows && ((absolute.size() == 2 && absolute[1] == ':') || (absolute.startsWith("//") && parts.size() == 2))) absolute += '/';
+    if (windows) absolute.replace('/', '\\');
+    return absolute;
 }
 
 void LocalProvider::initialize(QSqlDatabase &db)
@@ -186,13 +211,13 @@ void LocalProvider::scan(QSqlDatabase &db, const QString &root, const Cancellati
 
 bool LocalProvider::hasCatalog(const ProviderConfig &config,const Cancellation &cancelled)
 {
-    const auto root=rootPath(config,cancelled);initializeCatalog();sql::Connection connection(m_path);
+    const auto requested=rootPath(config,cancelled);initializeCatalog();sql::Connection connection(m_path);const auto root=catalogRoot(connection.db,requested);
     auto query=sql::execute(connection.db,"SELECT 1 FROM local_catalog_roots WHERE root=?",{root});return query.next();
 }
 
 void LocalProvider::refreshCatalog(const ProviderConfig &config,const Cancellation &cancelled)
 {
-    const auto root=rootPath(config,cancelled);initializeCatalog();sql::Connection connection(m_path);scan(connection.db,root,cancelled);
+    const auto requested=rootPath(config,cancelled);initializeCatalog();sql::Connection connection(m_path);scan(connection.db,catalogRoot(connection.db,requested),cancelled);
 }
 
 ShowSummary LocalProvider::show(QSqlDatabase &db, const QString &id, const QString &title, const QVariant &year,
@@ -218,9 +243,9 @@ ShowSummary LocalProvider::show(QSqlDatabase &db, const QString &id, const QStri
 
 QList<ShowSummary> LocalProvider::listSeries(const ProviderConfig &config, bool includeImages, const Cancellation &cancelled)
 {
-    const auto root = rootPath(config, cancelled);
+    auto root = rootPath(config, cancelled);
     if (!QDir().mkpath(QFileInfo(m_path).absolutePath())) throw DatabaseError("Cannot open Local catalog in app.db.");
-    sql::Connection connection(m_path); auto &db = connection.db; initialize(db);
+    sql::Connection connection(m_path); auto &db = connection.db; initialize(db); root = catalogRoot(db,root);
     auto found = sql::execute(db, "SELECT 1 FROM local_catalog_roots WHERE root=?", {root});
     const auto existing = found.next(); found.finish();
     if (m_rescan || !existing) {
@@ -249,9 +274,9 @@ std::optional<ShowDetail> LocalProvider::inspectShow(const ProviderConfig &confi
 std::optional<ShowDetail> LocalProvider::readShow(const ProviderConfig &config,const QString &showId,bool includeImages,
                                                const Cancellation &cancelled,bool inspectFiles)
 {
-    const auto root = rootPath(config, cancelled);
+    auto root = rootPath(config, cancelled);
     if (!QDir().mkpath(QFileInfo(m_path).absolutePath())) throw DatabaseError("Cannot open Local catalog in app.db.");
-    sql::Connection connection(m_path); auto &db = connection.db; initialize(db);
+    sql::Connection connection(m_path); auto &db = connection.db; initialize(db); root = catalogRoot(db,root);
     auto found = sql::execute(db, "SELECT id,title,year,path FROM shows WHERE id=? AND root=?", {showId, root});
     if (!found.next()) return std::nullopt;
     ShowDetail result{show(db, showId, found.value(1).toString(), found.value(2), found.value(3).toString(), includeImages && config.fetchImages), {}};
@@ -305,9 +330,9 @@ void LocalProvider::clear(const ProviderConfig &config, const Cancellation &canc
     checkCancelled(cancelled);
     if (config.provider != ProviderId::Local || !config.localRoot || config.localRoot->isEmpty())
         throw ProviderError(QStringLiteral("Select a Local media path before clearing its cache."));
-    const auto root = rootPath(config);
+    auto root = rootPath(config);
     if (!QDir().mkpath(QFileInfo(m_path).absolutePath())) throw DatabaseError("Cannot open Local catalog in app.db.");
-    sql::Connection connection(m_path); auto &db = connection.db; initialize(db); sql::Transaction transaction(db);
+    sql::Connection connection(m_path); auto &db = connection.db; initialize(db); root = catalogRoot(db,root); sql::Transaction transaction(db);
     sql::execute(db,"DELETE FROM local_episode_addresses WHERE episode_id IN(SELECT e.id FROM episodes e JOIN shows s ON s.id=e.show_id WHERE s.root=?)",{root});
     sql::execute(db,"DELETE FROM local_metadata_matches WHERE show_id IN(SELECT id FROM shows WHERE root=?)",{root});
     sql::execute(db,"DELETE FROM local_episode_media WHERE root=?",{root});

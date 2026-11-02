@@ -40,6 +40,7 @@ public:
 private:
     void refreshUpdateNotifications();
     bool m_preview, m_closed = false, m_loaded = false;
+    QString m_databasePath;
     std::unique_ptr<ui::LogModel> m_logs;
     std::unique_ptr<ui::NotificationModel> m_notifications;
     QString m_applicationNotice, m_detectorNotice, m_applicationOfferVersion, m_detectorOfferVersion;

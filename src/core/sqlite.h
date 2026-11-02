@@ -17,6 +17,9 @@ namespace sql {
 QSqlQuery execute(QSqlDatabase &db, const QString &statement, const QVariantList &values = {});
 QString text(const QString &value);
 void restrictPermissions(const QString &path);
+// Call after all application workers/connections have stopped, before copying
+// app.db alone. A busy result is an error, never a completed checkpoint.
+void checkpoint(const QString &path);
 
 // Each instance is constructed, used and destroyed on its calling thread.
 class Connection final {
