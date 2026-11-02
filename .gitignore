@@ -1,4 +1,4 @@
-# Publish only application/detector source, production assets and license notices.
+# Publish only application/detector source, production assets, user guides and license notices.
 # New root files/directories are local unless explicitly allowed here.
 /*
 !/.gitattributes
@@ -48,3 +48,13 @@ secrets.json
 
 # Public project overview.
 !/README.md
+
+# Public user guides. Keep other documentation and local infrastructure private.
+!/docs/
+/docs/*
+!/docs/installation.md
+!/docs/setup.md
+!/docs/detection.md
+!/docs/editor.md
+!/docs/sharing.md
+!/docs/help.md

@@ -1,6 +1,6 @@
-# INTROvert
+# Introvert
 
-INTROvert is a desktop application for detecting, reviewing, and editing TV
+Introvert is a desktop application for detecting, reviewing, and editing TV
 episode segment timestamps. It combines automated intro and credits detection
 with a video editor for manually matching segment boundaries to the exact frames
 of an episode.
@@ -12,14 +12,9 @@ of an episode.
 </p>
 
 Automated detection compares recurring audio across episodes in a season to find
-intros and credits on macOS, Windows, and Linux. Season-wide audio agreement helps
-recover partial matches while retaining supported alternate sequences. Optional refinement uses short,
-low-resolution video scans near the detected boundaries on every platform.
-It looks for supported black-frame transitions and scene cuts without reading
-credit text. Resolved audio boundaries skip video refinement. Uncertain intro
-starts can expand to a preceding black-frame transition while retaining the matched
-audio; unsupported transitions retain their audio boundaries. Detected
-timestamps can be reviewed and adjusted against the original video before sharing.
+intros and credits. Optional visual refinement checks nearby video transitions
+to improve segment boundaries. Review the results against the original video
+before sharing.
 
 The video editor supports frame-by-frame navigation, a zoomable timeline, audio
 levels, and precise timestamp entry. These controls make it possible to check
@@ -28,7 +23,7 @@ timestamps entirely by hand. Recap, Intro, Credits, and Preview segments can all
 be edited, with keyboard shortcuts and episode navigation keeping the review
 workflow close to the video.
 
-INTROvert also brings the surrounding timestamp workflow into one application:
+Introvert also brings the surrounding timestamp workflow into one application:
 
 - **Media libraries:** Browse episodes from Plex, Emby, Jellyfin, or local media
   folders, including network storage.
@@ -44,6 +39,27 @@ INTROvert also brings the surrounding timestamp workflow into one application:
 
 Timestamps and edits are stored locally. Reviewing and editing segments does not
 rewrite the media files or change the markers on a connected media server.
+
+## Table of contents
+
+- [Quick start](#quick-start)
+- [Installation](docs/installation.md): [macOS](docs/installation.md#macos), [Windows](docs/installation.md#windows), [Linux](docs/installation.md#linux)
+- [Connect your media and configure metadata](docs/setup.md)
+- [Run detection](docs/detection.md): [one season](docs/detection.md#one-season), [multiple seasons](docs/detection.md#multiple-seasons), [entire library](docs/detection.md#entire-library)
+- [Review and edit timestamps](docs/editor.md)
+- [Share timestamps, queue, and history](docs/sharing.md)
+- [Settings, updates, backups, and troubleshooting](docs/help.md)
+- [Detection performance](#detection-performance)
+- [OS and CPU compatibility](#os-and-cpu-compatibility)
+
+## Quick start
+
+1. [Install Introvert](docs/installation.md) for your operating system.
+2. Open **Settings → Media** and [connect a server or local folder](docs/setup.md).
+3. Return to **TV Shows**, open a show, and choose a season with at least two episodes.
+4. Choose **Intro**, **Credits**, or both, then click **Detect Segments**.
+5. Open an episode's video editor to [check and save any corrections](docs/editor.md).
+6. Optionally, [submit selected timestamps](docs/sharing.md) to a community database.
 
 ## Detection performance
 
