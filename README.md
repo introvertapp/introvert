@@ -45,6 +45,36 @@ INTROvert also brings the surrounding timestamp workflow into one application:
 Timestamps and edits are stored locally. Reviewing and editing segments does not
 rewrite the media files or change the markers on a connected media server.
 
+## Detection performance
+
+**Synthetic baseline for a complete 10-episode season**, detecting both Intro
+and Credits at the default **Medium** effort setting. Media is stored on a local
+SSD; times below are for the whole season.
+
+| Season | Resolution | Audio only | With visual refinement |
+| --- | --- | ---: | ---: |
+| 10 × 30 min | 720p | ≈5.5 s | ≈6.3 s |
+| 10 × 30 min | 1080p | ≈5.6 s | ≈7.1 s |
+| 10 × 30 min | 4K | ≈7.7 s | ≈13.3 s |
+| 10 × 60 min | 720p | ≈5.5 s | ≈6.3 s |
+| 10 × 60 min | 1080p | ≈5.6 s | ≈7.2 s |
+| 10 × 60 min | 4K | ≈7.7 s | ≈13.0 s |
+
+Measured on a **Mac mini · Apple M6 · 12-core CPU · 16 GB RAM**, running
+**macOS 27.2** (Introvert 0.1.17, detector 0.51.2). Each value is the rounded
+median of three fresh-analysis runs using synthetic 24 fps H.264/AAC files with
+repeated moving test-pattern video, generated music and quiet gaps. File generation
+and library import are excluded; operating-system file caches were not flushed.
+
+Thirty- and sixty-minute episodes both analyze the first and last ten minutes
+of audio, so doubling episode length does not necessarily double detection time.
+
+**Estimates only:** these simple synthetic files can be much faster to analyze
+than real media. Results may vary drastically with hardware, codecs, bitrate,
+frame rate, available memory, background load and network/server performance.
+Visual refinement scanned one six-second boundary window per episode here;
+other sequences may require more or less work.
+
 ## OS and CPU compatibility
 
 | Operating system | CPU architecture | Testing status |
