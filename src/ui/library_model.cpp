@@ -11,13 +11,15 @@ bool CatalogSelection::operator==(const CatalogSelection &other) const
 {
     return listing == other.listing && saved.provider == other.saved.provider && saved.remoteUrl == other.saved.remoteUrl
         && saved.localRoot == other.saved.localRoot && saved.fetchImages == other.saved.fetchImages
-        && saved.timeoutSeconds == other.saved.timeoutSeconds;
+        && saved.timeoutSeconds == other.saved.timeoutSeconds && saved.importSegments == other.saved.importSegments;
 }
 
 LibraryModel::LibraryModel(SettingsModel &settings, SettingsStore store, QString artworkRoot,
                            library::ProviderMap overrides, MetadataClient metadataClient, QObject *parent)
     : QObject(parent), m_settings(settings), m_store(std::move(store)),
-      m_cache(std::move(artworkRoot), m_store.databasePath()), m_catalog(m_store, m_cache, std::move(overrides)),
+      m_cache(std::move(artworkRoot), m_store.databasePath()), m_catalog(m_store, m_cache, std::move(overrides), [this](const QString &level, const QString &message) {
+          QMetaObject::invokeMethod(this, [this, level, message] { if (!m_closed) emit diagnosticMessage(level, message); }, Qt::QueuedConnection);
+      }),
       m_metadata(new LocalMetadataModel(*this, std::move(metadataClient)))
 {
     m_pool.setMaxThreadCount(2);

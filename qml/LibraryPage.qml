@@ -9,6 +9,7 @@ Item {
     required property var appNavigation
     property bool preview: false
     property var mediaLibrary: null
+    property var detector: null
     property real headerInset: 0
     property alias glassHost: libraryGlassHost
     property alias scrollSurface: libraryContent
@@ -62,6 +63,7 @@ Item {
             delegate: PosterTile {
                 required property var model
                 record: model.record
+                detecting: Boolean(page.detector && page.detector.activeShowIds.indexOf(String(record.id)) >= 0)
                 width: gallery.posterWidth; height: width*1.5
                 theme: page.theme
                 matchText: page.preview && page.query && record.title.toLowerCase().indexOf(page.filterQuery)<0 ? "S01E01 · First Light" : ""

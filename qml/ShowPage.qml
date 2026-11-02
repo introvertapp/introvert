@@ -32,6 +32,26 @@ Item {
     property int season: 1
     property string timestampFormat: "both"
     property var selectionByEpisode: ({})
+    property var detectionSeasons: []
+    readonly property var requestedDetectionSeasons: detectionSeasons.length ? detectionSeasons : [season]
+    readonly property bool requestedDetectionActive: Boolean(detector && requestedDetectionSeasons.some(function(number) { return detector.activeSeasons.indexOf(number) >= 0 }))
+    function seasonDetectionProgress(number) {
+        var state = detector ? detector.seasonProgress[String(number)] : null
+        return state && ["queued", "running", "complete"].indexOf(state.status) >= 0 ? Number(state.progress || 0) : -1
+    }
+    readonly property real requestedDetectionProgress: {
+        var total = 0, known = 0
+        requestedDetectionSeasons.forEach(function(number) {
+            var progress = page.seasonDetectionProgress(number)
+            if(progress >= 0) { total += progress; known++ }
+        })
+        return requestedDetectionActive || known === requestedDetectionSeasons.length ? total / Math.max(1, requestedDetectionSeasons.length) : -1
+    }
+    function toggleDetectionSeason(number) {
+        if(!detectionSeasons.length && number !== season) { detectionSeasons = [season, number]; return }
+        detectionSeasons = detectionSeasons.indexOf(number) >= 0 ? detectionSeasons.filter(function(value) { return value !== number }) : detectionSeasons.concat([number])
+    }
+    function openSeason(number) { if(preview) season = number; seasonRequested(number) }
     readonly property int selectedCount: Object.keys(selectionByEpisode).filter(function(id){return selectionByEpisode[id].length>0}).length
     readonly property int selectedSegmentCount: Object.keys(selectionByEpisode).reduce(function(n,id){return n+selectionByEpisode[id].length},0)
     readonly property var selectedTypes: {
@@ -81,7 +101,7 @@ Item {
     }
     property string endpoint: submissions && submissions.endpoints.length ? submissions.endpoints[0] : "introdb.app"
     function clearSelection() { selectionByEpisode={} }
-    onShowChanged: {if(!show || show.id!==selectionShowId) { clearSelection();selectionShowId=show ? String(show.id || "") : "";resetScroll() }}
+    onShowChanged: {if(!show || show.id!==selectionShowId) { clearSelection();detectionSeasons=[];selectionShowId=show ? String(show.id || "") : "";resetScroll() }}
     property string selectionShowId: ""
     function resetScroll() {Qt.callLater(function(){
         episodeList.forceLayout();episodeList.positionViewAtBeginning()
@@ -198,13 +218,45 @@ Item {
             anchors.left: parent.left; anchors.bottom: parent.bottom; width: parent.width-200; spacing: 10
             Repeater {
                 model: page.show ? page.show.seasonNumbers || Array.from({length:page.show.seasons || 0},function(_,index){return index+1}) : []
-                AppButton { required property var modelData; objectName: "season_" + modelData; text: "Season " + modelData; fontSize: 11; implicitHeight: 31; selected: page.season === modelData; theme: page.theme; onClicked: { if(page.preview) page.season = modelData; page.seasonRequested(modelData) } }
+                AppButton {
+                    id: seasonButton
+                    required property var modelData
+                    readonly property bool wholeSeasonSelected: page.detectionSeasons.indexOf(Number(modelData)) >= 0
+                    objectName: "season_" + modelData; text: "Season " + modelData; fontSize: 11; implicitHeight: 31
+                    selected: page.season === modelData || wholeSeasonSelected
+                    progress: page.seasonDetectionProgress(Number(modelData))
+                    selectionColor: page.theme.selected
+                    selectionBorderColor: page.theme.accent
+                    theme: page.theme; hint: "Shift-click to select this entire season for detection"
+                    onClicked: page.openSeason(Number(modelData))
+                    Keys.onSpacePressed: function(event) {
+                        if(event.modifiers & Qt.ShiftModifier) { page.toggleDetectionSeason(Number(modelData)); event.accepted = true }
+                        else event.accepted = false
+                    }
+                    MouseArea {
+                        anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                        onClicked: function(mouse) {
+                            seasonButton.forceActiveFocus()
+                            if(mouse.modifiers & Qt.ShiftModifier) page.toggleDetectionSeason(Number(seasonButton.modelData))
+                            else page.openSeason(Number(seasonButton.modelData))
+                        }
+                    }
+                }
             }
         }
         ColumnLayout {
             anchors.right: parent.right; anchors.bottom: parent.bottom; spacing: 7
-            RowLayout { visible: !page.detector || !page.detector.active; SegmentSwitch { id: detectIntro; objectName: "detectIntroToggle"; compact: true; text: "Intro"; checked: true } SegmentSwitch { id: detectCredits; objectName: "detectCreditsToggle"; compact: true; text: "Credits"; checked: true } }
-            AppButton { objectName: "detectSegmentsControl"; Layout.fillWidth: true; progress: page.detector && page.detector.active ? Number(page.detector.status.current || 0)/Math.max(1,Number(page.detector.status.total || 0)) : -1; text: page.detector && page.detector.active ? "Stop Detection" : "Detect Segments"; enabled: Boolean(page.detector) && !page.loading; implicitHeight: 30; fontSize: 12; theme: page.theme; onClicked: { if(page.detector.active) page.detector.stop(); else page.detector.start((detectIntro.checked ? ["intro"] : []).concat(detectCredits.checked ? ["credits"] : [])) } }
+            RowLayout { visible: !page.requestedDetectionActive; SegmentSwitch { id: detectIntro; objectName: "detectIntroToggle"; compact: true; text: "Intro"; checked: true } SegmentSwitch { id: detectCredits; objectName: "detectCreditsToggle"; compact: true; text: "Credits"; checked: true } }
+            AppButton {
+                objectName: "detectSegmentsControl"; Layout.fillWidth: true
+                progress: page.requestedDetectionProgress
+                text: page.requestedDetectionActive ? "Stop Detection" : page.detectionSeasons.length ? "Detect "+page.detectionSeasons.length+" Season"+(page.detectionSeasons.length===1 ? "" : "s") : "Detect Segments"
+                enabled: Boolean(page.detector) && !page.loading; implicitHeight: 30; fontSize: 12; theme: page.theme
+                onClicked: {
+                    if(page.requestedDetectionActive) page.detector.stopSeasons(page.requestedDetectionSeasons)
+                    else page.detector.startSeasons(page.requestedDetectionSeasons,(detectIntro.checked ? ["intro"] : []).concat(detectCredits.checked ? ["credits"] : []))
+                }
+            }
         }
     }
 

@@ -20,13 +20,25 @@ QString providerLabel(ProviderId id)
     return {};
 }
 
-CatalogService::CatalogService(SettingsStore store, MediaCache &cache, ProviderMap overrides)
-    : m_store(std::move(store)), m_cache(cache), m_providers(std::move(overrides))
+CatalogService::CatalogService(SettingsStore store, MediaCache &cache, ProviderMap overrides, Diagnostic diagnostic)
+    : m_store(std::move(store)), m_cache(cache), m_providers(std::move(overrides)), m_diagnostic(std::move(diagnostic))
 {
     if (!m_providers.count(ProviderId::Plex)) m_providers[ProviderId::Plex] = std::make_unique<PlexProvider>();
     if (!m_providers.count(ProviderId::Emby)) m_providers[ProviderId::Emby] = std::make_unique<EmbyProvider>();
     if (!m_providers.count(ProviderId::Jellyfin)) m_providers[ProviderId::Jellyfin] = std::make_unique<JellyfinProvider>();
     if (!m_providers.count(ProviderId::Local)) m_providers[ProviderId::Local] = std::make_unique<LocalProvider>(m_store.databasePath());
+}
+
+void CatalogService::log(const QString &level, const QString &message) const
+{
+    if (m_diagnostic) m_diagnostic(level, message);
+}
+
+QList<ShowSummary> CatalogService::series(const ProviderConfig &config, const Cancellation &cancel)
+{
+    const std::lock_guard<std::mutex> lock(m_providerMutex);
+    checkCancelled(cancel);
+    return m_providers.at(config.provider)->listSeries(config, false, cancel);
 }
 
 ProviderConfig CatalogService::config(const ProviderSettings &saved, const Cancellation &cancel) const
@@ -37,6 +49,7 @@ ProviderConfig CatalogService::config(const ProviderSettings &saved, const Cance
     result.localRoot = saved.localRoot;
     result.fetchImages = saved.fetchImages;
     result.timeoutSeconds = saved.timeoutSeconds;
+    result.importSegments = saved.importSegments;
     if(result.provider==ProviderId::Local && result.localRoot && !result.localRoot->isEmpty())
         result.fetchImages=m_store.loadLocalMetadata(LocalProvider::rootPath(result)).value("artwork").toString()!="off";
     if (result.provider != ProviderId::Local) {
@@ -96,6 +109,7 @@ CatalogResult CatalogService::browse(const ProviderConfig &config, const QString
                                     const QVariantList &previous, const Cancellation &cancel, const Progress &progress)
 {
     checkCancelled(cancel);
+    log("info", providerLabel(config.provider) + " metadata refresh started.");
     auto &provider = *m_providers.at(config.provider);
     const bool remote = config.provider != ProviderId::Local;
     auto *local=dynamic_cast<LocalProvider *>(&provider);
@@ -139,12 +153,17 @@ CatalogResult CatalogService::browse(const ProviderConfig &config, const QString
                 }();
                 checkCancelled(cancel);
                 segments::loadCatalogSegments(m_store.databasePath(), loaded);
-            } catch (const ProviderError &) { ++unavailable; }
+            } catch (const ProviderError &) {
+                checkCancelled(cancel); ++unavailable;
+                log("warning", providerLabel(config.provider) + " timestamp import could not load a show. Open the show or refresh to retry.");
+            }
         }
+        log("info", QString("%1 metadata import checked %2 show(s); %3 unavailable.").arg(providerLabel(config.provider)).arg(values.size()).arg(unavailable));
         if (unavailable) result.message = QString("Library loaded. Existing timestamps could not be checked for %1 show(s); open the show or refresh to retry.").arg(unavailable);
     };
     const auto fresh = remote && !force ? m_cache.series(scope) : std::optional<QList<ShowSummary>>();
     if (fresh) {
+        log("info", QString("%1 metadata loaded from cache: %2 show(s).").arg(providerLabel(config.provider)).arg(fresh->size()));
         result.cached = true;
         result.message = "Using cached " + providerLabel(config.provider) + " library.";
         display(*fresh);
@@ -178,6 +197,7 @@ CatalogResult CatalogService::browse(const ProviderConfig &config, const QString
     catch (const ProviderError &error) {
         if (!stale) throw;
         result.cached = true;
+        log("warning", providerLabel(config.provider) + " metadata refresh failed; using cached metadata. Check the server connection and retry.");
         result.message = QString::fromUtf8(error.what()) + " Showing cached library.";
         display(*stale);
         return result;
@@ -189,6 +209,7 @@ CatalogResult CatalogService::browse(const ProviderConfig &config, const QString
     }
     result.cached = localCached; result.message=localCached?"Using cached Local library.":QString();
     display(values);
+    log("info", QString("%1 metadata refresh finished: %2 show(s).").arg(providerLabel(config.provider)).arg(values.size()));
     if(!localCached)import(values);
     return result;
 }
@@ -206,10 +227,16 @@ ShowDetail CatalogService::detail(const ProviderConfig &config, const QString &l
             checkCancelled(cancel);
             result = m_providers.at(config.provider)->getShow(config, id, listing != "basic", cancel);
         }
-        if (!result) throw ProviderError("This show is no longer available.");
+        if (!result) {
+            log("warning", providerLabel(config.provider) + " show metadata is no longer available.");
+            throw ProviderError("This show is no longer available.");
+        }
+        log("info", providerLabel(config.provider) + " show metadata imported: " + result->show.title + ".");
         checkCancelled(cancel);
         if (remote) m_cache.putDetail(scope, *result, id);
     }
+    if (remote && !config.importSegments)
+        for (auto &season : result->seasons) for (auto &episode : season.episodes) episode.importedSegments.clear();
     return *result;
 }
 
@@ -217,6 +244,7 @@ CatalogResult CatalogService::rebuild(const ProviderConfig &config, const QStrin
                                      const Cancellation &cancel, const std::function<void(double)> &progress)
 {
     checkCancelled(cancel);
+    log("info", providerLabel(config.provider) + " metadata refresh started.");
     auto &provider = *m_providers.at(config.provider);
     const bool remote=config.provider!=ProviderId::Local;
     auto *local=dynamic_cast<LocalProvider *>(&provider);
@@ -250,10 +278,12 @@ CatalogResult CatalogService::rebuild(const ProviderConfig &config, const QStrin
         for (const auto &path : {show.posterUrl, show.logoUrl, detail->show.posterUrl, detail->show.logoUrl})
             if (path && !path->isEmpty() && !images.contains(*path)) images[*path] = artwork(config, path, cancel, remote);
         checkCancelled(cancel);
-        segments::loadCatalogSegments(m_store.databasePath(), *detail);
         if(remote)requireStored(m_cache.putDetail(full, *detail, show.identity.itemId));
         detail->show.posterUrl.reset(); detail->show.logoUrl.reset();
         if(remote)requireStored(m_cache.putDetail(basic, *detail, show.identity.itemId));
+        if (remote && !config.importSegments)
+            for (auto &season : detail->seasons) for (auto &episode : season.episodes) episode.importedSegments.clear();
+        segments::loadCatalogSegments(m_store.databasePath(), *detail);
         auto row = displayShow(config, show, cancel, false);
         if (listing != "basic") {
             row["posterUrl"] = images.value(show.posterUrl.value_or(QString()));
@@ -268,6 +298,7 @@ CatalogResult CatalogService::rebuild(const ProviderConfig &config, const QStrin
         requireStored(m_cache.putSeries(full, values));
         requireStored(m_cache.putSeries(basic, withoutImages));
     }
+    log("info", QString("%1 metadata rebuild finished: %2 show(s).").arg(providerLabel(config.provider)).arg(values.size()));
     return result;
 }
 

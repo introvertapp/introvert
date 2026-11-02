@@ -99,6 +99,7 @@ ApplicationWindow {
                 preview: window.uiPreview; items: window.presentation ? window.presentation.shows : window.mediaLibrary ? window.mediaLibrary.shows : window.libraryItems
                 query: window.searchQueries.home; visualState: window.mediaLibrary && !window.uiPreview ? window.mediaLibrary.state : window.visualState
                 mediaLibrary: window.mediaLibrary
+                detector: window.uiPreview ? null : window.detector
                 onShowOpened: function(show) { window.openShow(show) }
             }
             QueuePage {
@@ -112,7 +113,7 @@ ApplicationWindow {
                 items: window.presentation ? window.presentation.history : window.submissions ? window.submissions.history : window.historyItems
                 onShowOpened: function(record) { if(window.presentation) window.openShow(window.presentation.shows[0]); else if(record && record.showId) { window.appSettings.setMediaProvider(record.providerId); window.openShow({id:record.showId,title:record.show}) } }
             }
-            SettingsPage { appNotifications: window.appNotifications; applicationLogs: window.applicationLogs; applicationUpdates: window.applicationUpdates; segmentManager: window.uiPreview ? null : window.segmentManager; theme: colors; appSettings: window.appSettings; mediaLibrary: window.uiPreview ? null : window.mediaLibrary; preview: window.uiPreview; previewShows: window.presentation ? window.presentation.shows : [] }
+            SettingsPage { detector: window.uiPreview ? null : window.detector; appNotifications: window.appNotifications; applicationLogs: window.applicationLogs; applicationUpdates: window.applicationUpdates; segmentManager: window.uiPreview ? null : window.segmentManager; theme: colors; appSettings: window.appSettings; mediaLibrary: window.uiPreview ? null : window.mediaLibrary; preview: window.uiPreview; previewShows: window.presentation ? window.presentation.shows : [] }
             ShowPage {
                 id: showDetails
                 headerInset: pages.y+20

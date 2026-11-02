@@ -11,6 +11,8 @@ Button {
     property real iconOpacity: 1
     property bool selected: false
     property bool outlineSelection: false
+    property color selectionColor: theme ? theme.selected : "transparent"
+    property color selectionBorderColor: theme ? theme.accent : "transparent"
     property bool primary: false
     property bool destructive: false
     property string hint: ""
@@ -32,7 +34,7 @@ Button {
     background: Rectangle {
         visible: !control.glyphOnly
         radius: control.subtle ? 4 : 8
-        color: control.subtle ? (control.hovered ? "#12ffffff" : "#0affffff") : control.primary ? "#b5412f" : control.selected && !control.outlineSelection ? control.theme.selected : (control.hovered ? control.theme.hover : control.theme.card)
+        color: control.subtle ? (control.hovered ? "#12ffffff" : "#0affffff") : control.primary ? "#b5412f" : control.selected && !control.outlineSelection ? control.selectionColor : (control.hovered ? control.theme.hover : control.theme.card)
         Canvas {
             id: progressFill
             objectName: "buttonProgressFill"
@@ -52,7 +54,7 @@ Button {
             }
         }
         border.width: control.subtle ? 0 : control.activeFocus ? 2 : 1
-        border.color: control.destructive ? control.theme.danger : control.activeFocus || control.selected ? control.theme.accent : control.theme.border
+        border.color: control.destructive ? control.theme.danger : control.activeFocus ? control.theme.accent : control.selected ? control.selectionBorderColor : control.theme.border
     }
 
     contentItem: Item {

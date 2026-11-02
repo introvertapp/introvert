@@ -7,11 +7,20 @@ Item {
     id: page
     property var theme
     property var mediaLibrary: null
+    property var detector: null
     property var applicationUpdates: null
     property var applicationLogs: null
     property var appNotifications: null
     required property var appSettings
     readonly property real navigationReveal: settingsSplit.panelReveal
+    function scanTimeRemaining(seconds) {
+        if(seconds < 0) return "Estimating time remaining…"
+        if(seconds < 60) return "Less than a minute remaining"
+        var minutes = Math.ceil(seconds / 60)
+        if(minutes < 60) return "About "+minutes+" minutes remaining"
+        var hours = Math.floor(minutes / 60), rest = minutes % 60
+        return "About "+hours+" hour"+(hours === 1 ? "" : "s")+(rest ? " "+rest+" min" : "")+" remaining"
+    }
     function toggleNavigationWidth() { settingsSplit.togglePanelWidth() }
     property string activeTab: "application"
     onActiveTabChanged: { if(activeTab === "endpoints" && appSettings && appSettings.endpointSettings) appSettings.endpointSettings.activate(); if(activeTab === "notifications" && appSettings && appSettings.webhookSettings) appSettings.webhookSettings.activate() }
@@ -307,6 +316,58 @@ Item {
                                     text: "Refines Intro starts and ends, and Credits starts, using short, low-resolution video scans. No text recognition is used. Turn off for audio-only detection. Applies to new scans."
                                 }
                             }
+                            Rectangle { width: parent.width; height: 1; color: page.theme.border }
+                            Column {
+                                objectName: "libraryScanSection"
+                                width: parent.width; spacing: 10
+                                readonly property var scan: page.detector ? page.detector.libraryScan : ({})
+                                readonly property bool showProgress: Boolean(scan.id) && scan.status !== "stopping" && scan.status !== "cancelled"
+                                Text { text: "Full-library scan"; color: page.theme.text; font.bold: true; font.pixelSize: 15 }
+                                Text {
+                                    width: parent.width; color: page.theme.muted; font.pixelSize: 13; wrapMode: Text.WordWrap
+                                    text: "Detect segments across all shows and seasons with at least two episodes. You can use other screens while this runs. Keep Introvert open; large libraries may take a very long time."
+                                }
+                                RowLayout {
+                                    width: parent.width; spacing: 12
+                                    SegmentSwitch { id: libraryIntro; objectName: "libraryScanIntro"; compact: true; text: "Intro"; checked: true; enabled: !page.detector || !page.detector.libraryScanActive }
+                                    SegmentSwitch { id: libraryCredits; objectName: "libraryScanCredits"; compact: true; text: "Credits"; checked: true; enabled: !page.detector || !page.detector.libraryScanActive }
+                                    Item { Layout.fillWidth: true }
+                                    AppButton {
+                                        objectName: "libraryScanControl"; theme: page.theme
+                                        text: page.detector && page.detector.libraryScanActive ? "Stop Scan" : "Scan Library"
+                                        enabled: !page.preview && Boolean(page.detector) && (page.detector.libraryScanActive || (page.appSettings.mediaProvider !== "" && (libraryIntro.checked || libraryCredits.checked)))
+                                        onClicked: {
+                                            if(page.detector.libraryScanActive) page.detector.stopLibraryScan()
+                                            else page.detector.startLibraryScan((libraryIntro.checked ? ["intro"] : []).concat(libraryCredits.checked ? ["credits"] : []))
+                                        }
+                                    }
+                                }
+                                ProgressBar {
+                                    objectName: "libraryScanProgressBar"
+                                    width: parent.width; implicitHeight: 6; visible: parent.showProgress
+                                    from: 0; to: 1; value: parent.showProgress ? Number(parent.scan.progress || 0) : 0
+                                    Accessible.name: "Library scan progress"
+                                    background: Rectangle { radius: 3; color: page.theme.border }
+                                    contentItem: Item {
+                                        Rectangle { width: parent.width * parent.parent.visualPosition; height: parent.height; radius: 3; color: "#33d17a" }
+                                    }
+                                }
+                                Text {
+                                    objectName: "libraryScanCounts"; visible: parent.showProgress
+                                    width: parent.width; color: page.theme.text; font.pixelSize: 13; wrapMode: Text.WordWrap
+                                    text: parent.showProgress ? Math.floor(Number(parent.scan.progress || 0)*100)+"% · "+Number(parent.scan.totalShows || 0)+" shows · "+Number(parent.scan.remainingShows || 0)+" remaining" : ""
+                                }
+                                Text {
+                                    objectName: "libraryScanCurrent"; visible: Boolean(parent.showProgress && page.detector && page.detector.libraryScanActive && parent.scan.currentShow)
+                                    width: parent.width; color: page.theme.muted; font.pixelSize: 13; wrapMode: Text.WordWrap
+                                    text: page.detector && page.detector.libraryScanActive ? (parent.scan.currentShow || "")+(parent.scan.currentSeason ? " · Season "+parent.scan.currentSeason : "") : ""
+                                }
+                                Text {
+                                    objectName: "libraryScanTimeRemaining"; visible: Boolean(parent.showProgress && page.detector && page.detector.libraryScanActive)
+                                    width: parent.width; color: page.theme.muted; font.pixelSize: 13; wrapMode: Text.WordWrap
+                                    text: page.scanTimeRemaining(parent.scan.estimatedSeconds === undefined ? -1 : Number(parent.scan.estimatedSeconds))
+                                }
+                            }
                         }
 
                         Column {
@@ -386,6 +447,24 @@ Item {
                                     text: "Fetch images"
                                     checked: page.appSettings.mediaSettings.fetchImages
                                     onToggled: page.appSettings.mediaSettings.setFetchImages(checked)
+                                }
+                                Column {
+                                    width: parent.width; spacing: 6
+                                    visible: ["plex", "emby", "jellyfin"].indexOf(page.appSettings.mediaProvider) >= 0
+                                    RowLayout {
+                                        width: parent.width; height: 34
+                                        Text { Layout.fillWidth: true; text: "Import server timestamps"; color: page.theme.text }
+                                        SegmentSwitch {
+                                            objectName: "mediaImportSegmentsControl"
+                                            Accessible.name: "Import existing segment timestamps from this server"
+                                            checked: page.appSettings.mediaSettings.importSegments
+                                            onToggled: page.appSettings.mediaSettings.setImportSegments(checked)
+                                        }
+                                    }
+                                    Text {
+                                        width: parent.width; wrapMode: Text.WordWrap; font.pixelSize: 13; color: page.theme.muted
+                                        text: "Import existing segment timestamps when loading or refreshing this server. Off by default. Timestamps already saved in Introvert are kept."
+                                    }
                                 }
                                 Rectangle { width: parent.width; height: 1; color: page.theme.border }
                                 AppButton {

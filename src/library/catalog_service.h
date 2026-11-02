@@ -21,7 +21,9 @@ struct CatalogResult {
 class CatalogService final {
 public:
     using Progress = std::function<void(const CatalogResult &)>;
-    CatalogService(SettingsStore store, MediaCache &cache, ProviderMap overrides = {});
+    using Diagnostic = std::function<void(const QString &, const QString &)>;
+    CatalogService(SettingsStore store, MediaCache &cache, ProviderMap overrides = {}, Diagnostic diagnostic = {});
+    QList<providers::ShowSummary> series(const providers::ProviderConfig &config, const providers::Cancellation &cancel);
     providers::ProviderConfig config(const ProviderSettings &saved, const providers::Cancellation &cancel) const;
     CatalogResult browse(const providers::ProviderConfig &config, const QString &listing, bool force, bool clearLocal,
                          const QVariantList &previous, const providers::Cancellation &cancel, const Progress &progress);
@@ -38,6 +40,8 @@ private:
     MediaCache &m_cache;
     ProviderMap m_providers;
     std::mutex m_providerMutex;
+    Diagnostic m_diagnostic;
+    void log(const QString &level, const QString &message) const;
 };
 
 QString providerLabel(providers::ProviderId id);

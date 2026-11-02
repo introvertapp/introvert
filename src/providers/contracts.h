@@ -49,6 +49,7 @@ struct ProviderConfig {
     std::optional<QString> localRoot;
     bool fetchImages = false;
     double timeoutSeconds = 10;
+    bool importSegments = false;
 };
 
 struct ProviderIdentity {

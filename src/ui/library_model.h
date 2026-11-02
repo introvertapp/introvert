@@ -75,6 +75,7 @@ signals:
     void changed();
     void errorOccurred(const QString &message);
     void cacheRebuildFailed(const QString &message);
+    void diagnosticMessage(const QString &level, const QString &message);
 private:
     friend class LocalMetadataModel;
     friend class SegmentManagementModel;

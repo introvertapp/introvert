@@ -9,6 +9,7 @@ AbstractButton {
     required property var theme
     required property var record
     property string matchText: ""
+    property bool detecting: false
     objectName: "poster_" + record.id
     hoverEnabled: true
     Accessible.name: record.title
@@ -60,6 +61,26 @@ AbstractButton {
         Column { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.margins: 10; spacing: 5
             Text { objectName: "posterOverlayTitle"; width: parent.width; text: tile.record.title; color: "white"; wrapMode: Text.WordWrap; font.pixelSize: 15; font.bold: true }
             Text { objectName: "posterOverlayDetails"; opacity: tile.hovered || tile.activeFocus ? 1 : 0; Behavior on opacity { NumberAnimation { duration: 180 } } width: parent.width; text: tile.matchText || tile.record.seasons + " seasons · " + tile.record.episodes + " episodes"; color: tile.matchText ? "#8ab4ff" : "#b3ffffff"; font.pixelSize: 12; elide: Text.ElideRight }
+        }
+        Rectangle {
+            objectName: "posterDetectionIndicator"; visible: tile.detecting
+            anchors.top: parent.top; anchors.right: parent.right; anchors.margins: 8
+            width: 28; height: 28; radius: 14; color: "#cc14201b"
+            Accessible.role: Accessible.Indicator; Accessible.name: "Detection running"
+            Canvas {
+                id: detectionSpinner; objectName: "posterDetectionSpinner"
+                anchors.centerIn: parent; width: 18; height: 18
+                onAvailableChanged: if(available) requestPaint()
+                onPaint: {
+                    var c = getContext("2d"); c.reset()
+                    c.strokeStyle = "#33d17a"; c.lineWidth = 2; c.lineCap = "round"
+                    c.beginPath(); c.arc(width/2, height/2, 7, 0, Math.PI*1.5); c.stroke()
+                }
+                NumberAnimation on rotation {
+                    from: 0; to: 360; duration: 900; loops: Animation.Infinite
+                    running: tile.detecting && tile.visible
+                }
+            }
         }
         RoundedFrame { objectName: "posterCornerFrame"; coverCorners: !tile.gpuMask; edgeSoftness: 2; anchors.fill: parent; radius: 14; outsideColor: tile.theme.background; borderWidth: 0 }
         Rectangle { anchors.fill: parent; radius: 14; color: "transparent"; border.width: tile.visualFocus ? 1 : 0; border.color: tile.theme.muted }

@@ -99,6 +99,9 @@ ApplicationSession::ApplicationSession(bool preview, const std::optional<QString
         observeError(m_segments.get(), "Segments");
         observeError(m_submissions.get(), "Submissions");
         observeError(m_detector.get(), "Detection");
+        QObject::connect(m_library.get(), &ui::LibraryModel::diagnosticMessage, m_logs.get(), [this](const QString &level, const QString &message) {
+            m_logs->record(level, "Metadata", message);
+        });
         QObject::connect(m_library.get(), &ui::LibraryModel::cacheRebuildFailed, m_logs.get(), [this](const QString &message) {
             m_logs->record("error", "Library", message); m_notifications->post("Cache rebuild failed", message);
         });
@@ -165,7 +168,7 @@ bool ApplicationSession::load()
     m_lifecycle = std::make_unique<WindowLifecycle>(qobject_cast<QWindow *>(m_root.data()));
     m_updates->setRestartGuard([this] {
         if(m_submissions)for(const auto &job:m_submissions->queue())if(job.toMap().value("status")=="running")return false;
-        if(m_detector)for(const auto &job:m_detector->queue())if(job.toMap().value("status")=="running")return false;
+        if(m_detector && (m_detector->libraryScanActive() || !m_detector->queue().isEmpty())) return false;
         const auto editor = m_root ? m_root->findChild<QObject *>("videoEditorDialog") : nullptr;
         return (!editor || !editor->property("visible").toBool()) && (!m_library || !m_library->busy())
             && (!m_detector || !m_detector->active()) && (!m_submissions || !m_submissions->busy());

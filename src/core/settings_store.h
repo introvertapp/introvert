@@ -25,6 +25,7 @@ struct ProviderSettings {
     QString localRoot;
     bool fetchImages = false;
     double timeoutSeconds = 10;
+    bool importSegments = false;
     void validate() const;
 };
 

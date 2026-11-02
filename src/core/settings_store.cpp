@@ -92,7 +92,7 @@ AppSettings loadApp(QSqlDatabase &db)
 ProviderSettings loadProviderFrom(QSqlDatabase &db, const QString &provider)
 {
     require(providers.contains(provider), "Unsupported provider identifier.");
-    auto query = execute(db, QStringLiteral("SELECT remote_url,local_root,fetch_images,timeout_seconds "
+    auto query = execute(db, QStringLiteral("SELECT remote_url,local_root,fetch_images,timeout_seconds,import_segments "
                                            "FROM provider_settings WHERE provider_id=?"), {provider});
     require(query.next(), "Provider configuration is missing or incompatible.");
     require(query.value(0).metaType().id() == QMetaType::QString
@@ -100,12 +100,15 @@ ProviderSettings loadProviderFrom(QSqlDatabase &db, const QString &provider)
             "Incompatible provider settings values.");
     const auto images = query.value(2);
     const auto timeout = query.value(3);
+    const auto imports = query.value(4);
+    require((imports.metaType().id() == QMetaType::Int || imports.metaType().id() == QMetaType::LongLong)
+                && (imports.toLongLong() == 0 || imports.toLongLong() == 1), "Invalid timestamp import preference in app.db.");
     require((images.metaType().id() == QMetaType::Int || images.metaType().id() == QMetaType::LongLong)
                 && (images.toLongLong() == 0 || images.toLongLong() == 1), "Invalid image preference in app.db.");
     require(timeout.metaType().id() == QMetaType::Double || timeout.metaType().id() == QMetaType::Int
                 || timeout.metaType().id() == QMetaType::LongLong, "Invalid timeout in app.db.");
     ProviderSettings result{provider, query.value(0).toString(), query.value(1).toString(),
-                            images.toBool(), timeout.toDouble()};
+                            images.toBool(), timeout.toDouble(), imports.toBool()};
     result.validate();
     return result;
 }
@@ -196,7 +199,9 @@ void SettingsStore::initialize() const
         for (const auto &provider : providers)
             execute(db, QStringLiteral("INSERT INTO provider_settings(provider_id) VALUES(?)"), {provider});
     }
-    require(columns(db, "provider_settings") == QSet<QString>{"provider_id", "remote_url", "local_root", "fetch_images", "timeout_seconds"},
+    if (!columns(db, "provider_settings").contains("import_segments"))
+        execute(db, "ALTER TABLE provider_settings ADD COLUMN import_segments INTEGER NOT NULL DEFAULT 0 CHECK(import_segments IN (0,1))");
+    require(columns(db, "provider_settings") == QSet<QString>{"provider_id", "remote_url", "local_root", "fetch_images", "timeout_seconds", "import_segments"},
             "Incompatible provider settings schema.");
     for (const auto &provider : providers) loadProviderFrom(db, provider);
 
@@ -389,7 +394,7 @@ void SettingsStore::saveProvider(const ProviderSettings &settings, CredentialAct
     Connection connection(m_path);
     Transaction transaction(connection.db);
     auto query = execute(connection.db, QStringLiteral("UPDATE provider_settings SET remote_url=?,local_root=?,fetch_images=?,"
-        "timeout_seconds=? WHERE provider_id=?"), {text(settings.remoteUrl), text(settings.localRoot), settings.fetchImages, settings.timeoutSeconds, settings.provider});
+        "timeout_seconds=?,import_segments=? WHERE provider_id=?"), {text(settings.remoteUrl), text(settings.localRoot), settings.fetchImages, settings.timeoutSeconds, settings.importSegments, settings.provider});
     require(query.numRowsAffected() == 1, "Provider configuration is missing.");
     if (action != CredentialAction::Keep)
         writeCredential(connection.db, "media:" + settings.provider,
