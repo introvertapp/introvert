@@ -32,7 +32,12 @@ UpdateModel::UpdateModel(std::optional<SettingsStore> store, QObject *parent, QN
     : QObject(parent), m_store(std::move(store)), m_network(this), m_transport(network ? network : &m_network), m_feed(std::move(feed)),
       m_installationLocator(std::move(installationLocator)), m_packageFormat(std::move(packageFormat))
 {
-    if (m_store) m_automatic = m_store->loadUpdates().value("automatic").toBool();
+    if (m_store) {
+        const auto settings = m_store->loadUpdates();
+        m_automatic = settings.value("automatic").toBool();
+        m_latestVersion = settings.value("latest_application_version").toString();
+        m_detectorLatestVersion = settings.value("latest_detector_version").toString();
+    }
     m_timer.setInterval(60 * 60 * 1000);
     connect(&m_timer, &QTimer::timeout, this, &UpdateModel::automaticCheck);
     m_message = enabled() ? "Check for a new version of INTROvert." : "Update checks are disabled in UI preview.";
@@ -178,12 +183,16 @@ void UpdateModel::request(const QUrl &url, bool downloading, int redirects)
             if (m_checkingDetector) {
                 if (!document.isArray()) throw std::runtime_error("GitHub returned invalid detector release information.");
                 m_offer = updates::detectorReleaseOffer(document.array(), m_installedDetector, installedVersion(), updates::platform(), updates::architecture(), QT_VERSION_STR);
-                m_detectorLatestVersion = updates::latestDetectorVersion(document.array(), installedVersion(), updates::platform(), updates::architecture(), QT_VERSION_STR);
+                const auto latest = updates::latestDetectorVersion(document.array(), installedVersion(), updates::platform(), updates::architecture(), QT_VERSION_STR);
+                m_store->recordLatestUpdateVersions({}, latest);
+                if (!latest.isEmpty()) m_detectorLatestVersion = latest;
                 finishChecks(); return;
             }
             if(!document.isObject())throw std::runtime_error("GitHub returned invalid release information.");
             m_offer=updates::releaseOffer(document.object(),installedVersion(),updates::platform(),updates::architecture(),m_packageFormat.isNull()?linuxFormat():m_packageFormat);
-            m_latestVersion = updates::latestApplicationVersion(document.object());
+            const auto latest = updates::latestApplicationVersion(document.object());
+            m_store->recordLatestUpdateVersions(latest, {});
+            if (!latest.isEmpty()) m_latestVersion = latest;
             if (!m_detectorFeed.isEmpty()) { checkDetector(); return; }
             m_store->recordUpdateCheck(QDateTime::currentSecsSinceEpoch());
             m_busy=false;

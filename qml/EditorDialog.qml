@@ -8,6 +8,8 @@ Dialog {
     required property var theme
     property bool preview: false
     property var backend: null
+    property string loadedEpisodeId: ""
+    onBackendChanged: loadedEpisodeId = ""
     readonly property bool editable: preview || Boolean(backend && !backend.busy && backend.editingAllowed)
     property bool receivingPosition: false
     property bool closeAfterSave: false
@@ -83,6 +85,8 @@ Dialog {
     }
     function loadBackend() {
         if(!backend || preview)return
+        var keepViewport=loadedEpisodeId !== "" && loadedEpisodeId === backend.episodeId
+        loadedEpisodeId=backend.episodeId
         subtitleMenu.close()
         videoTapTimer.stop();pendingVideoTap=null;skipFade.stop();skipOverlay.opacity=0
         var values=backend.segmentValues
@@ -90,7 +94,7 @@ Dialog {
             var range=values[item.label.toLowerCase()]
             return Object.assign({},item,{start:range?range[0]:NaN,end:range?range[1]:NaN})
         })
-        resetDrafts(true);undoHistory=[];episodeTitle=backend.episodeTitle
+        resetDrafts(true,keepViewport);undoHistory=[];episodeTitle=backend.episodeTitle
     }
     function saveTimeline(closeAfter) {
         if(!editable || !backend || preview)return
@@ -127,13 +131,14 @@ Dialog {
     onOpened: {
         if(backend && !preview) { drawerOpen=backend.preferences.drawer;frameStepIndex=backend.preferences.frameStep;playbackSpeedIndex=backend.preferences.speed }
     }
-    onClosed: { subtitleMenu.close();videoTapTimer.stop();pendingVideoTap=null;skipFade.stop();skipOverlay.opacity=0;if(backend && !preview)backend.unload();closeAfterSave=false;pendingNavigation=null;resumeAfterSave=false }
+    onClosed: { loadedEpisodeId="";subtitleMenu.close();videoTapTimer.stop();pendingVideoTap=null;skipFade.stop();skipOverlay.opacity=0;if(backend && !preview)backend.unload();closeAfterSave=false;pendingNavigation=null;resumeAfterSave=false }
     Connections {
         target: editor.backend || null
         function onLoaded() { editor.loadBackend() }
         function onSaved() { if(editor.resumeAfterSave) {editor.resumeAfterSave=false;editor.continueNavigation()} else if(editor.closeAfterSave) { unsaved.close();editor.close() } }
         function onChanged() {
             if(editor.preview || !editor.backend)return
+            if(!editor.backend.episodeId)editor.loadedEpisodeId=""
             editor.durationSeconds=editor.backend.duration;editor.frameRate=editor.backend.frameRate
             editor.receivingPosition=true;editor.cursorSeconds=editor.backend.position;editor.receivingPosition=false
         }
@@ -203,9 +208,9 @@ Dialog {
         var split=text.search(/[1-9]/);if(split<0)split=text.length
         return '<font color="#49494e">'+text.slice(0,split)+'</font><font color="#8d8d92">'+text.slice(split)+'</font>'
     }
-    function resetDrafts(fromBackend) {
+    function resetDrafts(fromBackend,keepViewport) {
         if(!editable && !fromBackend)return
-        remember();timeline.dragState=null;timeline.touchGesture=null;timeline.touchPoints=({});timeline.editStarted=false;draftError="";segments=initialSegments.slice();textDrafts=({});selectedIndices=[];selectedSegment=-1;zoom=1;viewStart=0;draftChanged=false
+        remember();timeline.dragState=null;timeline.touchGesture=null;timeline.touchPoints=({});timeline.editStarted=false;draftError="";segments=initialSegments.slice();textDrafts=({});selectedIndices=[];selectedSegment=-1;if(!keepViewport){zoom=1;viewStart=0}draftChanged=false
     }
     function headerTime(seconds) {
         var minutes=Math.floor(seconds/60),ss=String(Math.floor(seconds%60)).padStart(2,"0")
@@ -386,10 +391,28 @@ Dialog {
                             }
                             Menu {
                                 id: subtitleMenu; objectName: "editorSubtitleMenu"
-                                x: 0; y: subtitleControl.height+4; width: 240; padding: 5; popupType: Popup.Item
+                                x: 0; y: subtitleControl.height+4; padding: 5; popupType: Popup.Item
+                                font.pixelSize: 15; font.weight: Font.Medium
+                                readonly property real widestOption: {
+                                    var widest=subtitleMetrics.advanceWidth("Off")
+                                    var tracks=editor.backend ? editor.backend.subtitleTracks : []
+                                    for(var i=0;i<tracks.length;i++)widest=Math.max(widest,subtitleMetrics.advanceWidth(tracks[i]))
+                                    return Math.ceil(widest)
+                                }
+                                width: Math.max(240,widestOption+leftPadding+rightPadding+24+9)
+                                FontMetrics { id: subtitleMetrics; font: subtitleMenu.font }
                                 background: Rectangle { color: editor.theme.field; radius: 8; border.color: editor.theme.border }
+                                contentItem: ListView {
+                                    implicitHeight: contentHeight
+                                    model: subtitleMenu.contentModel
+                                    currentIndex: subtitleMenu.currentIndex
+                                    interactive: contentHeight > height
+                                    clip: true
+                                    ScrollIndicator.vertical: ScrollIndicator { visible: false }
+                                }
                                 ButtonGroup { id: subtitleSelection }
-                                MenuItem {
+                                SubtitleMenuItem {
+                                    theme: editor.theme
                                     objectName: "editorSubtitlesOff"; text: "Off"; checkable: true
                                     ButtonGroup.group: subtitleSelection
                                     checked: !editor.backend || editor.backend.activeSubtitleTrack < 0
@@ -397,7 +420,8 @@ Dialog {
                                 }
                                 Instantiator {
                                     model: editor.backend ? editor.backend.subtitleTracks : []
-                                    delegate: MenuItem {
+                                    delegate: SubtitleMenuItem {
+                                        theme: editor.theme
                                         required property int index
                                         required property string modelData
                                         objectName: "editorSubtitleTrack_"+index; text: modelData; checkable: true
@@ -466,6 +490,25 @@ Dialog {
 
     }
     ShortcutMap { id:help; objectName:"editorHelpDialog"; theme:editor.theme }
+    component SubtitleMenuItem: MenuItem {
+        id: option
+        required property var theme
+        implicitHeight: 30; padding: 3; leftPadding: 24; rightPadding: 9
+        hoverEnabled: true
+        font.pixelSize: 15; font.weight: Font.Medium
+        HoverHandler { cursorShape: Qt.PointingHandCursor }
+        contentItem: Text {
+            text: option.text; font: option.font
+            color: option.highlighted || option.hovered ? "white" : option.theme.text
+            verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight
+        }
+        indicator: Text {
+            x: 7; y: (option.height-height)/2
+            text: option.checked ? "✓" : ""; font.pixelSize: 12
+            color: option.highlighted || option.hovered ? "white" : option.theme.text
+        }
+        background: Rectangle { radius: 4; color: option.highlighted || option.hovered ? option.theme.accent : "transparent" }
+    }
     SurfaceDialog {
         theme: editor.theme; showCloseButton: false
         id:unsaved; objectName:"editorUnsavedDialog"; parent:Overlay.overlay; anchors.centerIn:parent; width:Math.min(500,parent.width-40); title:"Unsaved changes"; modal:true

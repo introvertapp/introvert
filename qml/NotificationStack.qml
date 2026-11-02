@@ -32,7 +32,7 @@ Popup {
         objectName: "notificationCards"
         model: center.backend; spacing: 10; clip: true
         boundsBehavior: Flickable.StopAtBounds
-        ScrollBar.vertical: ScrollBar {}
+        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOff }
         delegate: AbstractButton {
             id: card
             required property var notification

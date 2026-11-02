@@ -4,11 +4,14 @@
 #include "segments/segment_store.h"
 #include "editor/range_stream.h"
 #include <QAudioBufferOutput>
+#include <QAudioDevice>
 #include <QAudioOutput>
 #include <QMediaPlayer>
+#include <QMediaDevices>
 #include <QPointer>
 #include <QVideoSink>
 #include <array>
+#include <functional>
 
 namespace introvert::ui {
 
@@ -37,7 +40,8 @@ class EditorModel final : public QObject {
     Q_PROPERTY(QVariantList episodes READ episodes NOTIFY catalogChanged)
     Q_PROPERTY(int season READ season NOTIFY catalogChanged)
 public:
-    EditorModel(LibraryModel &library, segments::SegmentStore store, QObject *parent = nullptr);
+    using AudioDeviceQuery = std::function<QAudioDevice()>;
+    EditorModel(LibraryModel &library, segments::SegmentStore store, QObject *parent = nullptr, AudioDeviceQuery audioDevice = {});
     ~EditorModel() override;
     QObject *player() { return &m_player; }
     double position() const { return m_player.position() / 1000.; }
@@ -92,15 +96,18 @@ private:
     void firstFrame(const QVideoFrame &frame);
     void bindSink(QVideoSink *sink);
     void updateSubtitlePresentation();
+    void refreshAudioOutput();
     void resetMedia();
     void libraryChanged();
     void refreshCatalog();
     LibraryModel &m_library;
     segments::SegmentStore m_store;
+    QMediaDevices m_mediaDevices;
     QAudioOutput m_audio;
     QAudioBufferOutput m_buffer;
     QVideoSink m_videoSink;
     QMediaPlayer m_player;
+    AudioDeviceQuery m_audioDevice;
     QPointer<QVideoSink> m_outputSink;
     QMetaObject::Connection m_sinkConnection, m_subtitleConnection, m_sinkDestroyedConnection;
     QThreadPool m_pool;

@@ -44,19 +44,15 @@ ColumnLayout {
     RowLayout {
         Layout.fillWidth: true
         Text { Layout.fillWidth: true; text: "Live session"; color: page.theme.muted; font.pixelSize: 12 }
-        CheckBox {
-            objectName: "logAutoScrollControl"
-            text: "Auto-scroll"; checked: page.autoScroll
-            onToggled: { page.autoScroll = checked; page.followTail() }
-            HoverHandler { cursorShape: Qt.PointingHandCursor }
-            indicator: Rectangle {
-                implicitWidth: 28; implicitHeight: 16; radius: 8
-                x: 0; y: (parent.height-height)/2
-                color: parent.checked ? page.theme.selected : page.theme.field
-                border.color: page.theme.border
-                Rectangle { width: 12; height: 12; radius: 6; x: parent.parent.checked ? 14 : 2; y: 2; color: page.theme.text }
+        RowLayout {
+            spacing: 8
+            Text { text: "Auto-scroll"; color: page.theme.text; font.pixelSize: 13 }
+            SegmentSwitch {
+                objectName: "logAutoScrollControl"
+                checked: page.autoScroll
+                onToggled: { page.autoScroll = checked; page.followTail() }
+                Accessible.name: "Auto-scroll"
             }
-            contentItem: Text { text: parent.text; color: page.theme.text; font.pixelSize: 13; leftPadding: 36; verticalAlignment: Text.AlignVCenter }
         }
     }
     Rectangle {
@@ -69,7 +65,7 @@ ColumnLayout {
             clip: true; spacing: 6
             model: page.backend
             boundsBehavior: Flickable.StopAtBounds
-            ScrollBar.vertical: ScrollBar {}
+            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOff }
             delegate: RowLayout {
                 required property string timestamp
                 required property string level

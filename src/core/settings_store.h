@@ -73,6 +73,7 @@ public:
     QVariantMap loadUpdates() const;
     void setAutomaticUpdates(bool automatic) const;
     void recordUpdateCheck(qint64 checkedAt) const;
+    void recordLatestUpdateVersions(const QString &application, const QString &detector) const;
 
 private:
     QString m_path;

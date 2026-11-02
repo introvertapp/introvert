@@ -42,12 +42,14 @@ double playbackRate(int index)
 }
 }
 
-EditorModel::EditorModel(LibraryModel &library, SegmentStore store, QObject *parent)
-    : QObject(parent), m_library(library), m_store(std::move(store)), m_audio(this), m_buffer(this), m_videoSink(this), m_player(this),
+EditorModel::EditorModel(LibraryModel &library, SegmentStore store, QObject *parent, AudioDeviceQuery audioDevice)
+    : QObject(parent), m_library(library), m_store(std::move(store)), m_mediaDevices(this), m_audio(this), m_buffer(this), m_videoSink(this), m_player(this),
+      m_audioDevice(audioDevice ? std::move(audioDevice) : AudioDeviceQuery(QMediaDevices::defaultAudioOutput)),
       m_preferences(m_store.preferences())
 {
     m_pool.setMaxThreadCount(1);
-    m_player.setAudioOutput(&m_audio); m_player.setAudioBufferOutput(&m_buffer);
+    connect(&m_mediaDevices, &QMediaDevices::audioOutputsChanged, this, &EditorModel::refreshAudioOutput, Qt::QueuedConnection);
+    refreshAudioOutput(); m_player.setAudioBufferOutput(&m_buffer);
     m_player.setVideoSink(&m_videoSink);
     connect(&m_buffer, &QAudioBufferOutput::audioBufferReceived, this, [this](const QAudioBuffer &buffer) {
         if (!m_closed && playing() && !muted() && buffer.isValid()) { m_levels = editor::audioLevels(buffer, m_levels); emit changed(); }
@@ -70,6 +72,19 @@ EditorModel::EditorModel(LibraryModel &library, SegmentStore store, QObject *par
 }
 
 EditorModel::~EditorModel() { close(); }
+
+void EditorModel::refreshAudioOutput()
+{
+    if (m_closed) return;
+    const auto device = m_audioDevice();
+    // Reacquire the native sink even when a reconnected device has the same Qt
+    // identity. Keep the player, source, position, buffer output and audio settings.
+    m_player.setAudioOutput(nullptr);
+    if (!device.isNull()) {
+        m_audio.setDevice(device);
+        m_player.setAudioOutput(&m_audio);
+    }
+}
 
 double EditorModel::frameRate() const
 {

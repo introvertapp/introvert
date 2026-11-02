@@ -221,6 +221,10 @@ void SettingsStore::initialize() const
     execute(db, QStringLiteral("CREATE TABLE IF NOT EXISTS update_settings(id INTEGER PRIMARY KEY CHECK(id=1),"
         "automatic INTEGER NOT NULL DEFAULT 0 CHECK(automatic IN (0,1)),checked_at INTEGER NOT NULL DEFAULT 0)"));
     execute(db, QStringLiteral("INSERT OR IGNORE INTO update_settings(id) VALUES(1)"));
+    if (!columns(db, "update_settings").contains("latest_application_version"))
+        execute(db, QStringLiteral("ALTER TABLE update_settings ADD COLUMN latest_application_version TEXT NOT NULL DEFAULT ''"));
+    if (!columns(db, "update_settings").contains("latest_detector_version"))
+        execute(db, QStringLiteral("ALTER TABLE update_settings ADD COLUMN latest_detector_version TEXT NOT NULL DEFAULT ''"));
     execute(db, QStringLiteral("CREATE TABLE IF NOT EXISTS detection_settings(id INTEGER PRIMARY KEY CHECK(id=1),"
         "resource_profile TEXT NOT NULL DEFAULT 'medium' CHECK(resource_profile IN ('low','medium','full')),"
         "visual_refinement_enabled INTEGER NOT NULL DEFAULT 1 CHECK(visual_refinement_enabled IN (0,1)))"));
@@ -333,9 +337,10 @@ void SettingsStore::setInAppNotificationPreference(const QString &name, bool ena
 QVariantMap SettingsStore::loadUpdates() const
 {
     Connection connection(m_path);
-    auto row = execute(connection.db, "SELECT automatic,checked_at FROM update_settings WHERE id=1");
+    auto row = execute(connection.db, "SELECT automatic,checked_at,latest_application_version,latest_detector_version FROM update_settings WHERE id=1");
     require(row.next(), "Application update preferences are missing.");
-    return {{"automatic", row.value(0).toBool()}, {"checked_at", row.value(1).toLongLong()}};
+    return {{"automatic", row.value(0).toBool()}, {"checked_at", row.value(1).toLongLong()},
+        {"latest_application_version", row.value(2).toString()}, {"latest_detector_version", row.value(3).toString()}};
 }
 void SettingsStore::setAutomaticUpdates(bool automatic) const
 {
@@ -346,6 +351,12 @@ void SettingsStore::recordUpdateCheck(qint64 checkedAt) const
 {
     Connection connection(m_path);
     execute(connection.db, "UPDATE update_settings SET checked_at=? WHERE id=1", {checkedAt});
+}
+void SettingsStore::recordLatestUpdateVersions(const QString &application, const QString &detector) const
+{
+    Connection connection(m_path);
+    execute(connection.db, "UPDATE update_settings SET latest_application_version=COALESCE(NULLIF(?,''),latest_application_version),"
+        "latest_detector_version=COALESCE(NULLIF(?,''),latest_detector_version) WHERE id=1", {application, detector});
 }
 
 AppSettings SettingsStore::update(const QString &field, const QVariant &value) const
