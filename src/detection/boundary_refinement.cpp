@@ -32,7 +32,7 @@ QVariantMap boundaryRefinementDescription()
 QVariantMap refineBoundary(const QVariantMap &window,const QString &kind,const QString &edge,double reference,const Cancellation &cancel,const QString &constraint)
 {
     if((kind!="intro" && kind!="credits") || (edge!="start" && edge!="end") || (kind=="credits" && edge=="end")
-        || !std::isfinite(reference) || reference<0 || (!constraint.isEmpty() && constraint!="preceding_black")
+        || !std::isfinite(reference) || reference<0 || (!constraint.isEmpty() && constraint!="preceding_black" && constraint!="consensus_transition")
         || (constraint=="preceding_black" && (kind!="intro" || edge!="start")))throw DetectionError("visual_invalid_scope","Invalid audio boundary.");
     QVariantMap decision{{"status","audio_fallback"},{"reason","no_supported_transition"},{"audio_time",reference}};
     if(window.value("status")!="analyzed") {decision["reason"]=window.value("code",window.value("reason","visual_unavailable"));return decision;}
@@ -69,7 +69,7 @@ QVariantMap refineBoundary(const QVariantMap &window,const QString &kind,const Q
             const double blackDuration=exitBlack?f.time-frames[a].time:frames[b].time-f.time+(frames[b].time-frames[b-1].time);
             const double contentDuration=exitBlack?frames[b].time-f.time:before.time-frames[a].time;
             if(blackDuration>=.08-1e-6 && contentDuration>=.08-1e-6 && (exitBlack?(a>0 || first==0.):i>1)
-                && (constraint.isEmpty() || f.time<=reference))
+                && (constraint!="preceding_black" || f.time<=reference))
                 candidates.push_back({f.time,before.time,"black_transition"});
         }
         if(constraint=="preceding_black")continue;
@@ -99,6 +99,14 @@ QVariantMap refineBoundary(const QVariantMap &window,const QString &kind,const Q
             if(candidate.method=="black_transition")distinct.back()=candidate;
         } else distinct.push_back(candidate);
     }
+    if(constraint=="consensus_transition") {
+        // The season has already aligned this endpoint within one second.
+        // Nearby story cuts outside that agreement band cannot corroborate it.
+        QVariantList times;for(const auto &c:distinct)if(times.size()<64)times.append(c.time);
+        decision["scope_candidates"]=int(distinct.size());decision["transition_times"]=times;
+        decision["confirmation_radius_seconds"]=1.;
+        distinct.erase(std::remove_if(distinct.begin(),distinct.end(),[&](const auto &c){return std::abs(c.time-reference)>1.;}),distinct.end());
+    }
     decision["candidates"]=int(distinct.size());
     if(distinct.size()!=1) {if(distinct.size()>1)decision["reason"]="ambiguous_visual_transitions";return decision;}
     const auto &candidate=distinct.front();
@@ -115,6 +123,12 @@ QVariantMap fuseBoundaryRefinement(const QVariantList &audio,const QVariantMap &
         const double start=number(segment,"start"),end=number(segment,"end");
         if(id.isEmpty() || (kind!="intro" && kind!="credits") || start<0 || start>=end)throw DetectionError("visual_invalid_selection","Invalid audio selection.");
         const bool pending=segment.value("requires_visual_confirmation").toBool();bool confirmed=!pending;
+        const auto explicitEdges=segment.value("confirmation_boundaries").toStringList();
+        const auto required=explicitEdges.empty()?QStringList{"start"}:explicitEdges;
+        QStringList confirmedEdges;
+        if(!explicitEdges.empty() && (!pending || required.size()>2 || required.count("start")>1 || required.count("end")>1
+            || std::any_of(required.begin(),required.end(),[&](const auto &e){return e!="start" && e!="end";})
+            || (kind=="credits" && required.contains("end"))))throw DetectionError("visual_invalid_selection","Invalid confirmation boundaries.");
         auto proposed=segment;QVariantMap sources{{"start","audio"},{"end","audio"}},evidence;const auto firstDecision=decisions.size();
         const auto observations=visual.value(id).toMap().value(kind).toMap();
         for(const auto &edge:kind=="intro"?QStringList{"start","end"}:QStringList{"start"}) {
@@ -136,11 +150,12 @@ QVariantMap fuseBoundaryRefinement(const QVariantList &audio,const QVariantMap &
             catch(const Cancelled &){throw;}
             catch(const DetectionError &error) {decision={{"status","audio_fallback"},{"reason",error.code},{"audio_time",segment.value(edge)}};}
             decision["episode"]=id;decision["segment_type"]=kind;decision["boundary"]=edge;
-            if(pending && edge=="start" && decision.value("status")=="resolved" && decision.value("method")=="black_transition"
-                && decision.value("time").toDouble()<=start)confirmed=true;
+            if(pending && required.contains(edge) && decision.value("status")=="resolved"
+                && (!explicitEdges.empty() || (decision.value("method")=="black_transition" && decision.value("time").toDouble()<=start)))confirmedEdges.append(edge);
             evidence[edge]=decision;decisions.append(decision);
             if(decision.value("status")=="resolved") {proposed[edge]=decision.value("time");sources[edge]="local_transition";}
         }
+        if(pending)confirmed=confirmedEdges.size()==required.size();
         if(proposed.value("start").toDouble()>=proposed.value("end").toDouble()) {
             confirmed=false;
             proposed=segment;sources={{"start","audio"},{"end","audio"}};

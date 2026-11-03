@@ -8,7 +8,7 @@ namespace introvert::detection {
 
 inline constexpr char audioCompositionVersion[] = "audio-fingerprint-v2";
 inline constexpr char audioWindowPolicyVersion[] = "hard-audio-windows-v1";
-inline constexpr char audioSelectionVersion[] = "season-weighted-audio-v7";
+inline constexpr char audioSelectionVersion[] = "season-weighted-audio-v8";
 inline constexpr qint64 audioSelectionWorkLimit = 8000000;
 inline constexpr char audioFingerprintExtractorId[] = "chromaprint-audio";
 inline constexpr char audioFingerprintExtractorVersion[] = "chromaprint-1.6.2-test2-v1";

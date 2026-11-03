@@ -118,19 +118,25 @@ QVariantMap AudioSegment::diagnostic() const
     const bool consensus=season.value("support_count").toInt()>=3;
     const bool strict=evidence.value("selection_support").toMap().value("method")=="cohort-fragments-v1";
     const auto anchors=evidence.value("boundary_anchors").toMap();
+    const auto required=evidence.value("boundary_confirmation").toMap().value("required").toStringList();
     const bool preciseConsensus=consensus && !season.value("coarse_endpoint_agreement").toBool();
-    const bool startProtected=strict || refinement.value("start_resolved").toBool()
-        || anchors.value("start").toMap().value("resolved").toBool() || (preciseConsensus && type!=SegmentType::Intro);
-    const bool endProtected=strict || preciseConsensus || refinement.value("end_resolved").toBool()
-        || anchors.value("end").toMap().value("resolved").toBool();
-    return {{"episode", episodeId}, {"segment_type", segmentName(type)}, {"start", range.start}, {"end", range.end},
+    const bool startProtected=!required.contains("start") && (strict || refinement.value("start_resolved").toBool()
+        || anchors.value("start").toMap().value("resolved").toBool() || (preciseConsensus && type!=SegmentType::Intro));
+    const bool endProtected=!required.contains("end") && (strict || preciseConsensus || refinement.value("end_resolved").toBool()
+        || anchors.value("end").toMap().value("resolved").toBool());
+    QVariantMap constraints;
+    if(!required.empty())for(const auto &edge:required)constraints[edge]="consensus_transition";
+    else if((consensus || !evidence.value("boundary_search").toMap().empty()) && type==SegmentType::Intro && !startProtected)
+        constraints["start"]="preceding_black";
+    QVariantMap result{{"episode", episodeId}, {"segment_type", segmentName(type)}, {"start", range.start}, {"end", range.end},
         {"peer", peer}, {"match_id", matchId}, {"frame_count", frameCount}, {"minimum_similarity", minimumSimilarity}, {"mean_similarity", meanSimilarity},
         {"supporting_episodes", peers}, {"support_count", supportingPeers.size()}, {"evidence", evidence},
         {"boundary_protection",QVariantMap{{"start",startProtected},{"end",endProtected}}},
         {"boundary_search",evidence.value("boundary_search").toMap()},
-        {"boundary_constraints",(consensus || !evidence.value("boundary_search").toMap().empty()) && type==SegmentType::Intro && !startProtected
-            ?QVariantMap{{"start","preceding_black"}}:QVariantMap{}},
+        {"boundary_constraints",constraints},
         {"requires_visual_confirmation",evidence.value("requires_visual_confirmation").toBool()}};
+    if(!required.empty())result["confirmation_boundaries"]=required;
+    return result;
 }
 std::vector<AudioSegment> selectAudioSegments(const std::vector<AudioRecurrence> &matches, const Cancellation &cancel, QVariantList *diagnostics,const QVariantList &windows,QVariantList *confirmationCandidates)
 {

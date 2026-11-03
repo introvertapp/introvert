@@ -209,6 +209,9 @@ void checkSeasonConsistency(const std::vector<AudioRecurrence> &matches,
         for(const auto &s:references)if(s.type==type)remaining.push_back(&s);
         if(remaining.size()<5)continue;
         const size_t referenceCount=remaining.size();
+        const size_t episodeCount=std::max({referenceCount,
+            size_t(std::count_if(indexed.begin(),indexed.end(),[&](const auto &entry){return entry.first.second==type;})),
+            size_t(std::count_if(scopes.begin(),scopes.end(),[&](const auto &entry){return entry.first.second==type;}))});
         std::sort(remaining.begin(),remaining.end(),[](const auto a,const auto b) {
             return std::make_pair(a->range.duration(),a->episodeId)<std::make_pair(b->range.duration(),b->episodeId);
         });
@@ -245,20 +248,30 @@ void checkSeasonConsistency(const std::vector<AudioRecurrence> &matches,
                     && row.value("consistency").toMap().value("ambiguous").toBool())conflictingRecovery=true;
             }
             if(conflictingRecovery)continue;
+            const auto &dominant=cohorts.front();
+            const double typicalDuration=dominant[dominant.size()/2]->range.duration();
             const auto edges=original?original->evidence.value("refinement").toMap():QVariantMap{};
-            bool variant=edges.value("start_resolved").toBool() && edges.value("end_resolved").toBool();
+            bool minorityPair=false;QSet<QString> internalPeers;
             if(original)for(const auto match:group.second) {
                 tick();const auto &m=*match;const bool first=m.episodeA==episode;
                 const auto peer=first?m.episodeB:m.episodeA;
                 const auto ref=std::find_if(references.begin(),references.end(),[&](const auto &s){return s.episodeId==peer && s.type==type;});
-                if(ref==references.end() || std::abs(ref->range.duration()-original->range.duration())>1.)continue;
+                if(ref==references.end())continue;
                 const auto source=first?m.a:m.b,other=first?m.b:m.a;
-                if(std::abs(source.start-original->range.start)<=1. && std::abs(source.end-original->range.end)<=1.
+                const bool local=std::abs(source.start-original->range.start)<=1. && std::abs(source.end-original->range.end)<=1.;
+                if(local && std::find(dominant.begin(),dominant.end(),&*ref)!=dominant.end()
+                    && other.start>=ref->range.start-1. && other.end<=ref->range.end+1.
+                    && (other.start-ref->range.start>std::max(2.,ref->range.duration()*.1)
+                        || ref->range.end-other.end>std::max(2.,ref->range.duration()*.1)))internalPeers.insert(peer);
+                if(local && std::abs(ref->range.duration()-original->range.duration())<=1.
                     && std::abs(other.start-ref->range.start)<=1. && std::abs(other.end-ref->range.end)<=1.
-                    && m.evidence.value("coverage").toDouble()>=.9)variant=true;
+                    && m.evidence.value("coverage").toDouble()>=.9)minorityPair=true;
             }
-            const auto &dominant=cohorts.front();
-            const double typicalDuration=dominant[dominant.size()/2]->range.duration();
+            // PCM resolves where two recordings stop agreeing, not whether the
+            // sequence itself ends. Several full references can contradict that
+            // shortcut without invalidating an independently matched short pair.
+            const bool internalFragment=dominant.size()*4>=episodeCount*3 && internalPeers.size()>=4;
+            bool variant=minorityPair || (edges.value("start_resolved").toBool() && edges.value("end_resolved").toBool() && !internalFragment);
             if(original && !variant && dominant.size()*100>=referenceCount*65
                 && typicalDuration-original->range.duration()>std::max(2.,typicalDuration*.1)) {
                 std::vector<AudioSegment> enclosures;
@@ -427,7 +440,14 @@ void checkSeasonConsistency(const std::vector<AudioRecurrence> &matches,
                     && supporters.size()>=std::max(4,int((cohort.size()+1)/2))
                     && end-start-original->range.duration()>std::max(2.,(end-start)*.1)
                     && start<=original->range.start && end>=original->range.end-1.;
-                if(!supported && !confirmable)continue;
+                const double context=double(layout.contextSamples)/layout.sampleRate;
+                const bool anchoredRecovery=confirmationCandidates && original && shortOutlier && !variant && !coarseAgreement
+                    && scope!=scopes.end() && cohort.size()*4>=episodeCount*3
+                    && supporters.size()>=std::max(4,int((cohort.size()*3+3)/4))
+                    && weight>=totalWeight*.85 && mean/supporters.size()>=.9 && covered>=context
+                    && (firstCovered-start<=context || end-lastCovered<=context)
+                    && start<=original->range.start+1. && end>=original->range.end-1.;
+                if(!supported && !confirmable && !anchoredRecovery)continue;
                 if(original) {
                     const double overlap=std::min(end,original->range.end)-std::max(start,original->range.start);
                     if(overlap<=0 || overlap/std::min(end-start,original->range.duration())<.65)continue;
@@ -451,6 +471,7 @@ void checkSeasonConsistency(const std::vector<AudioRecurrence> &matches,
                     {"inferred_start_seconds",std::max(0.,measuredStart-start)},{"inferred_end_seconds",std::max(0.,end-measuredEnd)},
                     {"from_start",original?QVariant(original->range.start):QVariant()},
                     {"from_end",original?QVariant(original->range.end):QVariant()},
+                    {"anchor_recovery",anchoredRecovery && !confirmable},
                     {"source_match_ids",sourceIds}};
                 (supported?proposals:provisional).push_back({{start,end},score,supporters,evidence,int(std::floor(covered/hop)),minimum,mean/supporters.size()});
             }
@@ -519,11 +540,28 @@ void checkSeasonConsistency(const std::vector<AudioRecurrence> &matches,
                             && (std::abs(provisional[n].range.start-candidate.range.start)>1. || std::abs(provisional[n].range.end-candidate.range.end)>1.))ambiguous=true;
                         if(!ambiguous) {
                             QVariantList peerIds;for(const auto &peer:candidate.peers)peerIds.append(peer);
-                            const QVariantMap identity{{"method","black-confirmed-sequence-v1"},{"episode",episode},
-                                {"start",candidate.range.start},{"end",candidate.range.end},{"peers",peerIds}};
-                            const auto id=QString::fromLatin1(QCryptographicHash::hash(detectorJson(identity),QCryptographicHash::Sha256).toHex());
-                            AudioSegment pending{episode,type,candidate.range,candidate.peers.front(),id,candidate.frames,candidate.minimum,candidate.mean,candidate.peers,
+                            AudioSegment pending{episode,type,candidate.range,candidate.peers.front(),{},candidate.frames,candidate.minimum,candidate.mean,candidate.peers,
                                 {{"season_consensus",candidate.evidence},{"requires_visual_confirmation",true}}};
+                            if(candidate.evidence.value("anchor_recovery").toBool()) {
+                                QStringList required=type==SegmentType::Intro?QStringList{"start","end"}:QStringList{"start"};
+                                QVariantMap anchors;
+                                if(type==SegmentType::Intro)for(const auto &edge:QStringList{"start","end"}) {
+                                    const double local=edge=="start"?original->range.start:original->range.end;
+                                    double &boundary=edge=="start"?pending.range.start:pending.range.end;
+                                    if(edges.value(edge+"_resolved").toBool() && std::abs(local-boundary)<=1.) {
+                                        boundary=local;required.removeAll(edge);
+                                        anchors[edge]=QVariantMap{{"resolved",true},{"time",local},{"match_id",original->matchId}};
+                                    }
+                                }
+                                if(required.empty()) {required.append("end");anchors.remove("end");}
+                                pending.evidence["boundary_anchors"]=anchors;
+                                pending.evidence["boundary_confirmation"]=QVariantMap{{"method","season-anchor-recovery-v1"},{"required",required}};
+                            }
+                            const bool anchored=candidate.evidence.value("anchor_recovery").toBool();
+                            QVariantMap identity{{"method",anchored?"season-anchor-recovery-v1":"black-confirmed-sequence-v1"},{"episode",episode},
+                                {"start",pending.range.start},{"end",pending.range.end},{"peers",peerIds}};
+                            if(anchored)identity["kind"]=segmentName(type);
+                            pending.matchId=QString::fromLatin1(QCryptographicHash::hash(detectorJson(identity),QCryptographicHash::Sha256).toHex());
                             confirmationCandidates->append(pending.diagnostic());
                         }
                     }
