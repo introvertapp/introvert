@@ -26,10 +26,10 @@ void DetectionService::completed(const QString &id, const std::function<void()> 
 {
     if (notify) notify(); if (!m_completion) return;
     try {
-        for (const auto &value : m_store.rows()) {
-            const auto job = value.toMap(); if (job.value("id") != id) continue;
+        const auto job = m_store.row(id);
+        if (!job.isEmpty()) {
             auto result = QJsonDocument::fromJson(job.value("result").toString().toUtf8()).object().toVariantMap(); result["webhook"] = m_completion(job);
-            sql::Connection connection(m_store.databasePath()); sql::execute(connection.db, "UPDATE detection_jobs SET result=? WHERE id=?", {json(result), id}); break;
+            sql::Connection connection(m_store.databasePath()); sql::execute(connection.db, "UPDATE detection_jobs SET result=? WHERE id=?", {json(result), id});
         }
     } catch (...) {} // Delivery/storage failure cannot undo the committed scan.
 }

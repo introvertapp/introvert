@@ -8,6 +8,13 @@
 
 namespace introvert::updates {
 namespace {
+QString releaseNotes(const QJsonObject &release)
+{
+    // Release bodies also contain a machine-readable detector catalogue.
+    // Comments are metadata, not part of the notes shown to the user.
+    static const QRegularExpression comments("<!--[\\s\\S]*?-->");
+    auto notes = release.value("body").toString(); notes.remove(comments); return notes.trimmed();
+}
 std::array<int, 3> version(const QString &value)
 {
     static const QRegularExpression pattern("^(0|[1-9][0-9]{0,4})\\.(0|[1-9][0-9]{0,4})\\.(0|[1-9][0-9]{0,4})$");
@@ -86,6 +93,7 @@ Offer releaseOffer(const QJsonObject &release, const QString &installed, const Q
         offer = {candidate, name, url, digest.mid(7).toLatin1(), bytes};
     }
     if (offer.name.isEmpty()) throw std::runtime_error("The new release has no package for this platform.");
+    offer.releaseNotes = releaseNotes(release);
     return offer;
 }
 } // namespace introvert::updates
@@ -131,6 +139,7 @@ Offer selectDetectorRelease(const QJsonArray &releases, const QString *installed
             offer = {candidate, name, url, hash.mid(7).toLatin1(), bytes};
         }
         if (offer.name.isEmpty()) throw std::runtime_error("Detector catalogue refers to an unpublished package.");
+        offer.releaseNotes = releaseNotes(release);
         if (selected.name.isEmpty() || newerVersion(offer.version, selected.version)) selected = offer;
     }
     if (selected.name.isEmpty() && !incompatible.isEmpty()) throw std::runtime_error(incompatible.toStdString());

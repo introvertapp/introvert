@@ -78,13 +78,13 @@ void DetectionModel::sync()
         const auto &identity = m_library.m_detail->show.identity;
         context = providers::providerName(identity.provider) + '\n' + identity.itemId + '\n' + QString::number(m_library.season());
     }
-    if (context != m_context) { m_message.clear(); m_displayJob.clear(); m_context = context; }
+    if (context != m_context) { m_message.clear(); m_displayJob.clear(); m_diagnosticsJob.clear(); m_diagnostics.clear(); m_context = context; }
     QString visit;
     if (m_library.m_detail && m_library.m_key) visit = showKey(*m_library.m_key, m_library.m_detail->show.identity);
     if (visit != m_showVisit) { m_showVisit = visit; m_seasonJobs.clear(); m_showDetectionObserved = false; }
     m_seasonProgress.clear(); m_showDetection.clear();
     try {
-        const auto rows = m_store.rows();
+        const auto rows = m_store.summaries();
         QSet<int> seen;
         for (const auto &value : rows) {
             const auto row = value.toMap(); const auto id = row.value("id").toString(); const int season = row.value("season").toInt();
@@ -135,6 +135,9 @@ void DetectionModel::sync()
                 if (ongoing) m_displayJob = id;
                 else if (m_displayJob != id) break;
                 m_status = row;
+                // Preserve the completed status contract using the one visible
+                // job's worker-loaded string, never a history-wide SQL read.
+                m_status["diagnostics"] = id == m_diagnosticsJob ? m_diagnostics : QString("{}");
                 if (m_jobs.contains(row.value("id").toString()) && state != "queued" && state != "running") {
                     // SQLite can finish before the queued GUI result delivery.
                     // Publish completion only after every episode has refreshed.
@@ -161,7 +164,7 @@ void DetectionModel::sync()
             m_scan["progress"] = std::max(m_scan.value("progress").toDouble(), std::min(.999, (m_scanIndex + (m_scanSeasons ? seasonProgress / m_scanSeasons : 0.)) / m_scanShows.size()));
         updateScanEstimate();
         m_rows.clear();
-        for (const auto &value : m_store.queue())
+        for (const auto &value : detection::DetectionJobStore::queue(rows))
             if (!libraryScanActive() || !m_scanJobs.contains(value.toMap().value("jobId").toString())) m_rows.append(value);
         if (libraryScanActive()) m_rows.append(QVariantMap{{"type", "Detection"}, {"endpoint", ""}, {"show", "Full library"},
             {"episode", m_scan.value("currentShow")}, {"code", ""}, {"date", m_scan.value("date")}, {"status", "Detecting"},
@@ -173,6 +176,13 @@ void DetectionModel::sync()
         m_message = message;
     }
     emit changed();
+}
+void DetectionModel::scheduleSync()
+{
+    // A burst of worker progress needs one fresh snapshot, not a backlog of
+    // identical database reads queued ahead of completion and user input.
+    if (m_syncPending.exchange(true)) return;
+    QMetaObject::invokeMethod(this, [this] { m_syncPending = false; sync(); }, Qt::QueuedConnection);
 }
 void DetectionModel::prepareShowDetection(const CatalogSelection &selection, const providers::ProviderIdentity &show)
 {
@@ -242,10 +252,20 @@ QString DetectionModel::enqueue(const providers::ShowDetail &detail, int season,
     const auto id = created.first; const auto saved = selection.saved; const auto gate = editLock.get();
     m_pool.start(QRunnable::create([this, id, detail, season, kinds, saved, cancel, gate] {
         detection::DetectionUpdates updates; QString error;
-        try { gate->waitForWriters(cancel); updates = m_service.run(id, detail, season, kinds, saved, cancel, [this] { QMetaObject::invokeMethod(this, [this] { sync(); }, Qt::QueuedConnection); }); }
+        try { gate->waitForWriters(cancel); updates = m_service.run(id, detail, season, kinds, saved, cancel, [this] { scheduleSync(); }); }
         catch (const providers::Cancelled &) { try { m_store.finish(id,"cancelled","Detection stopped"); } catch (...) { error="Cannot update detection jobs in app.db"; } }
         catch (...) { error = "Cannot update detection jobs in app.db"; try { m_store.finish(id, "failed", error); } catch (...) {} }
-        QMetaObject::invokeMethod(this, [this, id, updates, error] { finished(id, updates, error); }, Qt::QueuedConnection);
+        QVariantMap completed;
+        try {
+            // Read just this job and parse notification evidence on the worker.
+            // Keep its shared JSON string for the visible status contract.
+            completed = m_store.row(id);
+            const auto diagnostics = QJsonDocument::fromJson(completed.value("diagnostics").toString().toUtf8()).object();
+            completed["failures"] = diagnostics.value("failures").toArray().toVariantList();
+            completed["matchingWarnings"] = !diagnostics.value("matching_warnings").toArray().isEmpty();
+            completed["result"] = QJsonDocument::fromJson(completed.value("result").toString().toUtf8()).object().toVariantMap();
+        } catch (...) { if (error.isEmpty()) error = "Cannot read the completed detection job from app.db."; }
+        QMetaObject::invokeMethod(this, [this, id, updates, error, completed] { finished(id, updates, error, completed); }, Qt::QueuedConnection);
     }));
     return id;
 }
@@ -346,7 +366,7 @@ void DetectionModel::advanceScan()
         }, Qt::QueuedConnection);
     }));
 }
-void DetectionModel::scanJobFinished(const QString &id)
+void DetectionModel::scanJobFinished(const QString &id, const QString &status)
 {
     if (!libraryScanActive() || !m_scanWaiting.remove(id)) return;
     const auto followup = m_scanFollowups.take(id);
@@ -356,11 +376,7 @@ void DetectionModel::scanJobFinished(const QString &id)
         m_scan["failedSeasons"] = m_scan.value("failedSeasons").toInt() + 1;
     }
     ++m_scanSeasonsDone;
-    try { for (const auto &value : m_store.rows()) {
-        const auto row = value.toMap(); if (row.value("id") != id) continue;
-        if (row.value("status") != "complete" && !m_scanCancel->load()) m_scan["failedSeasons"] = m_scan.value("failedSeasons").toInt() + 1;
-        break;
-    } } catch (...) { m_scan["failedSeasons"] = m_scan.value("failedSeasons").toInt() + 1; }
+    if (status != "complete" && !m_scanCancel->load()) m_scan["failedSeasons"] = m_scan.value("failedSeasons").toInt() + 1;
     if (m_scanWaiting.isEmpty()) {
         if (!m_scanCancel->load()) { ++m_scanIndex; m_scan["completedShows"] = m_scanIndex; m_scan["remainingShows"] = m_scanShows.size() - m_scanIndex; }
         advanceScan();
@@ -386,9 +402,10 @@ void DetectionModel::stop()
     const auto job = m_jobs.constFind(m_status.value("id").toString()); if (job == m_jobs.cend()) return;
     job->cancel->store(true); m_message = "Stopping detection"; emit changed();
 }
-void DetectionModel::finished(const QString &id, const detection::DetectionUpdates &updates, const QString &error)
+void DetectionModel::finished(const QString &id, const detection::DetectionUpdates &updates, const QString &error, const QVariantMap &completed)
 {
     const auto found = m_jobs.find(id); if (found == m_jobs.end()) return; if (m_closed) return;
+    if (m_displayJob == id) { m_diagnosticsJob = id; m_diagnostics = completed.value("diagnostics").toString(); }
     if(sameConnection(found->selection)) {
         if(sameShow(found->show)) {
             publish(updates);
@@ -400,51 +417,45 @@ void DetectionModel::finished(const QString &id, const detection::DetectionUpdat
             m_pending.append({m_library.m_generation,found->selection,found->show,updates});
     }
     m_jobs.remove(id);
-    scanJobFinished(id);
+    scanJobFinished(id, completed.value("status").toString());
     emit m_library.changed();
     m_message = error; sync();
     if (!error.isEmpty()) { emit errorOccurred(error); return; }
-    // Read the completed job by identity, including when its show is no longer
-    // open. Do not infer completion from the current screen or replay history.
-    try {
-        for (const auto &value : m_store.rows()) {
-            const auto row = value.toMap(); if (row.value("id").toString() != id) continue;
-            const auto result = QJsonDocument::fromJson(row.value("result").toString().toUtf8()).object().toVariantMap();
-            const auto diagnostics = QJsonDocument::fromJson(row.value("diagnostics").toString().toUtf8()).object().toVariantMap();
-            const auto failures = diagnostics.value("failures").toList();
-            QString message = row.value("message").toString();
-            if (row.value("status") == "complete") {
-                const auto count = result.value("updated").toMap().size();
-                message = count == 0 ? "No new timestamps were saved." : QString("Timestamps saved for %1 %2.").arg(count).arg(count == 1 ? "episode" : "episodes");
-                if (!failures.isEmpty()) message += " Some media could not be analyzed; review the season's results.";
-                else if (!diagnostics.value("matching_warnings").toList().isEmpty()) message += " Some comparisons had limited evidence.";
-            }
-            const auto status=row.value("status").toString();
-            const QMap<QString,QString> providers{{"plex","Plex"},{"emby","Emby"},{"jellyfin","Jellyfin"},{"local","Local files"}};
-            const auto provider=providers.value(row.value("provider").toString(),"Media server");
-            bool durationOk=false;double durationMs=result.value("durationMs").toDouble(&durationOk);
-            if(!durationOk || !std::isfinite(durationMs) || durationMs<0)
-                durationMs=std::max(0.,(row.value("updated").toDouble()-row.value("created").toDouble())*1000.);
-            const auto outcome=status=="complete"?"Detection complete":status=="cancelled"?"Detection stopped":"Detection failed";
-            emit diagnosticMessage(status=="failed"?"error":"info",QString("%1 · %2, season %3 · %4 · Duration: %5 s. %6")
-                .arg(provider,row.value("title").toString()).arg(row.value("season").toInt())
-                .arg(outcome,QString::number(durationMs/1000.,'f',1),message));
-            emit jobFinished(row.value("title").toString(), row.value("season").toInt(), status, message);
-            for (const auto &value : failures) {
-                const auto failure = value.toMap();
-                auto codes = failure.value("codes").toStringList().join(", "); codes.replace('_', ' ');
-                const auto stage = failure.value("stage").toString();
-                emit diagnosticMessage("warning", QString("%1, season %2: %3 could not finish. %4")
-                    .arg(row.value("title").toString()).arg(row.value("season").toInt()).arg(stage.isEmpty() ? "A media comparison" : stage, codes));
-            }
-            const auto webhook = result.value("webhook").toMap();
-            if (webhook.value("attempted").toBool()) {
-                if (webhook.value("success").toBool()) emit diagnosticMessage("info", "Detection completion webhook delivered.");
-                else emit errorOccurred("Detection finished, but its webhook notification could not be delivered. Check Settings → Notifications.");
-            }
-            break;
-        }
-    } catch (const DatabaseError &) { emit errorOccurred("Cannot read the completed detection job from app.db."); }
+    // Completion evidence was reduced on the worker after persistence/webhook
+    // delivery. Publish it only after the season snapshot and edit unlock above.
+    const auto &row = completed;
+    const auto result = row.value("result").toMap();
+    const auto failures = row.value("failures").toList();
+    QString message = row.value("message").toString();
+    if (row.value("status") == "complete") {
+        const auto count = result.value("updated").toMap().size();
+        message = count == 0 ? "No new timestamps were saved." : QString("Timestamps saved for %1 %2.").arg(count).arg(count == 1 ? "episode" : "episodes");
+        if (!failures.isEmpty()) message += " Some media could not be analyzed; review the season's results.";
+        else if (row.value("matchingWarnings").toBool()) message += " Some comparisons had limited evidence.";
+    }
+    const auto status=row.value("status").toString();
+    const QMap<QString,QString> providers{{"plex","Plex"},{"emby","Emby"},{"jellyfin","Jellyfin"},{"local","Local files"}};
+    const auto provider=providers.value(row.value("provider").toString(),"Media server");
+    bool durationOk=false;double durationMs=result.value("durationMs").toDouble(&durationOk);
+    if(!durationOk || !std::isfinite(durationMs) || durationMs<0)
+        durationMs=std::max(0.,(row.value("updated").toDouble()-row.value("created").toDouble())*1000.);
+    const auto outcome=status=="complete"?"Detection complete":status=="cancelled"?"Detection stopped":"Detection failed";
+    emit diagnosticMessage(status=="failed"?"error":"info",QString("%1 · %2, season %3 · %4 · Duration: %5 s. %6")
+        .arg(provider,row.value("title").toString()).arg(row.value("season").toInt())
+        .arg(outcome,QString::number(durationMs/1000.,'f',1),message));
+    emit jobFinished(row.value("title").toString(), row.value("season").toInt(), status, message);
+    for (const auto &value : failures) {
+        const auto failure = value.toMap();
+        auto codes = failure.value("codes").toStringList().join(", "); codes.replace('_', ' ');
+        const auto stage = failure.value("stage").toString();
+        emit diagnosticMessage("warning", QString("%1, season %2: %3 could not finish. %4")
+            .arg(row.value("title").toString()).arg(row.value("season").toInt()).arg(stage.isEmpty() ? "A media comparison" : stage, codes));
+    }
+    const auto webhook = result.value("webhook").toMap();
+    if (webhook.value("attempted").toBool()) {
+        if (webhook.value("success").toBool()) emit diagnosticMessage("info", "Detection completion webhook delivered.");
+        else emit errorOccurred("Detection finished, but its webhook notification could not be delivered. Check Settings → Notifications.");
+    }
 }
 void DetectionModel::close()
 {

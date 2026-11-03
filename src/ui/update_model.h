@@ -26,6 +26,8 @@ class UpdateModel final : public QObject {
     Q_PROPERTY(QString installedVersion READ installedVersion CONSTANT)
     Q_PROPERTY(QString availableVersion READ availableVersion NOTIFY changed)
     Q_PROPERTY(bool applicationUpdateAvailable READ applicationUpdateAvailable NOTIFY changed)
+    Q_PROPERTY(QString applicationReleaseNotes READ applicationReleaseNotes NOTIFY changed)
+    Q_PROPERTY(QString detectorReleaseNotes READ detectorReleaseNotes NOTIFY changed)
     Q_PROPERTY(QString latestVersion READ latestVersion NOTIFY changed)
     Q_PROPERTY(QString message READ message NOTIFY changed)
     Q_PROPERTY(QString detectorInstalledVersion READ detectorInstalledVersion NOTIFY changed)
@@ -46,6 +48,8 @@ public:
     QString installedVersion() const;
     QString availableVersion() const { return m_offer.version; }
     bool applicationUpdateAvailable() const { return !m_appOffer.version.isEmpty() || (!m_detectorOffer && !m_offer.version.isEmpty()); }
+    QString applicationReleaseNotes() const { return (m_appOffer.version.isEmpty() && !m_detectorOffer ? m_offer : m_appOffer).releaseNotes; }
+    QString detectorReleaseNotes() const { return m_detectorCandidate.releaseNotes; }
     QString latestVersion() const { return m_latestVersion; }
     QString message() const { return m_message; }
     QString detectorInstalledVersion() const { return m_installedDetector; }

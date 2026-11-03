@@ -16,6 +16,14 @@ namespace introvert::detection {
 namespace {
 double now() { return std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count(); }
 QString json(const QVariantMap &map) { return QString::fromUtf8(QJsonDocument(QJsonObject::fromVariantMap(map)).toJson(QJsonDocument::Compact)); }
+QVariantList readRows(QSqlDatabase &db, const QString &statement, const QVariantList &values = {})
+{
+    auto query = sql::execute(db, statement, values); QVariantList result;
+    const auto record = query.record();
+    while (query.next()) { QVariantMap row; for (int i = 0; i < record.count(); ++i) row[record.fieldName(i)] = query.value(i); result.append(row); }
+    return result;
+}
+const QString summaryColumns = "id,provider,show_id,title,season,kinds,status,current,total,message,error,result,created,updated,status_revision";
 }
 void DetectionJobStore::initialize() const
 {
@@ -31,8 +39,18 @@ void DetectionJobStore::initialize() const
 }
 QVariantList DetectionJobStore::rows() const
 {
-    sql::Connection connection(m_path); auto query = sql::execute(connection.db, "SELECT * FROM detection_jobs ORDER BY created DESC"); QVariantList result;
-    while (query.next()) { QVariantMap row; const auto record = query.record(); for (int i = 0; i < record.count(); ++i) row[record.fieldName(i)] = query.value(i); result.append(row); } return result;
+    sql::Connection connection(m_path); return readRows(connection.db, "SELECT * FROM detection_jobs ORDER BY created DESC");
+}
+QVariantList DetectionJobStore::summaries() const
+{
+    // Selecting diagnostics here makes SQLite copy/sort potentially hundreds of
+    // megabytes of historical evidence on every progress or navigation update.
+    sql::Connection connection(m_path); return readRows(connection.db, "SELECT " + summaryColumns + " FROM detection_jobs ORDER BY created DESC");
+}
+QVariantMap DetectionJobStore::row(const QString &id) const
+{
+    sql::Connection connection(m_path); const auto rows = readRows(connection.db, "SELECT * FROM detection_jobs WHERE id=?", {id});
+    return rows.isEmpty() ? QVariantMap{} : rows.first().toMap();
 }
 QPair<QString, bool> DetectionJobStore::create(const providers::ShowDetail &detail, int season, const QStringList &kinds) const
 {
@@ -58,8 +76,13 @@ void DetectionJobStore::finish(const QString &id, const QString &status, const Q
 }
 QVariantList DetectionJobStore::queue() const
 {
+    sql::Connection connection(m_path);
+    return queue(readRows(connection.db, "SELECT " + summaryColumns + " FROM detection_jobs WHERE status IN ('queued','running') ORDER BY created DESC"));
+}
+QVariantList DetectionJobStore::queue(const QVariantList &rows)
+{
     QVariantList result;
-    for (const auto &value : rows()) {
+    for (const auto &value : rows) {
         const auto row = value.toMap(); const auto status = row.value("status").toString(); if (status != "queued" && status != "running") continue;
         const int season = row.value("season").toInt();
         result.append(QVariantMap{{"type", "Detection"}, {"endpoint", ""}, {"show", row.value("title")}, {"episode", "Season " + QString::number(season)}, {"code", QString("S%1").arg(season, 2, 10, QLatin1Char('0'))},

@@ -221,7 +221,7 @@ Item {
                     progress: page.seasonDetectionProgress(Number(modelData))
                     selectionColor: page.theme.selected
                     selectionBorderColor: page.theme.accent
-                    theme: page.theme; hint: "Shift-click to select this entire season for detection"
+                    theme: page.theme
                     onClicked: page.openSeason(Number(modelData))
                     Keys.onSpacePressed: function(event) {
                         if(event.modifiers & Qt.ShiftModifier) { page.toggleDetectionSeason(Number(modelData)); event.accepted = true }

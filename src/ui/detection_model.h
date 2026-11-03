@@ -4,6 +4,7 @@
 #include "detection/service.h"
 #include <QSet>
 #include <QElapsedTimer>
+#include <atomic>
 
 namespace introvert::ui {
 class DetectionModel final : public QObject {
@@ -52,14 +53,15 @@ private:
     bool sameShow(const providers::ProviderIdentity &show) const;
     void publish(const detection::DetectionUpdates &updates);
     void sync();
+    void scheduleSync();
     void updateScanEstimate();
     void prepareShowDetection(const CatalogSelection &selection, const providers::ProviderIdentity &show);
     QString enqueue(const providers::ShowDetail &detail, int season, const QStringList &kinds, const CatalogSelection &selection);
     QStringList validatedKinds(const QVariantList &values);
     void advanceScan();
-    void scanJobFinished(const QString &id);
+    void scanJobFinished(const QString &id, const QString &status);
     void finishScan(const QString &status, const QString &message);
-    void finished(const QString &id, const detection::DetectionUpdates &updates, const QString &error);
+    void finished(const QString &id, const detection::DetectionUpdates &updates, const QString &error, const QVariantMap &completed);
     LibraryModel &m_library;
     detection::DetectionJobStore m_store;
     detection::DetectionService m_service;
@@ -88,7 +90,9 @@ private:
     QVariantList m_rows;
     QString m_message;
     QString m_displayJob;
+    QString m_diagnosticsJob, m_diagnostics;
     std::optional<QString> m_context;
     bool m_closed = false;
+    std::atomic_bool m_syncPending{false};
 };
 } // namespace introvert::ui

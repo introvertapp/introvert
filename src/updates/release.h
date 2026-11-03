@@ -12,6 +12,7 @@ struct Offer {
     QUrl download;
     QByteArray sha256;
     qint64 bytes = 0;
+    QString releaseNotes;
 };
 
 // A stable release and its exact architecture/package are selected together.

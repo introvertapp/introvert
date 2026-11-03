@@ -37,6 +37,10 @@ successful detection completion; they do not report submission completion.
 3. Follow the status message. For an application update, click **Restart to Update**
    when the download is ready.
 
+Click the **ⓘ** inside the right edge of an available update button to read its
+release notes before downloading. Application and Detector updates each show
+their own notes.
+
 Detector updates take effect for new scans without restarting. Scans already
 running keep their current detector version.
 

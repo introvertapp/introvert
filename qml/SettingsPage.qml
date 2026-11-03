@@ -31,6 +31,7 @@ Item {
         id: badge
         text: "—"
         property bool offered: false
+        property bool hasReleaseNotes: false
         property string actionLabel: text
         readonly property color color: offered ? "#33d17a" : page.theme.field
         implicitWidth: 132; implicitHeight: 34; padding: 0
@@ -42,20 +43,82 @@ Item {
         HoverHandler { cursorShape: badge.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor }
         background: Rectangle { radius: 8; color: badge.color; border.color: badge.offered ? "#33d17a" : page.theme.border }
         contentItem: Item { Row {
-            anchors.centerIn: parent; spacing: 7
+            anchors.centerIn: parent; anchors.horizontalCenterOffset: badge.hasReleaseNotes ? -15 : 0; spacing: 7
             IconGlyph {
                 objectName: badge.objectName+"_download"
                 visible: badge.offered; name: "download"; width: 16; height: 16
                 anchors.verticalCenter: parent.verticalCenter; color: "#102116"
             }
             Text {
-                width: Math.min(implicitWidth,badge.width-16-(badge.offered ? 23 : 0))
+                width: Math.min(implicitWidth,badge.width-16-(badge.offered ? 23 : 0)-(badge.hasReleaseNotes ? 30 : 0))
                 text: badge.text; textFormat: Text.PlainText
                 color: badge.offered ? "#102116" : badge.text === "—" ? page.theme.muted : page.theme.text
                 font.pixelSize: 13; font.weight: Font.DemiBold
                 horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight
             }
         } }
+    }
+    component ReleaseNotesControl: Item {
+        id: notesControl
+        property bool offered: false
+        property string releaseName
+        property string releaseVersion
+        property string notes
+        implicitWidth: 30; implicitHeight: 34
+        AbstractButton {
+            id: notesButton
+            objectName: notesControl.objectName+"_button"
+            anchors.fill: parent
+            visible: notesControl.offered
+            activeFocusOnTab: true; hoverEnabled: true
+            Accessible.name: "Read "+notesControl.releaseName+" "+notesControl.releaseVersion+" release notes"
+            HoverHandler { cursorShape: Qt.PointingHandCursor }
+            background: Item {
+                Rectangle {
+                    anchors.centerIn: parent; width: 18; height: 18; radius: 9
+                    color: page.theme.hover
+                    border.width: notesButton.activeFocus ? 1 : 0; border.color: page.theme.accent
+                    Text { anchors.centerIn: parent; text: "i"; font.pixelSize: 12; font.bold: true; color: page.theme.text }
+                }
+            }
+            onClicked: releaseNotesDialog.showNotes(notesControl.releaseName, notesControl.releaseVersion, notesControl.notes)
+            AppToolTip { visible: notesButton.hovered; text: "Release notes"; theme: page.theme }
+        }
+    }
+    SurfaceDialog {
+        id: releaseNotesDialog
+        objectName: "releaseNotesDialog"
+        parent: Overlay.overlay; anchors.centerIn: parent
+        width: Math.min(680, parent.width-48)
+        height: Math.min(620, parent.height-64, Math.max(220, notesBody.contentHeight+header.implicitHeight+footer.implicitHeight+topPadding+bottomPadding))
+        theme: page.theme; modal: true; focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        property string notes: ""
+        function showNotes(name, version, body) {
+            title = name+" "+version+" · Release notes"
+            notes = body.trim() || "Release notes were not provided for this update."
+            notesScroll.contentItem.contentY = 0
+            open()
+        }
+        contentItem: ScrollView {
+            id: notesScroll
+            objectName: "releaseNotesScroll"
+            clip: true; contentWidth: availableWidth
+            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+            ScrollBar.vertical.policy: ScrollBar.AsNeeded
+            TextArea {
+                id: notesBody
+                objectName: "releaseNotesText"
+                width: notesScroll.availableWidth
+                text: releaseNotesDialog.notes; textFormat: TextEdit.MarkdownText
+                readOnly: true; selectByMouse: true; wrapMode: TextEdit.Wrap
+                background: null; padding: 0
+                color: page.theme.text; selectionColor: page.theme.accent; selectedTextColor: page.theme.background
+                palette.link: page.theme.accent; palette.linkVisited: page.theme.accent
+                font.pixelSize: 14
+                onLinkActivated: function(link) { if (/^https?:\/\//i.test(link)) Qt.openUrlExternally(link) }
+            }
+        }
     }
     FolderDialog { id: localFolder; objectName: "localBrowseDialog"; title: "Local media path"; onAccepted: page.appSettings.mediaSettings.setDirectoryUrl(selectedFolder.toString()) }
 
@@ -195,26 +258,52 @@ Item {
                                         objectName: "installedApplicationVersion"
                                         text: page.applicationUpdates && page.applicationUpdates.installedVersion ? "v"+page.applicationUpdates.installedVersion : "—"
                                     }
-                                    VersionBadge {
-                                        objectName: "availableApplicationVersion"
-                                        offered: Boolean(page.applicationUpdates && page.applicationUpdates.applicationUpdateAvailable)
-                                        text: page.applicationUpdates && page.applicationUpdates.latestVersion ? "v"+page.applicationUpdates.latestVersion : "—"
-                                        actionLabel: "Download Introvert " + text
-                                        enabled: offered && page.applicationUpdates.enabled && !page.applicationUpdates.busy && !page.applicationUpdates.ready
-                                        onClicked: page.applicationUpdates.downloadApplication()
+                                    Item {
+                                        implicitWidth: 132; implicitHeight: 34
+                                        VersionBadge {
+                                            id: applicationVersionBadge
+                                            objectName: "availableApplicationVersion"
+                                            anchors.fill: parent
+                                            offered: Boolean(page.applicationUpdates && page.applicationUpdates.applicationUpdateAvailable)
+                                            hasReleaseNotes: offered
+                                            text: page.applicationUpdates && page.applicationUpdates.latestVersion ? "v"+page.applicationUpdates.latestVersion : "—"
+                                            actionLabel: "Download Introvert " + text
+                                            enabled: offered && page.applicationUpdates.enabled && !page.applicationUpdates.busy && !page.applicationUpdates.ready
+                                            onClicked: page.applicationUpdates.downloadApplication()
+                                        }
+                                        ReleaseNotesControl {
+                                            objectName: "applicationReleaseNotesControl"
+                                            anchors.right: parent.right; anchors.top: parent.top; anchors.bottom: parent.bottom; width: 30
+                                            offered: applicationVersionBadge.offered
+                                            releaseName: "Introvert"; releaseVersion: applicationVersionBadge.text
+                                            notes: page.applicationUpdates ? page.applicationUpdates.applicationReleaseNotes : ""
+                                        }
                                     }
                                     Text { objectName: "detectorVersionLabel"; Layout.fillWidth: true; text: "Detector"; color: page.theme.text }
                                     VersionBadge {
                                         objectName: "installedDetectorVersion"
                                         text: page.applicationUpdates && page.applicationUpdates.detectorInstalledVersion ? "v"+page.applicationUpdates.detectorInstalledVersion : "—"
                                     }
-                                    VersionBadge {
-                                        objectName: "availableDetectorVersion"
-                                        offered: Boolean(page.applicationUpdates && page.applicationUpdates.detectorAvailableVersion)
-                                        text: page.applicationUpdates && page.applicationUpdates.detectorLatestVersion ? "v"+page.applicationUpdates.detectorLatestVersion : "—"
-                                        actionLabel: "Download detector " + text
-                                        enabled: offered && page.applicationUpdates.enabled && !page.applicationUpdates.busy && !page.applicationUpdates.ready
-                                        onClicked: page.applicationUpdates.downloadDetector()
+                                    Item {
+                                        implicitWidth: 132; implicitHeight: 34
+                                        VersionBadge {
+                                            id: detectorVersionBadge
+                                            objectName: "availableDetectorVersion"
+                                            anchors.fill: parent
+                                            offered: Boolean(page.applicationUpdates && page.applicationUpdates.detectorAvailableVersion)
+                                            hasReleaseNotes: offered
+                                            text: page.applicationUpdates && page.applicationUpdates.detectorLatestVersion ? "v"+page.applicationUpdates.detectorLatestVersion : "—"
+                                            actionLabel: "Download detector " + text
+                                            enabled: offered && page.applicationUpdates.enabled && !page.applicationUpdates.busy && !page.applicationUpdates.ready
+                                            onClicked: page.applicationUpdates.downloadDetector()
+                                        }
+                                        ReleaseNotesControl {
+                                            objectName: "detectorReleaseNotesControl"
+                                            anchors.right: parent.right; anchors.top: parent.top; anchors.bottom: parent.bottom; width: 30
+                                            offered: detectorVersionBadge.offered
+                                            releaseName: "Detector"; releaseVersion: "v"+(page.applicationUpdates ? page.applicationUpdates.detectorAvailableVersion : "")
+                                            notes: page.applicationUpdates ? page.applicationUpdates.detectorReleaseNotes : ""
+                                        }
                                     }
                                 }
                                 RowLayout {
