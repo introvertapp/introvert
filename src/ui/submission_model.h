@@ -13,6 +13,7 @@ namespace introvert::ui {
 class SubmissionModel final : public QObject {
     Q_OBJECT
     Q_PROPERTY(QVariantList queue READ queue NOTIFY changed)
+    Q_PROPERTY(QVariantMap queuePositions READ queuePositions NOTIFY queueOrderChanged)
     Q_PROPERTY(QVariantList history READ history NOTIFY changed)
     Q_PROPERTY(QVariantMap statistics READ statistics NOTIFY changed)
     Q_PROPERTY(QVariantList endpoints READ endpoints NOTIFY changed)
@@ -26,6 +27,7 @@ public:
                     segments::SegmentStore segments, QObject *parent = nullptr);
     ~SubmissionModel() override;
     QVariantList queue() const { return m_queue; }
+    QVariantMap queuePositions() const { return m_queuePositions; }
     QVariantList history() const { return m_history; }
     QVariantMap statistics() const { return m_statistics; }
     QVariantList endpoints() const { return m_endpoints; }
@@ -37,6 +39,7 @@ public:
     Q_INVOKABLE void prepare(const QVariantList &selection, const QString &endpoint);
     Q_INVOKABLE void confirm();
     Q_INVOKABLE void cancelReview();
+    Q_INVOKABLE void moveQueueItem(const QString &key, const QString &target, bool after, const QStringList &order);
     void start();
     void close();
 signals:
@@ -44,6 +47,7 @@ signals:
     void errorOccurred(const QString &message);
     void prepared();
     void enqueued();
+    void queueOrderChanged();
 private:
     enum class Kind { Prepare, Enqueue, Snapshot, Error };
     struct Context {
@@ -73,6 +77,7 @@ private:
     submissions::SubmissionStore m_store;
     segments::SegmentStore m_segments;
     QThreadPool m_pool;
+    QThreadPool m_queuePool;
     providers::Cancellation m_stop = std::make_shared<std::atomic_bool>(false);
     std::mutex m_mutex;
     std::condition_variable m_wake;
@@ -81,6 +86,7 @@ private:
     std::optional<Context> m_feedbackContext;
     std::optional<QVariantMap> m_plan;
     QVariantList m_queue, m_history, m_endpoints;
+    QVariantMap m_queuePositions;
     QVariantMap m_statistics, m_review, m_statuses, m_rawStatuses;
     QString m_message;
     QMap<QString, QString> m_statusBaseline;

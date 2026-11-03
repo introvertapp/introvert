@@ -69,6 +69,10 @@ ApplicationWindow {
         function onCacheRebuildFailed(message) {window.explain("Cache rebuild failed",message)}
         function onChanged() { if(!window.uiPreview && !window.openingShowRequest && window.mediaLibrary.busy && !window.mediaLibrary.show.id) window.selectedShow=null }
     }
+    Connections {
+        target: window.submissions || null
+        function onQueueOrderChanged() { submissionQueue.refreshOrder(); if(window.detector && !window.uiPreview) window.detector.refreshQueueOrder() }
+    }
     ColumnLayout {
         id: shellLayout
         anchors.fill: parent; anchors.margins: 20; spacing: 20
@@ -103,8 +107,11 @@ ApplicationWindow {
                 onShowOpened: function(show) { window.openShow(show) }
             }
             QueuePage {
+                id: submissionQueue
                 theme: colors; preview: window.uiPreview; query: window.searchQueries.queue; visualState: window.visualState
                 items: window.presentation ? window.presentation.queue : window.detector ? (window.submissions ? window.submissions.queue : window.queueItems).concat(window.detector.queue) : window.submissions ? window.submissions.queue : window.queueItems
+                queuePositions: window.submissions ? window.submissions.queuePositions : ({})
+                onMoveRequested: function(key, target, after) { if(window.submissions && !window.uiPreview) window.submissions.moveQueueItem(key, target, after, submissionQueue.requestedOrder) }
                 onShowOpened: function(record) { if(window.presentation) window.openShow(window.presentation.shows[0]); else if(record && record.showId) { window.appSettings.setMediaProvider(record.providerId); window.openShow({id:record.showId,title:record.show}) } }
             }
             HistoryPage {

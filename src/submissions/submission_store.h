@@ -24,6 +24,7 @@ public:
     explicit SubmissionStore(QString databasePath, Clock clock = {});
     void initialize() const;
     QString enqueue(const QVariantMap &plan) const;
+    bool moveQueueItem(const QString &key, const QString &target, bool after, const QStringList &order = {}) const;
     std::optional<SubmissionClaim> nextItem() const;
     void finish(const SubmissionClaim &claim, const SubmissionCompletion &completion) const;
     bool processOne(const SettingsStore &settings, const providers::Cancellation &cancelled,

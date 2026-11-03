@@ -2,6 +2,7 @@
 #include "candidates.h"
 #include "segments/identity.h"
 #include "core/sqlite.h"
+#include "core/queue_order.h"
 #include <QElapsedTimer>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -115,6 +116,7 @@ DetectionUpdates DetectionService::run(const QString &id, const providers::ShowD
                 : !output.diagnostics.value("matching_warnings").toList().empty() ? "Detection complete with limited matching evidence" : "Detection complete";
             if (output.finalize) diagnostics["finalization"] = finalization;
             sql::execute(connection.db, "UPDATE detection_jobs SET status='complete',current=total,message=?,result=?,diagnostics=?,updated=? WHERE id=?", {message, json(result), json(diagnostics), now(), id});
+            queueOrder::remove(connection.db, "d:" + id);
             providers::checkCancelled(cancel); transaction.commit();
         }
         completed(id, notify); DetectionUpdates updates;

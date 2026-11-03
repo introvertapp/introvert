@@ -13,7 +13,15 @@ QString releaseNotes(const QJsonObject &release)
     // Release bodies also contain a machine-readable detector catalogue.
     // Comments are metadata, not part of the notes shown to the user.
     static const QRegularExpression comments("<!--[\\s\\S]*?-->");
-    auto notes = release.value("body").toString(); notes.remove(comments); return notes.trimmed();
+    static const QRegularExpression downloads(
+        "^ {0,3}##[\\t ]+Downloads[\\t ]+and[\\t ]+validation(?:[\\t ]+#+)?[\\t ]*(?:\\r?\\n|\\z).*?(?=^ {0,3}#{1,2}[\\t ]|\\z)",
+        QRegularExpression::MultilineOption | QRegularExpression::DotMatchesEverythingOption | QRegularExpression::CaseInsensitiveOption);
+    auto notes = release.value("body").toString();
+    notes.remove(comments);
+    // Keep release highlights; omit distribution/validation boilerplate and its
+    // subsections, stopping at the next top-level release section if present.
+    notes.remove(downloads);
+    return notes.trimmed();
 }
 std::array<int, 3> version(const QString &value)
 {

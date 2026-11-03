@@ -5,6 +5,8 @@
 #include <QSet>
 #include <QElapsedTimer>
 #include <atomic>
+#include <mutex>
+#include <functional>
 
 namespace introvert::ui {
 class DetectionModel final : public QObject {
@@ -39,6 +41,7 @@ public:
     Q_INVOKABLE void startLibraryScan(const QVariantList &kinds);
     Q_INVOKABLE void stopLibraryScan();
     Q_INVOKABLE void stop();
+    Q_INVOKABLE void refreshQueueOrder() { sync(); }
     void close();
 signals:
     void changed();
@@ -54,6 +57,7 @@ private:
     void publish(const detection::DetectionUpdates &updates);
     void sync();
     void scheduleSync();
+    void dispatch(const QString &id, std::function<void()> task);
     void updateScanEstimate();
     void prepareShowDetection(const CatalogSelection &selection, const providers::ProviderIdentity &show);
     QString enqueue(const providers::ShowDetail &detail, int season, const QStringList &kinds, const CatalogSelection &selection);
@@ -66,6 +70,10 @@ private:
     detection::DetectionJobStore m_store;
     detection::DetectionService m_service;
     QThreadPool m_pool;
+    std::mutex m_taskMutex;
+    QList<QPair<QString, std::function<void()>>> m_tasks;
+    bool m_dispatching = false;
+    std::atomic_bool m_dispatchClosing{false};
     QThreadPool m_discoveryPool;
     QVariantMap m_scan, m_seasonProgress, m_showDetection;
     QMap<QString, QSet<QString>> m_showJobs;

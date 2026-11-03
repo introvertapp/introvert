@@ -17,6 +17,7 @@ SubmissionModel::SubmissionModel(LibraryModel &library, SettingsStore settings, 
     : QObject(parent), m_library(library), m_settings(std::move(settings)), m_store(std::move(store)), m_segments(std::move(segments))
 {
     m_pool.setMaxThreadCount(1);
+    m_queuePool.setMaxThreadCount(1);
     connect(&library, &LibraryModel::changed, this, &SubmissionModel::libraryChanged);
     libraryChanged();
 }
@@ -123,6 +124,29 @@ void SubmissionModel::cancelReview()
     if (m_closed) return;
     ++m_generation; m_plan.reset(); m_review.clear(); m_context.reset();
     m_busy = false; m_message.clear(); emit changed();
+}
+
+void SubmissionModel::moveQueueItem(const QString &key, const QString &target, bool after, const QStringList &order)
+{
+    if (m_closed || key.isEmpty() || target.isEmpty()) return;
+    // Reordering must remain responsive during an endpoint's HTTP request.
+    m_queuePool.start(QRunnable::create([this, key, target, after, order] {
+        QString error; QVariantMap positions;
+        try {
+            m_store.moveQueueItem(key, target, after, order);
+            sql::Connection connection(m_settings.databasePath());
+            auto query = sql::execute(connection.db, "SELECT key,position FROM queue_order");
+            while (query.next()) positions[query.value(0).toString()] = query.value(1);
+        }
+        catch (...) { error = "Cannot save the queue order in app.db. Please retry."; }
+        QMetaObject::invokeMethod(this, [this, error, positions] {
+            if (m_closed) return;
+            if (!error.isEmpty()) emit errorOccurred(error);
+            m_queuePositions = positions;
+            emit queueOrderChanged();
+            m_wake.notify_one();
+        }, Qt::QueuedConnection);
+    }));
 }
 
 void SubmissionModel::run()
@@ -239,6 +263,7 @@ void SubmissionModel::close()
     if (m_closed) return;
     m_closed = true; m_stop->store(true); m_wake.notify_one();
     disconnect(&m_library, nullptr, this, nullptr);
+    m_queuePool.waitForDone();
     m_pool.waitForDone();
     QCoreApplication::sendPostedEvents(this, QEvent::MetaCall);
 }

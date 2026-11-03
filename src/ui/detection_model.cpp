@@ -1,4 +1,5 @@
 #include "detection_model.h"
+#include "core/queue_order.h"
 #include <QCoreApplication>
 #include <QEvent>
 #include <QJsonDocument>
@@ -250,7 +251,7 @@ QString DetectionModel::enqueue(const providers::ShowDetail &detail, int season,
     m_jobs.insert(created.first, {cancel, editLock, selection, detail.show.identity, season, kinds});
     m_showJobs[showKey(selection, detail.show.identity)].insert(created.first);
     const auto id = created.first; const auto saved = selection.saved; const auto gate = editLock.get();
-    m_pool.start(QRunnable::create([this, id, detail, season, kinds, saved, cancel, gate] {
+    dispatch(id, [this, id, detail, season, kinds, saved, cancel, gate] {
         detection::DetectionUpdates updates; QString error;
         try { gate->waitForWriters(cancel); updates = m_service.run(id, detail, season, kinds, saved, cancel, [this] { scheduleSync(); }); }
         catch (const providers::Cancelled &) { try { m_store.finish(id,"cancelled","Detection stopped"); } catch (...) { error="Cannot update detection jobs in app.db"; } }
@@ -266,9 +267,48 @@ QString DetectionModel::enqueue(const providers::ShowDetail &detail, int season,
             completed["result"] = QJsonDocument::fromJson(completed.value("result").toString().toUtf8()).object().toVariantMap();
         } catch (...) { if (error.isEmpty()) error = "Cannot read the completed detection job from app.db."; }
         QMetaObject::invokeMethod(this, [this, id, updates, error, completed] { finished(id, updates, error, completed); }, Qt::QueuedConnection);
-    }));
+    });
     return id;
 }
+void DetectionModel::dispatch(const QString &id, std::function<void()> task)
+{
+    std::lock_guard<std::mutex> lock(m_taskMutex);
+    m_tasks.append({id, std::move(task)});
+    if (m_dispatching) return;
+    m_dispatching = true;
+    m_pool.start(QRunnable::create([this] {
+        for (;;) {
+            QStringList keys;
+            {
+                std::lock_guard<std::mutex> lock(m_taskMutex);
+                if (m_tasks.isEmpty()) { m_dispatching = false; return; }
+                for (const auto &entry : m_tasks) keys.append("d:" + entry.first);
+            }
+            int selected = 0;
+            try {
+                sql::Connection connection(m_store.databasePath()); sql::Transaction transaction(connection.db);
+                const auto key = queueOrder::claim(connection.db, keys);
+                if (!key.isEmpty()) selected = keys.indexOf(key);
+                transaction.commit();
+            } catch (...) {
+                // A transient writer/storage failure must not silently start the
+                // FIFO job in place of the saved head. Shutdown still drains the
+                // cancelled tasks so their reservations and callbacks are joined.
+                if (!m_dispatchClosing.load()) { scheduleSync(); QThread::msleep(100); continue; }
+            }
+            std::function<void()> task;
+            {
+                // Only this dispatcher removes tasks; GUI enqueues only append.
+                // Never hold the GUI's mutex while waiting for SQLite writers.
+                std::lock_guard<std::mutex> lock(m_taskMutex);
+                task = std::move(m_tasks[selected].second); m_tasks.removeAt(selected);
+            }
+            scheduleSync();
+            task();
+        }
+    }));
+}
+
 void DetectionModel::stopSeasons(const QVariantList &seasons)
 {
     if (!m_library.m_detail || !m_library.m_key) return;
@@ -459,7 +499,7 @@ void DetectionModel::finished(const QString &id, const detection::DetectionUpdat
 }
 void DetectionModel::close()
 {
-    if (m_closed) return; m_closed = true; m_scanClock.stop(); for (const auto &job : m_jobs) job.cancel->store(true);
+    if (m_closed) return; m_closed = true; m_dispatchClosing.store(true); m_scanClock.stop(); for (const auto &job : m_jobs) job.cancel->store(true);
     if (m_scanCancel) m_scanCancel->store(true);
     disconnect(&m_library, nullptr, this, nullptr); m_discoveryPool.waitForDone(); m_pool.waitForDone(); QCoreApplication::sendPostedEvents(this, QEvent::MetaCall); m_jobs.clear();m_pending.clear();
     emit m_library.changed();

@@ -1,4 +1,5 @@
 #include "submission_store.h"
+#include "core/queue_order.h"
 #include "segments/identity.h"
 #include <QDateTime>
 #include <QDir>
@@ -88,7 +89,19 @@ void SubmissionStore::initialize() const
     auto fields=sql::execute(db,"PRAGMA table_info(submit_items)");bool hasAddress=false;
     while(fields.next())hasAddress|=fields.value(1).toString()=="address";fields.finish();
     if(!hasAddress)sql::execute(db,"ALTER TABLE submit_items ADD COLUMN address TEXT NOT NULL DEFAULT '{}'");
+    queueOrder::initialize(db);
+    // Backfill existing installations without changing item identities/history.
+    for (const auto &row : rows(db, "SELECT i.job_id,i.episode_id FROM submit_items i JOIN submit_jobs j ON j.id=i.job_id "
+             "WHERE j.status IN " + activeSql + " AND i.status IN " + pendingSql + " GROUP BY i.job_id,i.episode_id ORDER BY MIN(i.id)"))
+        queueOrder::append(db, "s:" + row.value("job_id").toString() + ':' + row.value("episode_id").toString());
     transaction.commit();
+}
+
+bool SubmissionStore::moveQueueItem(const QString &key, const QString &target, bool after, const QStringList &order) const
+{
+    sql::Connection connection(m_path); sql::Transaction transaction(connection.db);
+    const bool moved = queueOrder::move(connection.db, key, target, after, order);
+    transaction.commit(); return moved;
 }
 
 QString SubmissionStore::enqueue(const QVariantMap &plan) const
@@ -124,6 +137,8 @@ QString SubmissionStore::enqueue(const QVariantMap &plan) const
             {id, item.value("episode_id"), sql::text(item.value("title").toString()), item.value("season"), item.value("episode"),
              item.value("segment_type"), item.value("start_sec"), nullable(item.value("end_sec")), nullable(item.value("video_duration_ms")), now, now,statusRevision,encoded});
     }
+    for (const auto &row : rows(db, "SELECT episode_id FROM submit_items WHERE job_id=? AND status IN " + pendingSql + " GROUP BY episode_id ORDER BY MIN(id)", {id}))
+        queueOrder::append(db, "s:" + id + ':' + row.value("episode_id").toString());
     sql::execute(db, "UPDATE submit_jobs SET updated=? WHERE id=?", {now, id});
     transaction.commit(); return id;
 }
@@ -137,18 +152,22 @@ std::optional<SubmissionClaim> SubmissionStore::nextItem() const
     for (const auto &job : jobs) if (job.value("next_at").toDouble() > now && job.value("status") == "running") {
         transaction.commit(); return {};
     }
-    for (const auto &job : jobs) {
-        if (exists(db, "SELECT 1 FROM submit_api_rate_limits WHERE endpoint=?", {job.value("endpoint")})) {
-            sql::execute(db, "UPDATE submit_jobs SET status='rate_limited' WHERE id=?", {job.value("id")}); continue;
-        }
-        if (job.value("next_at").toDouble() > now) continue;
-        const auto items = rows(db, "SELECT * FROM submit_items WHERE job_id=? AND status IN " + pendingSql + " ORDER BY id LIMIT 1", {job.value("id")});
-        if (items.isEmpty()) {
-            sql::execute(db, "UPDATE submit_jobs SET status='complete',updated=? WHERE id=?", {now, job.value("id")}); continue;
-        }
+    // A displayed submission row is one episode (all selected segment kinds).
+    // Keep its in-flight kinds together; other episodes follow the saved order.
+    sql::execute(db, "UPDATE submit_jobs SET status='rate_limited' WHERE status IN " + activeSql +
+        " AND endpoint IN (SELECT endpoint FROM submit_api_rate_limits)");
+    const auto candidates = rows(db, "SELECT i.* FROM submit_items i JOIN submit_jobs j ON j.id=i.job_id "
+        "JOIN queue_order q ON q.key='s:'||j.id||':'||i.episode_id WHERE j.status IN " + activeSql +
+        " AND i.status IN " + pendingSql + " AND j.next_at<=? AND NOT EXISTS "
+        "(SELECT 1 FROM submit_api_rate_limits l WHERE l.endpoint=j.endpoint) ORDER BY q.running DESC,q.position,i.id LIMIT 1", {now});
+    for (const auto &item : candidates) {
+        const auto found = std::find_if(jobs.cbegin(), jobs.cend(), [&](const auto &job) { return job.value("id") == item.value("job_id"); });
+        if (found == jobs.cend()) continue;
+        const auto &job = *found;
         sql::execute(db, "UPDATE submit_jobs SET status='running' WHERE id=?", {job.value("id")});
-        sql::execute(db, "UPDATE submit_items SET status='PROCESSING' WHERE id=?", {items.first().value("id")});
-        transaction.commit(); return SubmissionClaim{job, items.first()};
+        sql::execute(db, "UPDATE submit_items SET status='PROCESSING' WHERE id=?", {item.value("id")});
+        queueOrder::running(db, "s:" + job.value("id").toString() + ':' + item.value("episode_id").toString(), true);
+        transaction.commit(); return SubmissionClaim{job, item};
     }
     transaction.commit(); return {};
 }
@@ -173,6 +192,10 @@ void SubmissionStore::finish(const SubmissionClaim &claim, const SubmissionCompl
         const auto delay = completion.settings && !more && remaining ? std::max(0, completion.settings->value("api_delay_seconds").toInt()) : 0;
         sql::execute(db, "UPDATE submit_jobs SET next_at=?,updated=? WHERE id=?", {now + delay, now, job.value("id")});
     }
+    const auto key = "s:" + job.value("id").toString() + ':' + item.value("episode_id").toString();
+    if (!exists(db, "SELECT 1 FROM submit_items WHERE job_id=? AND episode_id=? AND status IN " + pendingSql,
+                {job.value("id"), item.value("episode_id")})) queueOrder::remove(db, key);
+    else if (completion.limit) queueOrder::running(db, key, false);
     if (updated && completion.status == "OK" && completion.settings && completion.settings->value("save_submissions_local_db").toBool())
         sql::execute(db, "INSERT OR REPLACE INTO local_submissions VALUES(?,?,?,?,?,?,?,?,?)",
             {item.value("id"), job.value("endpoint"), job.value("canonical"), item.value("season"), item.value("number"), item.value("kind"),
@@ -262,7 +285,8 @@ SubmissionSnapshot SubmissionStore::snapshot() const
     sql::execute(db, "BEGIN");
     QMap<QString, QVariantMap> jobs;
     for (const auto &row : rows(db, "SELECT * FROM submit_jobs ORDER BY created")) jobs[row.value("id").toString()] = row;
-    const auto items = rows(db, "SELECT * FROM submit_items ORDER BY id");
+    const auto items = rows(db, "SELECT i.*,q.key AS queueKey,q.position AS queueOrder,q.running AS queueRunning FROM submit_items i "
+        "LEFT JOIN queue_order q ON q.key='s:'||i.job_id||':'||i.episode_id ORDER BY i.id");
     QMap<QString, double> limits;
     for (const auto &row : rows(db, "SELECT * FROM submit_api_rate_limits WHERE resume_at>?", {now})) limits[row.value("endpoint").toString()] = row.value("resume_at").toDouble();
     sql::execute(db, "COMMIT");
@@ -306,9 +330,17 @@ SubmissionSnapshot SubmissionStore::snapshot() const
             if (!pending.contains(state)) ++completed;
             if (!found && (pending.contains(state) || state == "FAIL")) { selected = entry.row; found = true; }
         }
+        selected["queueKey"] = group.first().item.value("queueKey");
+        selected["queueOrder"] = group.first().item.value("queueOrder").isNull() ? group.first().item.value("id") : group.first().item.value("queueOrder");
+        selected["queueRunning"] = group.first().item.value("queueRunning").toBool();
         selected["type"] = "Submission"; selected["progressCurrent"] = completed; selected["progressTotal"] = group.size();
         result.queue.append(selected);
     }
+    std::stable_sort(result.queue.begin(), result.queue.end(), [](const auto &a, const auto &b) {
+        const auto left = a.toMap(), right = b.toMap();
+        if (left.value("queueRunning").toBool() != right.value("queueRunning").toBool()) return left.value("queueRunning").toBool();
+        return left.value("queueOrder").toLongLong() < right.value("queueOrder").toLongLong();
+    });
     QSet<QString> shows; QSet<QPair<QString, QString>> episodes;
     result.statistics = {{"Shows", 0}, {"Episodes", 0}, {"IntroDB", 0}, {"TheIntroDB", 0}};
     for (const auto &kind : kinds) result.statistics[title(kind)] = 0;
