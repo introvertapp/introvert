@@ -32,7 +32,8 @@ QVariantMap boundaryRefinementDescription()
 QVariantMap refineBoundary(const QVariantMap &window,const QString &kind,const QString &edge,double reference,const Cancellation &cancel,const QString &constraint)
 {
     if((kind!="intro" && kind!="credits") || (edge!="start" && edge!="end") || (kind=="credits" && edge=="end")
-        || !std::isfinite(reference) || reference<0 || (!constraint.isEmpty() && constraint!="preceding_black" && constraint!="consensus_transition")
+        || !std::isfinite(reference) || reference<0 || (!constraint.isEmpty() && constraint!="preceding_black"
+            && constraint!="consensus_transition" && constraint!="isolated_consensus_transition")
         || (constraint=="preceding_black" && (kind!="intro" || edge!="start")))throw DetectionError("visual_invalid_scope","Invalid audio boundary.");
     QVariantMap decision{{"status","audio_fallback"},{"reason","no_supported_transition"},{"audio_time",reference}};
     if(window.value("status")!="analyzed") {decision["reason"]=window.value("code",window.value("reason","visual_unavailable"));return decision;}
@@ -99,12 +100,15 @@ QVariantMap refineBoundary(const QVariantMap &window,const QString &kind,const Q
             if(candidate.method=="black_transition")distinct.back()=candidate;
         } else distinct.push_back(candidate);
     }
-    if(constraint=="consensus_transition") {
+    if(constraint=="consensus_transition" || constraint=="isolated_consensus_transition") {
         // The season has already aligned this endpoint within one second.
         // Nearby story cuts outside that agreement band cannot corroborate it.
         QVariantList times;for(const auto &c:distinct)if(times.size()<64)times.append(c.time);
         decision["scope_candidates"]=int(distinct.size());decision["transition_times"]=times;
         decision["confirmation_radius_seconds"]=1.;
+        if(constraint=="isolated_consensus_transition" && distinct.size()>1) {
+            decision["candidates"]=int(distinct.size());decision["reason"]="ambiguous_visual_transitions";return decision;
+        }
         distinct.erase(std::remove_if(distinct.begin(),distinct.end(),[&](const auto &c){return std::abs(c.time-reference)>1.;}),distinct.end());
     }
     decision["candidates"]=int(distinct.size());

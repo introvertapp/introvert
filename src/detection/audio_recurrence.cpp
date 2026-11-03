@@ -118,14 +118,15 @@ QVariantMap AudioSegment::diagnostic() const
     const bool consensus=season.value("support_count").toInt()>=3;
     const bool strict=evidence.value("selection_support").toMap().value("method")=="cohort-fragments-v1";
     const auto anchors=evidence.value("boundary_anchors").toMap();
-    const auto required=evidence.value("boundary_confirmation").toMap().value("required").toStringList();
+    const auto confirmation=evidence.value("boundary_confirmation").toMap();
+    const auto required=confirmation.value("required").toStringList();
     const bool preciseConsensus=consensus && !season.value("coarse_endpoint_agreement").toBool();
     const bool startProtected=!required.contains("start") && (strict || refinement.value("start_resolved").toBool()
         || anchors.value("start").toMap().value("resolved").toBool() || (preciseConsensus && type!=SegmentType::Intro));
     const bool endProtected=!required.contains("end") && (strict || preciseConsensus || refinement.value("end_resolved").toBool()
         || anchors.value("end").toMap().value("resolved").toBool());
     QVariantMap constraints;
-    if(!required.empty())for(const auto &edge:required)constraints[edge]="consensus_transition";
+    if(!required.empty())for(const auto &edge:required)constraints[edge]=confirmation.value("isolated").toBool()?"isolated_consensus_transition":"consensus_transition";
     else if((consensus || !evidence.value("boundary_search").toMap().empty()) && type==SegmentType::Intro && !startProtected)
         constraints["start"]="preceding_black";
     QVariantMap result{{"episode", episodeId}, {"segment_type", segmentName(type)}, {"start", range.start}, {"end", range.end},

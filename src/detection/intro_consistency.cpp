@@ -447,7 +447,21 @@ void checkSeasonConsistency(const std::vector<AudioRecurrence> &matches,
                     && weight>=totalWeight*.85 && mean/supporters.size()>=.9 && covered>=context
                     && (firstCovered-start<=context || end-lastCovered<=context)
                     && start<=original->range.start+1. && end>=original->range.end-1.;
-                if(!supported && !confirmable && !anchoredRecovery)continue;
+                // Investigation is cheaper than accepting an inferred interval.
+                // Independent peers, alignment quality and season prevalence
+                // contribute continuously instead of requiring a 75% season.
+                const double investigationScore=weight/totalWeight*(mean/supporters.size())
+                    *std::sqrt(double(cohort.size())/episodeCount)*(1.-1./supporters.size());
+                const bool investigate=confirmationCandidates && original && !variant && !coarseAgreement
+                    && scope!=scopes.end() && supporters.size()>=4 && investigationScore>=.5
+                    && end-start-original->range.duration()>std::max(2.,(end-start)*.1)
+                    && covered>=context && maxGap<=gapAllowance
+                    && (firstCovered-start<=context || end-lastCovered<=context)
+                    && start<=original->range.start+1. && end>=original->range.end-1.;
+                auto evaluation=evaluations.back().toMap();
+                evaluation["investigation_score"]=investigationScore;evaluation["investigation_eligible"]=investigate;
+                evaluation["anchor_recovery_eligible"]=anchoredRecovery;evaluations.back()=evaluation;
+                if(!supported && !confirmable && !anchoredRecovery && !investigate)continue;
                 if(original) {
                     const double overlap=std::min(end,original->range.end)-std::max(start,original->range.start);
                     if(overlap<=0 || overlap/std::min(end-start,original->range.duration())<.65)continue;
@@ -471,7 +485,9 @@ void checkSeasonConsistency(const std::vector<AudioRecurrence> &matches,
                     {"inferred_start_seconds",std::max(0.,measuredStart-start)},{"inferred_end_seconds",std::max(0.,end-measuredEnd)},
                     {"from_start",original?QVariant(original->range.start):QVariant()},
                     {"from_end",original?QVariant(original->range.end):QVariant()},
-                    {"anchor_recovery",anchoredRecovery && !confirmable},
+                    {"anchor_recovery",(anchoredRecovery || investigate) && !confirmable},
+                    {"investigation_score",investigationScore},
+                    {"isolated_confirmation",investigate && !anchoredRecovery && !confirmable},
                     {"source_match_ids",sourceIds}};
                 (supported?proposals:provisional).push_back({{start,end},score,supporters,evidence,int(std::floor(covered/hop)),minimum,mean/supporters.size()});
             }
@@ -555,7 +571,8 @@ void checkSeasonConsistency(const std::vector<AudioRecurrence> &matches,
                                 }
                                 if(required.empty()) {required.append("end");anchors.remove("end");}
                                 pending.evidence["boundary_anchors"]=anchors;
-                                pending.evidence["boundary_confirmation"]=QVariantMap{{"method","season-anchor-recovery-v1"},{"required",required}};
+                                pending.evidence["boundary_confirmation"]=QVariantMap{{"method","season-anchor-recovery-v1"},{"required",required},
+                                    {"isolated",candidate.evidence.value("isolated_confirmation")}};
                             }
                             const bool anchored=candidate.evidence.value("anchor_recovery").toBool();
                             QVariantMap identity{{"method",anchored?"season-anchor-recovery-v1":"black-confirmed-sequence-v1"},{"episode",episode},
