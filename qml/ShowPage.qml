@@ -13,10 +13,11 @@ Item {
         var ids = page.show && page.show.externalIds ? page.show.externalIds : {}
         var imdb = ids.imdb && ids.imdb !== "--" ? String(ids.imdb).trim() : ""
         var tmdb = ids.tmdb ? String(ids.tmdb).trim() : ""
+        var tvdb = ids.tvdb ? String(ids.tvdb).trim() : ""
         var links = []
         if(tmdb) links.push({id:"tmdb", label:"TMDB", href:"https://www.themoviedb.org/tv/"+encodeURIComponent(tmdb), logo:"tmdb_logo.svg"})
         if(imdb) links.push({id:"imdb", label:"IMDB", href:"https://www.imdb.com/title/"+encodeURIComponent(imdb)+"/", logo:"imdb_logo.svg"})
-        if(tmdb) links.push({id:"theintrodb-org", label:"TheIntroDB", href:"https://theintrodb.org/tv/"+encodeURIComponent(tmdb), logo:"theintrodb_org_logo.svg"})
+        if(tvdb && tvdb !== "--") links.push({id:"theintrodb-org", label:"TheIntroDB", href:"https://theintrodb.org/tv/"+encodeURIComponent(tvdb), logo:"theintrodb_org_logo.svg"})
         if(imdb) links.push({id:"introdb-app", label:"IntroDB", href:"https://introdb.app/shows/"+encodeURIComponent(imdb), logo:"introdb_app_logo.svg"})
         return links
     }
