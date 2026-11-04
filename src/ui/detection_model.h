@@ -23,7 +23,7 @@ class DetectionModel final : public QObject {
     Q_PROPERTY(bool libraryScanActive READ libraryScanActive NOTIFY changed)
 public:
     DetectionModel(LibraryModel &library, SettingsStore settings, segments::SegmentStore segments,
-        std::shared_ptr<detection::MediaDetectionRunner> runner = {}, detection::DetectionService::Completion completion = {}, QObject *parent = nullptr);
+        std::shared_ptr<detection::MediaDetectionRunner> runner = {}, detection::DetectionService::Completion completion = {}, QObject *parent = nullptr, QString algorithmRoot = {});
     ~DetectionModel() override;
     QVariantList queue() const { return m_rows; }
     QVariantMap status() const { return m_status; }
@@ -49,6 +49,7 @@ signals:
     void jobFinished(const QString &title, int season, const QString &status, const QString &message);
     void diagnosticMessage(const QString &level, const QString &message);
     void jobStarted(const QString &title, int season);
+    void detectorRequired(const QString &message);
 private:
     struct Job { providers::Cancellation cancel; std::shared_ptr<segments::EditLocks::Lease> editLock; CatalogSelection selection; providers::ProviderIdentity show; int season; QStringList kinds; };
     struct Pending { quint64 generation; CatalogSelection selection; providers::ProviderIdentity show; detection::DetectionUpdates updates; };
@@ -62,12 +63,17 @@ private:
     void prepareShowDetection(const CatalogSelection &selection, const providers::ProviderIdentity &show);
     QString enqueue(const providers::ShowDetail &detail, int season, const QStringList &kinds, const CatalogSelection &selection);
     QStringList validatedKinds(const QVariantList &values);
+    void withAlgorithm(std::function<void()> ready);
+    void startSeasonsReady(const QVariantList &seasons, const QVariantList &values);
+    void startLibraryScanReady(const QVariantList &values);
     void advanceScan();
     void scanJobFinished(const QString &id, const QString &status);
     void finishScan(const QString &status, const QString &message);
     void finished(const QString &id, const detection::DetectionUpdates &updates, const QString &error, const QVariantMap &completed);
     LibraryModel &m_library;
     detection::DetectionJobStore m_store;
+    const bool m_requiresAlgorithm;
+    const QString m_algorithmRoot;
     detection::DetectionService m_service;
     QThreadPool m_pool;
     std::mutex m_taskMutex;
@@ -92,6 +98,10 @@ private:
     int m_scanIndex = 0, m_scanSeasons = 0, m_scanSeasonsDone = 0;
     quint64 m_scanGeneration = 0;
     bool m_scanPreparing = false;
+    bool m_checkingAlgorithm = false;
+    QString m_verifiedAlgorithmLibrary;
+    struct AlgorithmRequest { quint64 generation,showGeneration; std::function<void()> ready; };
+    std::optional<AlgorithmRequest> m_algorithmRequest;
     QMap<QString, Job> m_jobs;
     QList<Pending> m_pending;
     QVariantMap m_status;

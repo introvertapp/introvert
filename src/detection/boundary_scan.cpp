@@ -41,8 +41,7 @@ QVariantMap scanAlgorithmBoundary(const QVariantMap &description,ProcessRunner &
 {
     const auto d=description.value("boundary_refinement").toMap();
     if(!d.value("available").toBool())return {{"status","unavailable"},{"reason","boundary_refinement_unavailable"}};
-    if((d.value("version")!="local-transitions-v1" && d.value("version")!="audio-supported-transitions-v2"
-        && d.value("version")!="audio-supported-transitions-v3") || d.value("feature_format")!="signalstats-yuv-v1"
+    if(d.value("feature_format")!="signalstats-yuv-v1"
         || d.value("width").toInt()!=160 || d.value("height").toInt()!=96 || d.value("edge_radius_seconds").toDouble()!=3.
         || d.value("maximum_frames").toInt()!=2048 || d.value("maximum_scan_seconds").toDouble()!=6. || d.value("timeout_seconds").toDouble()!=30.)
         throw DetectionError("visual_invalid_description","Unsupported boundary scan contract.");

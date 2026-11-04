@@ -70,7 +70,10 @@ void DetectionJobStore::progress(const QString &id, const QString &phase, int cu
 {
     const QStringList phases{"loading media", "inspection", "planning", "extraction", "generation", "resolution", "refinement", "output", "saving results"};
     const auto index = phases.indexOf(phase); const double fraction = total > 0 ? std::clamp(double(current) / total, 0., 1.) : 0.;
-    const int units = index < 0 ? 0 : std::min(999, int((double(index) + fraction) / phases.size() * 1000.)); sql::Connection connection(m_path); sql::Transaction transaction(connection.db);
+    // Session components may report their own aggregate progress without exposing
+    // internal stages to the host. Existing phase weights remain unchanged.
+    const int units = phase == "analysis" ? std::min(999,int(fraction*1000.))
+        : index < 0 ? 0 : std::min(999, int((double(index) + fraction) / phases.size() * 1000.)); sql::Connection connection(m_path); sql::Transaction transaction(connection.db);
     sql::execute(connection.db, "UPDATE detection_jobs SET status='running',current=MAX(current,?),total=?,message=?,updated=? WHERE id=? AND status IN ('queued','running')", {units, 1000, "Scanning: " + phase, now(), id});
     queueOrder::running(connection.db, "d:" + id, true); transaction.commit();
 }

@@ -13,6 +13,7 @@
 #include <QSysInfo>
 #include <QTemporaryDir>
 #include <QVersionNumber>
+#include <QUuid>
 #include <algorithm>
 #include <optional>
 
@@ -124,7 +125,7 @@ AlgorithmPackage inspectAlgorithmPackage(const QString &root)
 }
 AlgorithmPackages::AlgorithmPackages(QString database, QString bundled) : m_database(std::move(database)), m_bundled(bundled.isEmpty() ? bundledAlgorithmRoot() : std::move(bundled)) {}
 QString AlgorithmPackages::root() const { return QFileInfo(m_database).absolutePath() + "/detection-algorithms"; }
-AlgorithmPackage AlgorithmPackages::selected() const
+std::optional<AlgorithmPackage> AlgorithmPackages::available() const
 {
     std::optional<AlgorithmPackage> bundled;
     try { bundled=inspectAlgorithmPackage(m_bundled); } catch (...) {}
@@ -142,7 +143,12 @@ AlgorithmPackage AlgorithmPackages::selected() const
         }
     }
     if (bundled) return *bundled;
-    invalid("No compatible intact detector package is available.");
+    return std::nullopt;
+}
+AlgorithmPackage AlgorithmPackages::selected() const
+{
+    if (const auto package = available()) return *package;
+    throw DetectionError("algorithm_unavailable", "No compatible intact detector package is available.");
 }
 AlgorithmPackage AlgorithmPackages::install(const QString &archive, const QString &expectedVersion, const std::function<void()> &cancel) const
 {
@@ -150,15 +156,20 @@ AlgorithmPackage AlgorithmPackages::install(const QString &archive, const QStrin
     QLockFile lock(root() + "/.install.lock"); lock.setStaleLockTime(0); if (!lock.tryLock()) invalid("Another detector update is being installed.");
     QTemporaryDir staging(root() + "/.stage-XXXXXX"); if (!staging.isValid()) invalid("Cannot create algorithm staging storage.");
     expand(archive, staging.path(), cancel); auto candidate = inspectAlgorithmPackage(staging.path());
-    const auto prior = selected();
-    if (version(candidate.version) < version(prior.version)) invalid("Refusing an automatic detector downgrade.");
-    if (candidate.version == prior.version && candidate.manifestHash != prior.manifestHash) invalid("A detector version cannot be replaced with different package contents.");
+    const auto prior = available();
+    if (prior && version(candidate.version) < version(prior->version)) invalid("Refusing an automatic detector downgrade.");
+    if (prior && candidate.version == prior->version && candidate.manifestHash != prior->manifestHash) invalid("A detector version cannot be replaced with different package contents.");
     if (candidate.version != expectedVersion) invalid("Algorithm package version does not match its release offer.");
     { Algorithm probe(candidate); probe.description(); } // Validate code/runtime before making it selectable.
-    if (cancel) cancel(); const auto originalHash = candidate.manifestHash; const auto directory = candidate.version + '-' + originalHash;
-    const auto destination = QDir(root()).filePath(directory);
-    if (QFileInfo::exists(destination)) { const auto existing = inspectAlgorithmPackage(destination); if (existing.manifestHash != candidate.manifestHash) invalid("Immutable algorithm installation changed."); }
-    else if (!QDir().rename(staging.path(), destination)) invalid("Cannot promote algorithm package.");
+    if (cancel) cancel(); const auto originalHash = candidate.manifestHash; auto directory = candidate.version + '-' + originalHash;
+    auto destination = QDir(root()).filePath(directory);
+    if (QFileInfo::exists(destination)) {
+        bool intact = false;
+        try { intact = inspectAlgorithmPackage(destination).manifestHash == originalHash; } catch (const DetectionError &) {}
+        // Repair into a new immutable location; never overwrite potentially loaded code.
+        if (!intact) { directory += '-' + QUuid::createUuid().toString(QUuid::Id128); destination = QDir(root()).filePath(directory); }
+    }
+    if (!QFileInfo::exists(destination) && !QDir().rename(staging.path(), destination)) invalid("Cannot promote algorithm package.");
     candidate = inspectAlgorithmPackage(destination);
     if (candidate.manifestHash != originalHash || candidate.version != expectedVersion) invalid("Algorithm package changed during promotion.");
     { Algorithm probe(candidate); probe.description(); }
@@ -173,8 +184,8 @@ AlgorithmPackage AlgorithmPackages::install(const QString &archive, const QStrin
         // from a damaged current package. Never replace a working fallback with
         // a pointer to the damaged one.
         QString oldPath = QStringLiteral(""), oldHash = QStringLiteral("");
-        if (QFileInfo(prior.root).absolutePath() == QDir(root()).absolutePath() && QFileInfo(prior.root).fileName() != directory) {
-            oldPath = QFileInfo(prior.root).fileName(); oldHash = prior.manifestHash;
+        if (prior && QFileInfo(prior->root).absolutePath() == QDir(root()).absolutePath() && QFileInfo(prior->root).fileName() != directory) {
+            oldPath = QFileInfo(prior->root).fileName(); oldHash = prior->manifestHash;
         }
         sql::execute(connection.db, "INSERT OR REPLACE INTO detection_algorithm_state VALUES(1,?,?,?,?)", {directory, candidate.manifestHash, oldPath, oldHash});
     }

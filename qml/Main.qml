@@ -61,6 +61,10 @@ ApplicationWindow {
     function openShow(show) { appNavigation.navigate("home"); selectedShow = show; if(mediaLibrary && !uiPreview) { openingShowRequest=true; try { mediaLibrary.openShow(show.id) } finally { openingShowRequest=false } } }
     function openEditor() { editor.open() }
     Connections {
+        target: window.detector || null
+        function onDetectorRequired(message) { window.explain("Detector unavailable",message) }
+    }
+    Connections {
         target: window.appNavigation
         function onPageChanged() { if(window.mediaLibrary) window.mediaLibrary.setBrowsing(window.appNavigation.page === "home"); window.selectedShow = null; if(window.mediaLibrary && !window.uiPreview) window.mediaLibrary.closeShow() }
     }

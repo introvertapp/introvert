@@ -4,6 +4,7 @@
 #include "audio_refinement.h"
 #include "boundary_refinement.h"
 #include "algorithm_manifest.h"
+#include "algorithm_pipeline.h"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <cstring>
@@ -192,6 +193,24 @@ int invoke(const char *operation, const uint8_t *data, uint64_t length, const In
     } catch (...) { return 0; }
 }
 const IntrovertDetectorApiV1 api{sizeof(IntrovertDetectorApiV1), algorithmInterfaceVersion, metadata, invoke};
+int runSession(const uint8_t *data,uint64_t length,const IntrovertDetectorServicesV1 *host)
+{
+    if(!data || !length || length>uint64_t(algorithmMessageLimit) || !host || host->size<sizeof(IntrovertDetectorServicesV1)
+        || host->version!=1 || !host->cancelled || !host->request || !host->read_pcm || !host->publish)return 0;
+    const PipelineServices services(*host);
+    try {
+        Algorithm algorithm(&api,QJsonDocument::fromJson(metadata()).object().toVariantMap());
+        runAlgorithmPipeline(algorithm,parseAlgorithmMessage(QByteArray::fromRawData(reinterpret_cast<const char *>(data),qsizetype(length))),services);
+        return 1;
+    } catch(const DetectionError &error) {
+        try {services.publish({{"error",error.code},{"message",QString::fromUtf8(error.what())}});return 1;}catch(...) {return 0;}
+    } catch(const std::invalid_argument &error) {
+        try {services.publish({{"error","invalid_request"},{"message",QString::fromUtf8(error.what())}});return 1;}catch(...) {return 0;}
+    } catch(...) {
+        try {services.publish({{"error","algorithm_session_failed"},{"message","Detection failed. Check media access and the required detector runtime."}});return 1;}catch(...) {return 0;}
+    }
+}
+const IntrovertDetectorSessionApiV1 sessionApi{sizeof(IntrovertDetectorSessionApiV1),1,runSession};
 }
 } // namespace introvert::detection
 #if defined(_WIN32)
@@ -202,4 +221,8 @@ const IntrovertDetectorApiV1 api{sizeof(IntrovertDetectorApiV1), algorithmInterf
 extern "C" INTROVERT_ALGORITHM_EXPORT const IntrovertDetectorApiV1 *introvert_detector_api_v1()
 {
     return &introvert::detection::api;
+}
+extern "C" INTROVERT_ALGORITHM_EXPORT const IntrovertDetectorSessionApiV1 *introvert_detector_session_v1()
+{
+    return &introvert::detection::sessionApi;
 }

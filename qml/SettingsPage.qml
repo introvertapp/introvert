@@ -282,7 +282,7 @@ Item {
                                     Text { objectName: "detectorVersionLabel"; Layout.fillWidth: true; text: "Detector"; color: page.theme.text }
                                     VersionBadge {
                                         objectName: "installedDetectorVersion"
-                                        text: page.applicationUpdates && page.applicationUpdates.detectorInstalledVersion ? "v"+page.applicationUpdates.detectorInstalledVersion : "—"
+                                        text: page.applicationUpdates && page.applicationUpdates.detectorInstalledVersion ? "v"+page.applicationUpdates.detectorInstalledVersion : "Not installed"
                                     }
                                     Item {
                                         implicitWidth: 132; implicitHeight: 34

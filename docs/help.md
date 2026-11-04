@@ -31,6 +31,9 @@ successful detection completion; they do not report submission completion.
 
 ## Updates
 
+The detector is optional until you run detection. Its installed version shows
+**Not installed** until you download it through the same update controls below.
+
 1. Open **Settings → Application** and click **Check for Updates**.
 2. If an update is available, click the green **Latest** version download badge
    for Introvert or the Detector.

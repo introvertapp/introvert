@@ -4,6 +4,7 @@
 #include "updates/release.h"
 #include <QCryptographicHash>
 #include <QFile>
+#include <QJsonArray>
 #include <QNetworkAccessManager>
 #include <QPointer>
 #include <QProcess>
@@ -61,7 +62,7 @@ public:
     void setRestartGuard(std::function<bool()> guard) { m_restartGuard = std::move(guard); }
     void setRestartArguments(QStringList arguments) { m_restartArguments = std::move(arguments); }
     void reportFailedInstallation();
-    void enableDetectorUpdates(QUrl feed = QUrl("https://api.github.com/repos/introvertapp/introvert/releases?per_page=100"));
+    void enableDetectorUpdates(QUrl feed = QUrl("https://api.github.com/repos/introvertapp/introvert/releases?per_page=100"), QString bundled = {});
     Q_INVOKABLE void setAutomatic(bool automatic);
     Q_INVOKABLE void check();
     Q_INVOKABLE void download();
@@ -90,6 +91,9 @@ private:
     QNetworkAccessManager m_network;
     QNetworkAccessManager *m_transport;
     QUrl m_feed, m_detectorFeed;
+    QString m_bundledDetector;
+    QJsonArray m_detectorReleases;
+    int m_detectorPage = 1;
     updates::Offer m_appOffer, m_detectorCandidate;
     QString m_appCheckError, m_installedDetector, m_latestVersion, m_detectorLatestVersion;
     bool m_checkingDetector = false, m_detectorOffer = false;

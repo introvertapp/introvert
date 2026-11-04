@@ -6,6 +6,11 @@ Detection finds **Intro** and **Credits** by comparing recurring audio within
 a season. Each season needs at least two readable episodes with usable audio.
 Recap and Preview can be [imported or edited manually](editor.md).
 
+The detector installs separately through **Settings → Application → Check for
+Updates**. Download the Detector using its existing Latest version badge. If it
+is missing, starting detection shows guidance to install it. Other app features
+remain available, and detector updates apply to new scans without restarting.
+
 ## One season
 
 1. Open a show in **TV Shows** and click the season you want.

@@ -10,6 +10,7 @@ namespace {
 struct Call {
     Cancellation cancel;
     Algorithm::AudioReader read;
+    Algorithm::AudioReaderInto readInto;
     QByteArray output;
     std::exception_ptr exception;
     bool emitted = false, invalidOutput = false;
@@ -23,8 +24,13 @@ int64_t readPcm(void *context, uint32_t source, uint32_t rate, int64_t first, ui
     auto &call = *static_cast<Call *>(context);
     try {
         checkCancelled(call.cancel);
-        if (!call.read || !output || source > 1 || rate < 8000 || rate > 96000 || first < 0 || count == 0 || count > 262144)
+        if ((!call.read && !call.readInto) || !output || source > 1 || rate < 8000 || rate > 96000 || first < 0 || count == 0 || count > 262144)
             throw DetectionError("algorithm_invalid_audio_read", "Invalid scoped PCM read.");
+        if(call.readInto) {
+            const auto read=call.readInto(source,rate,first,count,output);
+            if(read<0 || read>count)throw DetectionError("algorithm_incomplete_audio_read","Scoped PCM read exceeded its request.");
+            return read;
+        }
         const auto samples = call.read(source, rate, first, count);
         if (samples.size() > count) throw DetectionError("algorithm_incomplete_audio_read", "Scoped PCM read exceeded its request.");
         if (!samples.empty()) std::memcpy(output, samples.data(), samples.size() * sizeof(int16_t)); return int64_t(samples.size());
@@ -54,12 +60,26 @@ Algorithm::Algorithm(const AlgorithmPackage &package) : m_library(package.librar
     m_metadata = document.object().toVariantMap();
     for (const auto &key : {"id", "version", "interface_version", "result_schema_version", "qt_version", "minimum_app_version", "window_policy", "composition", "selection"})
         if (m_metadata.value(key) != package.manifest.value(key)) throw DetectionError("algorithm_identity_mismatch", "Algorithm metadata does not match its package.");
+    const auto session = reinterpret_cast<IntrovertDetectorSessionEntryV1>(m_library.resolve("introvert_detector_session_v1"));
+    if (session) {
+        m_session = session();
+        if (!m_session || m_session->size < sizeof(IntrovertDetectorSessionApiV1) || m_session->version != 1 || !m_session->run)
+            throw DetectionError("algorithm_incompatible", "The detector session interface is incompatible.");
+    }
     } catch (...) { m_library.unload(); throw; }
 }
 Algorithm::~Algorithm() { m_library.unload(); }
-QVariantMap Algorithm::invoke(const char *operation, const QVariantMap &request, const Cancellation &cancel, const AudioReader &read, QVariantMap *failureStatistics) const
+Algorithm::Algorithm(const IntrovertDetectorApiV1 *api, QVariantMap metadata) : m_api(api), m_metadata(std::move(metadata)) {}
+void Algorithm::runSession(const QVariantMap &input, const IntrovertDetectorServicesV1 &services) const
 {
-    checkCancelled(cancel); const auto input = algorithmMessage(request); Call call{cancel, read, {}, {}, false, false};
+    if (!m_session) throw DetectionError("algorithm_incompatible", "The detector has no session interface.");
+    const auto bytes = algorithmMessage(input);
+    if (!m_session->run(reinterpret_cast<const uint8_t *>(bytes.constData()), uint64_t(bytes.size()), &services))
+        throw DetectionError("algorithm_session_failed", "The detector session did not complete.");
+}
+QVariantMap Algorithm::invoke(const char *operation, const QVariantMap &request, const Cancellation &cancel, const AudioReader &read, QVariantMap *failureStatistics, const AudioReaderInto &readInto) const
+{
+    checkCancelled(cancel); const auto input = algorithmMessage(request); Call call{cancel, read, readInto, {}, {}, false, false};
     const IntrovertDetectorHostV1 host{sizeof(IntrovertDetectorHostV1), algorithmInterfaceVersion, &call, cancelled, readPcm, emitResult};
     const int returned = m_api->invoke(operation, reinterpret_cast<const uint8_t *>(input.constData()), uint64_t(input.size()), &host);
     if (call.exception) std::rethrow_exception(call.exception);

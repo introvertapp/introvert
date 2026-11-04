@@ -2,6 +2,7 @@
 #include <QVariantMap>
 #include <QString>
 #include <functional>
+#include <optional>
 
 namespace introvert::detection {
 QString algorithmPlatform();
@@ -12,6 +13,7 @@ AlgorithmPackage inspectAlgorithmPackage(const QString &root);
 class AlgorithmPackages final {
 public:
     explicit AlgorithmPackages(QString database, QString bundled = {});
+    std::optional<AlgorithmPackage> available() const;
     AlgorithmPackage selected() const;
     AlgorithmPackage install(const QString &archive, const QString &expectedVersion, const std::function<void()> &cancel = {}) const;
     QString root() const;

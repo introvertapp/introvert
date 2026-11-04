@@ -12,6 +12,7 @@
 #include <QNetworkRequest>
 #include <QRandomGenerator>
 #include <QTimer>
+#include <QUrlQuery>
 #include <QSslError>
 #include <algorithm>
 #include <chrono>
@@ -83,27 +84,30 @@ void UpdateModel::check()
     m_message = "Checking for updates…"; emit diagnosticMessage(m_message); emit changed();
     request(m_feed,false);
 }
-void UpdateModel::enableDetectorUpdates(QUrl feed)
+void UpdateModel::enableDetectorUpdates(QUrl feed, QString bundled)
 {
     m_detectorFeed = std::move(feed);
-    if (m_store) try { m_installedDetector = detection::AlgorithmPackages(m_store->databasePath()).selected().version; } catch (...) {}
+    m_bundledDetector = std::move(bundled);
+    if (m_store) try { const auto package = detection::AlgorithmPackages(m_store->databasePath(),m_bundledDetector).available(); m_installedDetector = package ? package->version : QString(); } catch (...) {}
 }
 void UpdateModel::checkDetector()
 {
     m_appOffer = m_offer; m_offer = {}; m_checkingDetector = true; m_metadata.clear();
-    try { m_installedDetector = detection::AlgorithmPackages(m_store->databasePath()).selected().version; }
+    m_detectorReleases = {}; m_detectorPage = 1;
+    try { const auto package = detection::AlgorithmPackages(m_store->databasePath(),m_bundledDetector).available(); m_installedDetector = package ? package->version : QString(); }
     catch (...) { finishChecks("Cannot validate the installed detector package."); return; }
     request(m_detectorFeed, false);
 }
 void UpdateModel::finishChecks(const QString &error)
 {
+    m_detectorReleases = {};
     m_detectorCandidate = error.isEmpty() ? m_offer : updates::Offer{};
     m_busy = false;
     if (!m_appOffer.version.isEmpty()) { m_offer = m_appOffer; m_detectorOffer = false; m_message = "INTROvert " + m_offer.version + " is available."; }
-    else if (!m_offer.version.isEmpty()) { m_detectorOffer = true; m_message = "Detector " + m_offer.version + " is available (installed " + m_installedDetector + ")."; }
+    else if (!m_offer.version.isEmpty()) { m_detectorOffer = true; m_message = "Detector " + m_offer.version + (m_installedDetector.isEmpty() ? " is available to install." : " is available (installed " + m_installedDetector + ")."); }
     else if (!error.isEmpty()) m_message = error;
     else if (!m_appCheckError.isEmpty()) m_message = m_appCheckError;
-    else m_message = "INTROvert and detector are up to date. Detector " + m_installedDetector + ".";
+    else m_message = m_installedDetector.isEmpty() ? "INTROvert is up to date. No compatible detector installation is available." : "INTROvert and detector are up to date. Detector " + m_installedDetector + ".";
     if (error.isEmpty() && m_appCheckError.isEmpty()) m_store->recordUpdateCheck(QDateTime::currentSecsSinceEpoch());
     if (m_appCheckError.isEmpty()) emit offerChanged("application", m_appOffer.version);
     if (error.isEmpty()) emit offerChanged("detector", m_detectorCandidate.version);
@@ -182,8 +186,17 @@ void UpdateModel::request(const QUrl &url, bool downloading, int redirects)
             const auto document=QJsonDocument::fromJson(m_metadata);
             if (m_checkingDetector) {
                 if (!document.isArray()) throw std::runtime_error("GitHub returned invalid detector release information.");
-                m_offer = updates::detectorReleaseOffer(document.array(), m_installedDetector, installedVersion(), updates::platform(), updates::architecture(), QT_VERSION_STR);
-                const auto latest = updates::latestDetectorVersion(document.array(), installedVersion(), updates::platform(), updates::architecture(), QT_VERSION_STR);
+                const auto page=document.array();
+                for(const auto &release:page)m_detectorReleases.append(release);
+                bool compatible=false;
+                try { compatible=!updates::detectorReleaseOffer(m_detectorReleases,{},installedVersion(),updates::platform(),updates::architecture(),QT_VERSION_STR).version.isEmpty(); } catch(const std::exception &) {}
+                if(page.size()>=100 && !compatible) {
+                    if(m_detectorPage>=10)throw std::runtime_error("Detector release discovery is incomplete. The release history exceeds the supported check limit.");
+                    auto next=m_detectorFeed;QUrlQuery query(next);query.removeAllQueryItems("page");query.addQueryItem("page",QString::number(++m_detectorPage));next.setQuery(query);
+                    m_metadata.clear();request(next,false);return;
+                }
+                m_offer = updates::detectorReleaseOffer(m_detectorReleases, m_installedDetector, installedVersion(), updates::platform(), updates::architecture(), QT_VERSION_STR);
+                const auto latest = updates::latestDetectorVersion(m_detectorReleases, installedVersion(), updates::platform(), updates::architecture(), QT_VERSION_STR);
                 m_store->recordLatestUpdateVersions({}, latest);
                 if (!latest.isEmpty()) m_detectorLatestVersion = latest;
                 finishChecks(); return;
@@ -263,14 +276,14 @@ void UpdateModel::prepare()
         m_message = "Verifying detector update…"; emit changed();
         const auto cancelled = m_installCancel = std::make_shared<std::atomic_bool>(false);
         const auto outcome = m_installResult = std::make_shared<QString>();
-        const auto database = m_store->databasePath(), payload = m_payload, version = m_offer.version; const auto generation = m_generation;
-        m_installPool.start(QRunnable::create([this, database, payload, version, cancelled, generation, outcome] {
+        const auto database = m_store->databasePath(), payload = m_payload, version = m_offer.version, bundled = m_bundledDetector; const auto generation = m_generation;
+        m_installPool.start(QRunnable::create([this, database, payload, version, bundled, cancelled, generation, outcome] {
             QString installed;
-            try { installed = detection::AlgorithmPackages(database).install(payload, version, [cancelled] { if (cancelled->load()) throw detection::Cancelled(); }).version; } catch (...) {}
+            try { installed = detection::AlgorithmPackages(database,bundled).install(payload, version, [cancelled] { if (cancelled->load()) throw detection::Cancelled(); }).version; } catch (...) {}
             *outcome = installed;
             QMetaObject::invokeMethod(this, [this, installed, generation] {
                 if (m_closed || generation != m_generation) return;
-                if (installed.isEmpty()) { fail("Detector update verification failed. The previous detector remains available."); return; }
+                if (installed.isEmpty()) { fail(m_installedDetector.isEmpty() ? "Detector installation failed. Check for updates and try again." : "Detector update verification failed. The previous detector remains available."); return; }
                 m_installedDetector = installed; m_detectorCandidate = {}; m_offer = m_appOffer; m_detectorOffer = false;
                 m_busy = false; m_ready = false; m_progress = 0; m_workspace.reset();
                 m_installResult.reset(); m_installCancel.reset();
@@ -356,7 +369,7 @@ void UpdateModel::reportFailedInstallation()
 void UpdateModel::cancel()
 {
     if(m_closed || m_handedOff)return;
-    ++m_generation;m_access.reset();m_accessOrigin.clear();
+    ++m_generation;m_access.reset();m_accessOrigin.clear();m_detectorReleases={};
     if(m_reply){auto reply=m_reply;m_reply.clear();reply->abort();reply->deleteLater();}
     disconnect(&m_process,nullptr,this,nullptr);
     if(m_process.state()!=QProcess::NotRunning){m_process.kill();m_process.waitForFinished(3000);}
@@ -367,7 +380,7 @@ void UpdateModel::cancel()
         m_message = "Detector " + *m_installResult + " installed. New scans use this version.";
         emit offerChanged("detector", {});
     }
-    else m_message=m_detectorOffer ? "Detector update cancelled. The previous detector remains available." : "Update cancelled. The installed application was not changed.";
+    else m_message=m_detectorOffer ? (m_installedDetector.isEmpty() ? "Detector installation cancelled." : "Detector update cancelled. The previous detector remains available.") : "Update cancelled. The installed application was not changed.";
     if (m_detectorOffer && !m_appOffer.version.isEmpty()) { m_offer = m_appOffer; m_detectorOffer = false; }
     m_installResult.reset(); emit changed();
 }

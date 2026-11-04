@@ -1,7 +1,9 @@
 #include "detection_model.h"
 #include "core/queue_order.h"
+#include "detection/algorithm_client.h"
 #include <QCoreApplication>
 #include <QEvent>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -22,9 +24,9 @@ QString showKey(const CatalogSelection &selection, const providers::ProviderIden
 }
 
 DetectionModel::DetectionModel(LibraryModel &library, SettingsStore settings, segments::SegmentStore segments,
-    std::shared_ptr<detection::MediaDetectionRunner> runner, detection::DetectionService::Completion completion, QObject *parent)
-    : QObject(parent), m_library(library), m_store(settings.databasePath()),
-      m_service(m_store, std::move(segments), runner ? std::move(runner) : std::make_shared<detection::MediaDetectionEngine>(settings.databasePath(), library.m_cache),
+    std::shared_ptr<detection::MediaDetectionRunner> runner, detection::DetectionService::Completion completion, QObject *parent, QString algorithmRoot)
+    : QObject(parent), m_library(library), m_store(settings.databasePath()), m_requiresAlgorithm(!runner), m_algorithmRoot(std::move(algorithmRoot)),
+      m_service(m_store, std::move(segments), runner ? std::move(runner) : std::make_shared<detection::MediaDetectionEngine>(settings.databasePath(), library.m_cache,QString(),QString(),QVariantMap{},m_algorithmRoot),
         [&library](const auto &saved, const auto &cancel) { return library.m_catalog.config(saved, cancel); }, std::move(completion))
 {
     m_scanClock.setInterval(1000);
@@ -34,6 +36,7 @@ DetectionModel::DetectionModel(LibraryModel &library, SettingsStore settings, se
     });
     m_discoveryPool.setMaxThreadCount(1);
     m_pool.setMaxThreadCount(1); m_store.initialize(); connect(&library, &LibraryModel::changed, this, &DetectionModel::sync); sync();
+    if(m_requiresAlgorithm) withAlgorithm({});
 }
 DetectionModel::~DetectionModel() { close(); }
 bool DetectionModel::sameConnection(const CatalogSelection &selection) const
@@ -216,6 +219,43 @@ void DetectionModel::start(const QVariantList &values)
 void DetectionModel::startSeasons(const QVariantList &seasons, const QVariantList &values)
 {
     if (m_closed || !m_library.m_detail || !m_library.m_key) return;
+    withAlgorithm([this,seasons,values] { startSeasonsReady(seasons,values); });
+}
+void DetectionModel::withAlgorithm(std::function<void()> ready)
+{
+    if (!m_requiresAlgorithm) { if(ready)ready(); return; }
+    if (m_closed) return;
+    if(!m_verifiedAlgorithmLibrary.isEmpty() && QFileInfo(m_verifiedAlgorithmLibrary).isFile()) {if(ready)ready();return;}
+    if(ready)m_algorithmRequest=AlgorithmRequest{m_library.m_generation,m_library.m_showGeneration,std::move(ready)};
+    if(m_checkingAlgorithm)return;
+    m_checkingAlgorithm = true;
+    const auto database=m_store.databasePath(),root=m_algorithmRoot;
+    m_discoveryPool.start(QRunnable::create([this,database,root] {
+        QString library,error;
+        try {
+            if(const auto package=detection::AlgorithmPackages(database,root).available()) {
+                detection::Algorithm algorithm(*package);algorithm.description();library=package->library;
+            }
+        } catch(const detection::DetectionError &) {}
+        catch(...) {error="Cannot check detector availability. Check application storage and try again.";}
+        QMetaObject::invokeMethod(this,[this,library,error] {
+            m_checkingAlgorithm=false;
+            if(m_closed)return;
+            m_verifiedAlgorithmLibrary=library;
+            const auto pending=std::move(m_algorithmRequest);m_algorithmRequest.reset();
+            if(!pending || pending->generation!=m_library.m_generation || pending->showGeneration!=m_library.m_showGeneration)return;
+            if(!error.isEmpty()) {emit errorOccurred(error);return;}
+            if(library.isEmpty()) {
+                emit detectorRequired("The detector is not installed or is unavailable. Open Settings → Application, click Check for Updates, then download the detector. You can start detection after installation completes.");
+                return;
+            }
+            pending->ready();
+        },Qt::QueuedConnection);
+    }));
+}
+void DetectionModel::startSeasonsReady(const QVariantList &seasons, const QVariantList &values)
+{
+    if (m_closed || !m_library.m_detail || !m_library.m_key) return;
     m_message.clear(); const auto kinds = validatedKinds(values); if (kinds.isEmpty()) return;
     const auto detail = *m_library.m_detail; const auto selection = *m_library.m_key;
     prepareShowDetection(selection, detail.show.identity);
@@ -316,6 +356,11 @@ void DetectionModel::stopSeasons(const QVariantList &seasons)
     m_message = "Stopping detection"; emit changed();
 }
 void DetectionModel::startLibraryScan(const QVariantList &values)
+{
+    if (m_closed || libraryScanActive()) return;
+    withAlgorithm([this,values] { startLibraryScanReady(values); });
+}
+void DetectionModel::startLibraryScanReady(const QVariantList &values)
 {
     if (m_closed || libraryScanActive()) return;
     const auto kinds = validatedKinds(values); if (kinds.isEmpty()) return;

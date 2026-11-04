@@ -116,7 +116,7 @@ Offer selectDetectorRelease(const QJsonArray &releases, const QString *installed
         const auto release = value.toObject(); const auto tag = release.value("tag_name").toString();
         if (!tag.startsWith("detector-v") || release.value("draft").toBool(true) || release.value("prerelease").toBool(true)) continue;
         const auto candidate = tag.mid(10);
-        if (installed) { if (!newerVersion(candidate, *installed)) continue; }
+        if (installed && !installed->isEmpty()) { if (!newerVersion(candidate, *installed)) continue; }
         else version(candidate);
         const auto body = release.value("body").toString(); const auto first = body.indexOf(begin), last = body.indexOf(end, first + begin.size());
         if (first < 0 || last < 0 || body.indexOf(begin, first + 1) >= 0) throw std::runtime_error("Detector release is missing its update catalogue.");
