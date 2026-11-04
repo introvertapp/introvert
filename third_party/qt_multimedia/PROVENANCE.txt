@@ -1,0 +1,23 @@
+Qt Multimedia 6.12.0 subtitle null-pointer fix
+
+Upstream: https://download.qt.io/official_releases/qt/6.12/6.12.0/single/qt-everywhere-src-6.12.0.tar.xz
+Archive SHA-256: 98ff4f44bac6ec3e1e62ee2a4316ae0e3d15badb015d753cc0268a20db52f165
+Source directory: qtmultimedia/src/plugins/multimedia/ffmpeg/
+
+Unmodified upstream file SHA-256 values:
+0ec3f8bbde614c2a4f4202042f77fbbcda51065a7c7996bf47f6b2678a224827  qffmpegplugin.cpp
+b1bef03e0c3aeac3a5f0dac7d85fed68fa390317cd6f15e6f715108269634f02  ffmpeg.json
+8a561ae66a7fa608d82231bb3c46b9deb64efef565cd831c00266fb89a19dee1  playbackengine/qffmpegstreamdecoder.cpp
+ae54e2255f26256c346945fd3fbefc974eba6baf6a71c106526b8fc1448274f7  playbackengine/qffmpegstreamdecoder_p.h
+
+Local changes in qffmpegstreamdecoder.cpp:
+- Discard unsupported bitmap cues before enqueueing frames in the text renderer,
+  releasing their FFmpeg allocations. This also avoids paused-seek stalls caused
+  by treating open-ended bitmap display times as text-frame durations.
+- Return empty text when both text and ASS pointers are null, preventing null
+  pointer dereferences in subtitle text extraction.
+All other code is unchanged. The matching patch is shipped with runtime notices.
+
+License: LGPL-3.0-only, alternatively the upstream GPL/commercial terms shown
+in each source header. See licenses/Qt-LGPL-3.0.txt and licenses/GPL-3.0.txt.
+The plugin links the remaining implementation from the exact Qt 6.12.0 kit.

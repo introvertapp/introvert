@@ -25,6 +25,18 @@ int main(int argc, char *argv[])
     QCoreApplication::setApplicationVersion(QStringLiteral(INTROVERT_VERSION));
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     QGuiApplication application(argc, argv);
+    // Prefer the bundled multimedia plugin, including its subtitle decoder fix,
+    // when a development build also has access to the unpatched Qt SDK.
+#ifdef Q_OS_MACOS
+    const auto pluginDirectory = QFileInfo(QCoreApplication::applicationDirPath() + QStringLiteral("/../PlugIns")).canonicalFilePath();
+#else
+    const auto pluginDirectory = QFileInfo(QCoreApplication::applicationDirPath()).canonicalFilePath();
+#endif
+    if (!pluginDirectory.isEmpty()) {
+        auto libraryPaths = QCoreApplication::libraryPaths();
+        libraryPaths.removeAll(pluginDirectory); libraryPaths.prepend(pluginDirectory);
+        QCoreApplication::setLibraryPaths(libraryPaths);
+    }
     application.setApplicationDisplayName(QStringLiteral("INTROvert"));
     // macOS uses the native bundle icon for both Finder and the running app.
 #ifndef Q_OS_MACOS
