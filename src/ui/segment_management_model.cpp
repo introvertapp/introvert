@@ -22,7 +22,7 @@ SegmentManagementModel::SegmentManagementModel(LibraryModel &library, SegmentSto
 SegmentManagementModel::~SegmentManagementModel() { close(); }
 bool SegmentManagementModel::editingAllowed() const
 {
-    return m_library.m_detail && !m_library.m_editLocks.blocked(m_library.m_detail->show,m_library.season());
+    return m_library.m_detail && !m_library.m_editLocks.blocked(m_library.m_detail->show,m_library.season(),m_library.connectionAddress());
 }
 
 QVariantList SegmentManagementModel::seasons() const
@@ -104,15 +104,16 @@ void SegmentManagementModel::inlineChange(const QString &id, const QString &kind
     std::optional<QPair<double, double>> value;
     try {
         if (!context) throw SegmentError("This episode is no longer open");
-        if(m_library.m_editLocks.blocked(context->detail.show,context->episode.seasonNumber.value_or(-1)))throw SegmentError("Season timestamps cannot be edited during detection");
+        if(m_library.m_editLocks.blocked(context->detail.show,context->episode.seasonNumber.value_or(-1),m_library.connectionAddress()))throw SegmentError("Season timestamps cannot be edited during detection");
         if (type != "recap" && type != "intro" && type != "credits" && type != "preview") throw SegmentError("Unsupported segment type");
         if (times) value = qMakePair(parseTime(times->first), parseTime(times->second));
     } catch (const SegmentError &error) { m_message = QString::fromUtf8(error.what()); emit errorOccurred(m_message); emit changed(); return; }
-    start(Kind::Inline, [this, context = *context, id, type, value](const Cancellation &cancel) {
+    start(Kind::Inline, [this, context = *context, id, type, value, connection=m_library.connectionAddress()](const Cancellation &cancel) {
         checkCancelled(cancel);
-        const auto edit=m_library.m_editLocks.edit({{context.detail.show,context.episode.seasonNumber.value_or(-1)}});
+        const auto edit=m_library.m_editLocks.edit({{context.detail.show,context.episode.seasonNumber.value_or(-1)}},connection);
         if(!edit)throw SegmentError("Season timestamps cannot be edited during detection");
-        m_store.save(context.detail.show, context.episode, {{type, value}}, 0, "manual");
+        const auto duration = m_store.durationMs(context.episode);
+        m_store.save(context.detail.show, context.episode, {{type, value}}, duration.value_or(0) / 1000., "manual");
         Result result; result.episode = id; result.revision = context.revision;
         result.values = m_store.load(context.detail.show, context.episode);
         result.edited = m_store.isEdited(context.detail.show, context.episode); return result;
@@ -149,9 +150,12 @@ bool SegmentManagementModel::canDelete(const QVariantList &targets) const
             const auto row=value.toMap();const auto show=row.value("showId").toString();const auto selected=row.value("seasonNumber");
             std::optional<qint64> season;
             if(selected.isValid() && !selected.isNull()) {season=number(selected);if(!season)return false;}
-            if(m_library.m_editLocks.blocked(provider,show,season))return false;
-            if(m_detail && m_detail->show.identity.itemId==show)for(const auto &group:m_detail->seasons)
-                if(group.number && (!season || season==group.number) && m_library.m_editLocks.blocked(m_detail->show,*group.number))return false;
+            const auto *detail=m_detail && m_detail->show.identity.itemId==show ? &*m_detail
+                : m_library.m_detail && m_library.m_detail->show.identity.itemId==show ? &*m_library.m_detail : nullptr;
+            if(detail) {
+                for(const auto &group:detail->seasons)
+                    if(group.number && (!season || season==group.number) && m_library.m_editLocks.blocked(detail->show,*group.number,m_key->address()))return false;
+            } else if(m_library.m_editLocks.blocked(provider,show,season))return false;
         }
         return true;
     } catch (...) {return false;}
@@ -219,7 +223,7 @@ void SegmentManagementModel::deleteBulk(const QVariantList &targets)
         checkCancelled(cancel);
         QList<QPair<ShowSummary,qint64>> seasons;
         for(const auto &episode:episodes)seasons.append({episode.first,*episode.second.seasonNumber});
-        const auto edit=m_library.m_editLocks.edit(seasons);
+        const auto edit=m_library.m_editLocks.edit(seasons,key.address());
         if(!edit)throw SegmentError("Season timestamps cannot be deleted during detection");
         result.count = m_store.deleteMany(episodes,&result.statusRevision);
         return result;

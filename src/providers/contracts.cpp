@@ -1,8 +1,19 @@
 #include "contracts.h"
 #include "json_values.h"
 #include <QStringList>
+#include <QCryptographicHash>
+#include <QJsonArray>
+#include <QJsonDocument>
 
 namespace introvert::providers {
+
+QString providerScope(const ProviderIdentity &identity, const QString &connection)
+{
+    const auto server = identity.serverId.value_or(QString());
+    const auto value = QJsonDocument(QJsonArray{providerName(identity.provider),
+        server.isEmpty() ? QString("connection") : QString("server"), server.isEmpty() ? connection : server}).toJson(QJsonDocument::Compact);
+    return QString::fromLatin1(QCryptographicHash::hash(value, QCryptographicHash::Sha256).toHex());
+}
 
 QString itemWebUrl(const QString &serverUrl, const ProviderIdentity &identity)
 {

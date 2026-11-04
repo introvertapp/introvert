@@ -24,7 +24,8 @@ public:
     void initialize() const;
     static void writeInTransaction(QSqlDatabase &db, const providers::ShowSummary &show, const providers::Episode &episode,
                                    const SegmentChanges &changes, const QString &source);
-    SegmentValues load(const providers::ShowSummary &show, const providers::Episode &episode) const;
+    SegmentValues load(const providers::ShowSummary &show, const providers::Episode &episode,
+        const QString &connection = {}, const EditLocks::Lease *reservation = nullptr) const;
     void save(const providers::ShowSummary &show, const providers::Episode &episode,
               const SegmentChanges &changes, double duration, const QString &source = QStringLiteral("video_editor")) const;
     qsizetype deleteMany(const QList<EpisodeTarget> &episodes, qint64 *statusRevision = nullptr) const;

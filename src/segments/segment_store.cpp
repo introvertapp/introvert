@@ -51,9 +51,10 @@ void SegmentStore::writeInTransaction(QSqlDatabase &db, const providers::ShowSum
     write(db, identity(show, episode), episode, changes, source);
 }
 
-SegmentValues SegmentStore::load(const providers::ShowSummary &show, const providers::Episode &episode) const
+SegmentValues SegmentStore::load(const providers::ShowSummary &show, const providers::Episode &episode,
+    const QString &connection, const EditLocks::Lease *reservation) const
 {
-    return loadCatalogSegments(m_path, {show, {{episode.seasonNumber, {episode}}}}).values.value(episode.identity.itemId);
+    return loadCatalogSegments(m_path, {show, {{episode.seasonNumber, {episode}}}}, connection, reservation).values.value(episode.identity.itemId);
 }
 
 void SegmentStore::save(const providers::ShowSummary &show, const providers::Episode &episode,

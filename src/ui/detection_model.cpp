@@ -80,12 +80,14 @@ void DetectionModel::sync()
     std::optional<QString> context;
     if (m_library.m_detail) {
         const auto &identity = m_library.m_detail->show.identity;
-        context = providers::providerName(identity.provider) + '\n' + identity.itemId + '\n' + QString::number(m_library.season());
+        context = (m_library.m_key ? showKey(*m_library.m_key, identity) : QString()) + '\n' + QString::number(m_library.season());
     }
     if (context != m_context) { m_message.clear(); m_displayJob.clear(); m_diagnosticsJob.clear(); m_diagnostics.clear(); m_context = context; }
     QString visit;
     if (m_library.m_detail && m_library.m_key) visit = showKey(*m_library.m_key, m_library.m_detail->show.identity);
     if (visit != m_showVisit) { m_showVisit = visit; m_seasonJobs.clear(); m_showDetectionObserved = false; }
+    const auto scope = m_library.m_detail && m_library.m_key ? providers::providerScope(m_library.m_detail->show.identity,
+        m_library.m_key->saved.provider == "local" ? m_library.m_key->saved.localRoot : m_library.m_key->saved.remoteUrl) : QString();
     m_seasonProgress.clear(); m_showDetection.clear();
     try {
         const auto rows = m_store.summaries();
@@ -93,12 +95,13 @@ void DetectionModel::sync()
         for (const auto &value : rows) {
             const auto row = value.toMap(); const auto id = row.value("id").toString(); const int season = row.value("season").toInt();
             if (visit.isEmpty() || seen.contains(season) || !m_library.m_detail
+                || row.value("scope").toString() != scope
                 || row.value("provider").toString() != providers::providerName(m_library.m_detail->show.identity.provider)
                 || row.value("show_id") != m_library.m_detail->show.identity.itemId) continue;
-            seen.insert(season);
             const auto job = m_jobs.constFind(id);
             if (job != m_jobs.cend() && sameConnection(job->selection) && sameShow(job->show)) m_seasonJobs[season] = id;
             if (m_seasonJobs.value(season) != id) continue;
+            seen.insert(season);
             auto state = row.value("status").toString();
             double progress = std::clamp(row.value("current").toDouble() / std::max(1., row.value("total").toDouble()), 0., 1.);
             if (job != m_jobs.cend()) { if (state != "queued") state = "running"; progress = std::min(.999, progress); }
@@ -129,8 +132,10 @@ void DetectionModel::sync()
         }
         const auto previous = m_status;
         m_status.clear(); for (const auto &value : rows) {
-            const auto row = value.toMap(); const auto key = row.value("provider").toString() + '\n' + row.value("show_id").toString() + '\n' + row.value("season").toString();
-            if (context && *context == key) {
+            const auto row = value.toMap();
+            if (context && m_library.m_detail && row.value("scope").toString() == scope
+                && row.value("provider").toString() == providers::providerName(m_library.m_detail->show.identity.provider)
+                && row.value("show_id").toString() == m_library.m_detail->show.identity.itemId && row.value("season").toInt() == m_library.season()) {
                 const auto state = row.value("status").toString();
                 const auto id = row.value("id").toString();
                 const bool ongoing = state == "queued" || state == "running" || m_jobs.contains(id);
@@ -280,20 +285,21 @@ QString DetectionModel::enqueue(const providers::ShowDetail &detail, int season,
             m_showJobs[showKey(selection, detail.show.identity)].insert(it.key()); return it.key();
         }
     }
-    auto editLock = m_library.m_editLocks.detect(detail.show, season);
+    auto editLock = m_library.m_editLocks.detect(detail.show, season, selection.address());
     if (!editLock) { m_message = "Detection is already running for this season"; return {}; }
     QPair<QString, bool> created;
-    try { created = m_store.create(detail, season, kinds); }
+    try { created = m_store.create(detail, season, kinds, providers::providerScope(detail.show.identity,
+        selection.saved.provider == "local" ? selection.saved.localRoot : selection.saved.remoteUrl)); }
     catch (const DatabaseError &) { m_message = "Cannot create a detection job in app.db"; emit errorOccurred(m_message); return {}; }
     if (!created.second) return {};
     emit jobStarted(detail.show.title, season);
     const auto cancel = std::make_shared<std::atomic_bool>(false);
     m_jobs.insert(created.first, {cancel, editLock, selection, detail.show.identity, season, kinds});
     m_showJobs[showKey(selection, detail.show.identity)].insert(created.first);
-    const auto id = created.first; const auto saved = selection.saved; const auto gate = editLock.get();
-    dispatch(id, [this, id, detail, season, kinds, saved, cancel, gate] {
+    const auto id = created.first; const auto saved = selection.saved;
+    dispatch(id, [this, id, detail, season, kinds, saved, cancel, editLock] {
         detection::DetectionUpdates updates; QString error;
-        try { gate->waitForWriters(cancel); updates = m_service.run(id, detail, season, kinds, saved, cancel, [this] { scheduleSync(); }); }
+        try { updates = m_service.run(id, detail, season, kinds, saved, cancel, [this] { scheduleSync(); }, editLock); }
         catch (const providers::Cancelled &) { try { m_store.finish(id,"cancelled","Detection stopped"); } catch (...) { error="Cannot update detection jobs in app.db"; } }
         catch (...) { error = "Cannot update detection jobs in app.db"; try { m_store.finish(id, "failed", error); } catch (...) {} }
         QVariantMap completed;
@@ -409,7 +415,7 @@ void DetectionModel::advanceScan()
         std::optional<providers::ShowDetail> detail;
         try {
             detail = m_library.m_catalog.detail(m_library.m_catalog.config(selection.saved, cancel), selection.listing, show.identity.itemId, cancel);
-            segments::loadCatalogSegments(m_store.databasePath(), *detail);
+            segments::loadCatalogSegments(m_store.databasePath(), *detail, selection.address());
         }
         catch (const providers::Cancelled &) {}
         catch (...) {}

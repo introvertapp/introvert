@@ -7,10 +7,24 @@
 
 namespace introvert::segments {
 
-CatalogSegments loadCatalogSegments(const QString &databasePath, const providers::ShowDetail &detail)
+CatalogSegments loadCatalogSegments(const QString &databasePath, const providers::ShowDetail &detail,
+    const QString &source, const EditLocks::Lease *reservation)
 {
     CatalogSegments result;
     const auto keys = showKeys(detail.show);
+    auto locks=EditLocks::forDatabase(databasePath);
+    QSet<qint64> checked;
+    QList<std::shared_ptr<EditLocks::Lease>> imports;
+    for(const auto &group:detail.seasons)for(const auto &episode:group.episodes) {
+        if(keys.isEmpty() || !episode.seasonNumber || checked.contains(*episode.seasonNumber))continue;
+        const auto season=*episode.seasonNumber;checked.insert(season);
+        if(locks.ownsDetection(reservation,detail.show,season,source))continue;
+        auto lease=locks.edit({{detail.show,season}},source);
+        if(lease)imports.append(std::move(lease));else result.deferredSeasons.insert(season);
+    }
+    // Acquire before SQLite: a queued detector waits for existing imports to
+    // finish, while new imports for its season remain read-only. Never hold a
+    // database transaction while waiting for a reservation.
     struct Stored { double start, end; bool deleted; QString source; };
     std::map<std::tuple<qint64, qint64, QString>, Stored> latest;
     std::map<std::pair<qint64,qint64>,qint64> resets;
@@ -32,8 +46,9 @@ CatalogSegments loadCatalogSegments(const QString &databasePath, const providers
     }
     for (const auto &season : detail.seasons) for (const auto &episode : season.episodes) {
         SegmentValues row;
-        for (const auto &segment : episode.importedSegments)
-            row[providers::segmentName(segment.type)] = {segment.startSeconds, segment.endSeconds};
+        if(!episode.seasonNumber || !result.deferredSeasons.contains(*episode.seasonNumber))
+            for (const auto &segment : episode.importedSegments)
+                row[providers::segmentName(segment.type)] = {segment.startSeconds, segment.endSeconds};
         if (!keys.isEmpty() && episode.seasonNumber && episode.episodeNumber) {
             const auto reset=resets.find({*episode.seasonNumber,*episode.episodeNumber});
             if(reset!=resets.end())result.statusRevisions[episode.identity.itemId]=reset->second;

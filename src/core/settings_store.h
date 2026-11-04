@@ -57,6 +57,8 @@ public:
     // Services use independent connections. Media forms may expose saved values
     // only through their password-masked credential controls.
     std::optional<QString> credential(const QString &account) const;
+    // Resolve authentication only while the captured connection still matches.
+    std::optional<QString> providerCredential(const ProviderSettings &saved) const;
     bool hasCredential(const QString &account) const;
     void setCredential(const QString &account, const std::optional<QString> &value) const;
     QVariantMap loadLocalMetadata(const QString &root) const;

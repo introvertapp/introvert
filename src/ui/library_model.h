@@ -11,6 +11,7 @@ namespace introvert::ui {
 struct CatalogSelection {
     ProviderSettings saved;
     QString listing;
+    QString address() const { return saved.provider == "local" ? saved.localRoot : saved.remoteUrl; }
     bool operator==(const CatalogSelection &other) const;
     bool operator!=(const CatalogSelection &other) const { return !(*this == other); }
 };
@@ -65,6 +66,7 @@ public:
     Q_INVOKABLE void clearLocalCache();
     Q_INVOKABLE void setBrowsing(bool active);
     Q_INVOKABLE void openShow(const QString &id);
+    Q_INVOKABLE void openJobShow(const QString &id, const QString &scope);
     Q_INVOKABLE void selectSeason(int number);
     Q_INVOKABLE void closeShow();
     void close();
@@ -97,6 +99,8 @@ private:
     void defer(const std::optional<CatalogSelection> &key);
     void refresh(bool force, bool clearLocal = false);
     void reloadLocalMetadata();
+    void openShowScoped(const QString &id, const QString &scope);
+    QString connectionAddress() const { return m_key ? m_key->address() : QString(); }
     quint64 begin();
     void submit(Kind kind, quint64 generation, Work work);
     void publish(quint64 generation, const library::CatalogResult &catalog);

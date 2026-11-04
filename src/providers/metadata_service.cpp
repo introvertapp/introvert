@@ -1,5 +1,6 @@
 #include "metadata_service.h"
 #include "segments/identity.h"
+#include "segments/edit_locks.h"
 
 #include <QDateTime>
 #include <algorithm>
@@ -79,6 +80,9 @@ QVariantMap MetadataService::run(const ProviderConfig &config,const Cancellation
             try {
                 const auto detail=m_provider.getShow(config,show.identity.itemId,false,cancel);
                 if(!detail)throw ProviderError("Show was removed from the saved inventory.");
+                const auto locks=segments::EditLocks::forDatabase(m_path);
+                if(locks.blockedShow(detail->show,root))
+                    throw ProviderError("Metadata changes for this show are deferred while detection is queued or running. Fetch metadata again after detection finishes.");
                 QString savedId,poster,logo;
                 {sql::Connection connection(m_path);
                     auto match=sql::execute(connection.db,"SELECT provider_id FROM local_metadata_matches WHERE show_id=? AND provider=?",{show.identity.itemId,source});
@@ -113,6 +117,8 @@ QVariantMap MetadataService::run(const ProviderConfig &config,const Cancellation
                 } catch(const ProviderError &error) {++artworkFailed;imageError=QString::fromUtf8(error.what());artworkBlocked=error.httpStatus()==401 || error.httpStatus()==403 || error.httpStatus()==429;}
                 checkCancelled(cancel);
                 auto after=detail->show;after.title=result.title;after.externalIds=result.ids;
+                const auto reservation=segments::EditLocks::forDatabase(m_path).editShow({detail->show,after},root);
+                if(!reservation)throw ProviderError("Metadata changes for this show are deferred while detection is queued or running. Fetch metadata again after detection finishes.");
                 sql::Connection connection(m_path);auto &db=connection.db;sql::Transaction transaction(db);
                 if(result.year)sql::execute(db,"UPDATE shows SET year=COALESCE(year,?) WHERE id=?",{*result.year,show.identity.itemId});
                 sql::execute(db,"INSERT OR REPLACE INTO local_show_metadata VALUES(?,?,?,?,?,?,?,?,?,?)",

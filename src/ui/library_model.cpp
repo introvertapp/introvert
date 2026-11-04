@@ -16,7 +16,7 @@ bool CatalogSelection::operator==(const CatalogSelection &other) const
 
 LibraryModel::LibraryModel(SettingsModel &settings, SettingsStore store, QString artworkRoot,
                            library::ProviderMap overrides, MetadataClient metadataClient, QObject *parent)
-    : QObject(parent), m_settings(settings), m_store(std::move(store)),
+    : QObject(parent), m_editLocks(segments::EditLocks::forDatabase(store.databasePath())), m_settings(settings), m_store(std::move(store)),
       m_cache(std::move(artworkRoot), m_store.databasePath()), m_catalog(m_store, m_cache, std::move(overrides), [this](const QString &level, const QString &message) {
           QMetaObject::invokeMethod(this, [this, level, message] { if (!m_closed) emit diagnosticMessage(level, message); }, Qt::QueuedConnection);
       }),
@@ -213,7 +213,7 @@ void LibraryModel::reloadLocalMetadata()
             std::optional<ShowDetail> detail;
             QVariantMap show;
             if(!showId.isEmpty()) {detail=m_catalog.detail(config,key.listing,showId,cancel);show=m_catalog.displayShow(config,detail->show,cancel);}
-            const auto overlay=detail?segments::loadCatalogSegments(m_store.databasePath(),*detail):segments::CatalogSegments();
+            const auto overlay=detail?segments::loadCatalogSegments(m_store.databasePath(),*detail,key.address()):segments::CatalogSegments();
             QMetaObject::invokeMethod(this,[this,key,generation,detailRevision,catalog,detail,show,before,overlay] {
                 if(m_closed || generation!=m_generation || (!m_key || !(*m_key==key)))return;
                 m_shows=catalog.rows;
@@ -245,7 +245,10 @@ void LibraryModel::clearLocalCache()
     if (!m_closed && m_settings.mediaProvider() == "local" && !m_metadata->busy()) refresh(true, true);
 }
 
-void LibraryModel::openShow(const QString &id)
+void LibraryModel::openShow(const QString &id) { openShowScoped(id, {}); }
+void LibraryModel::openJobShow(const QString &id, const QString &scope) { openShowScoped(id, scope); }
+
+void LibraryModel::openShowScoped(const QString &id, const QString &scope)
 {
     if (m_closed || !m_key) return;
     const auto key = *m_key;
@@ -254,16 +257,19 @@ void LibraryModel::openShow(const QString &id)
     m_showActive = true; m_busy = true; m_state = "loading"; m_message.clear();
     m_detail.reset(); m_episodes.clear(); m_show.clear();
     for (const auto &row : m_shows) if (row.toMap().value("id").toString() == id) { m_show = row.toMap(); break; }
-    submit(Kind::Show, generation, [this, key, id](const Cancellation &cancel, quint64) {
+    submit(Kind::Show, generation, [this, key, id, scope](const Cancellation &cancel, quint64) {
         Result result;
         const auto config = m_catalog.config(key.saved, cancel);
         result.detail = m_catalog.detail(config, key.listing, id, cancel);
+        if (!scope.isEmpty() && scope != providers::providerScope(result.detail->show.identity,
+            key.saved.provider == "local" ? key.saved.localRoot : key.saved.remoteUrl))
+            throw ProviderError("This job belongs to another media server. Select its connection in Settings → Media.");
         result.display = m_catalog.displayShow(config, result.detail->show, cancel);
         QVariantList seasons;
         for (const auto &season : result.detail->seasons) seasons.append(season.number ? QVariant(*season.number) : QVariant());
         result.display["seasonNumbers"] = seasons;
         checkCancelled(cancel);
-        result.segments = segments::loadCatalogSegments(m_store.databasePath(), *result.detail);
+        result.segments = segments::loadCatalogSegments(m_store.databasePath(), *result.detail, key.address());
         return result;
     });
     emit changed();
@@ -316,6 +322,7 @@ void LibraryModel::finished(Kind kind, quint64 generation, const std::optional<R
             m_shows = result->catalog.rows; m_message = result->catalog.message; m_cached = result->catalog.cached;
         } else if (kind == Kind::Show) {
             m_show = result->display; m_detail = result->detail; m_segments = result->segments; ++m_detailRevision;
+            if(!m_segments.deferredSeasons.isEmpty())emit diagnosticMessage("info","Timestamp import deferred for a season reserved by detection. Refresh after detection finishes to retry.");
             selectSeason(m_detail->seasons.isEmpty() ? 1 : int(m_detail->seasons.first().number.value_or(0)));
         }
     }

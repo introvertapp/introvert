@@ -61,6 +61,8 @@ struct ProviderIdentity {
 // Browser links are rebuilt from the current server address and cached identity;
 // authentication values and item links never need to be stored in media records.
 QString itemWebUrl(const QString &serverUrl, const ProviderIdentity &identity);
+// Credential-free scope for provider-local item IDs; a server ID takes precedence.
+QString providerScope(const ProviderIdentity &identity, const QString &connection = {});
 
 struct ExternalIds {
     std::optional<QString> imdb, tmdb, tvdb, zap2it, tvmaze;

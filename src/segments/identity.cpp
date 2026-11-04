@@ -34,6 +34,7 @@ void initializeTables(QSqlDatabase &db)
     sql::execute(db, "CREATE TABLE IF NOT EXISTS segments (show_key TEXT NOT NULL,season INTEGER NOT NULL,episode INTEGER NOT NULL,"
         "kind TEXT NOT NULL,start REAL,end REAL,deleted INTEGER NOT NULL DEFAULT 0,source TEXT NOT NULL,provider TEXT,provider_episode TEXT,"
         "updated TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,revision INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(show_key,season,episode,kind))");
+    sql::execute(db, "CREATE INDEX IF NOT EXISTS segments_revision ON segments(revision)");
     sql::execute(db, "CREATE TABLE IF NOT EXISTS episode_media(provider TEXT,episode_id TEXT,duration_ms INTEGER NOT NULL,PRIMARY KEY(provider,episode_id))");
     sql::execute(db, "CREATE TABLE IF NOT EXISTS preferences (name TEXT PRIMARY KEY,value INTEGER NOT NULL)");
     auto resetTable=sql::execute(db,"SELECT 1 FROM sqlite_master WHERE type='table' AND name='episode_status_resets'");

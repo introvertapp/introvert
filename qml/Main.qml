@@ -58,7 +58,7 @@ ApplicationWindow {
     property var applicationLogs: null
     property var appNotifications: null
     function explain(title, message) { action.title = title; action.message = message; action.confirmText = "Close"; action.open() }
-    function openShow(show) { appNavigation.navigate("home"); selectedShow = show; if(mediaLibrary && !uiPreview) { openingShowRequest=true; try { mediaLibrary.openShow(show.id) } finally { openingShowRequest=false } } }
+    function openShow(show) { appNavigation.navigate("home"); selectedShow = show; if(mediaLibrary && !uiPreview) { openingShowRequest=true; try { if(show.scope) mediaLibrary.openJobShow(show.id,show.scope); else mediaLibrary.openShow(show.id) } finally { openingShowRequest=false } } }
     function openEditor() { editor.open() }
     Connections {
         target: window.detector || null
@@ -116,13 +116,13 @@ ApplicationWindow {
                 items: window.presentation ? window.presentation.queue : window.detector ? (window.submissions ? window.submissions.queue : window.queueItems).concat(window.detector.queue) : window.submissions ? window.submissions.queue : window.queueItems
                 queuePositions: window.submissions ? window.submissions.queuePositions : ({})
                 onMoveRequested: function(key, target, after) { if(window.submissions && !window.uiPreview) window.submissions.moveQueueItem(key, target, after, submissionQueue.requestedOrder) }
-                onShowOpened: function(record) { if(window.presentation) window.openShow(window.presentation.shows[0]); else if(record && record.showId) { window.appSettings.setMediaProvider(record.providerId); window.openShow({id:record.showId,title:record.show}) } }
+                onShowOpened: function(record) { if(window.presentation) window.openShow(window.presentation.shows[0]); else if(record && record.showId) { window.appSettings.setMediaProvider(record.providerId); window.openShow({id:record.showId,title:record.show,scope:record.scope || ""}) } }
             }
             HistoryPage {
                 statistics: window.submissions ? window.submissions.statistics : ({})
                 theme: colors; preview: window.uiPreview; query: window.searchQueries.history; visualState: window.visualState
                 items: window.presentation ? window.presentation.history : window.submissions ? window.submissions.history : window.historyItems
-                onShowOpened: function(record) { if(window.presentation) window.openShow(window.presentation.shows[0]); else if(record && record.showId) { window.appSettings.setMediaProvider(record.providerId); window.openShow({id:record.showId,title:record.show}) } }
+                onShowOpened: function(record) { if(window.presentation) window.openShow(window.presentation.shows[0]); else if(record && record.showId) { window.appSettings.setMediaProvider(record.providerId); window.openShow({id:record.showId,title:record.show,scope:record.scope || ""}) } }
             }
             SettingsPage { detector: window.uiPreview ? null : window.detector; appNotifications: window.appNotifications; applicationLogs: window.applicationLogs; applicationUpdates: window.applicationUpdates; segmentManager: window.uiPreview ? null : window.segmentManager; theme: colors; appSettings: window.appSettings; mediaLibrary: window.uiPreview ? null : window.mediaLibrary; preview: window.uiPreview; previewShows: window.presentation ? window.presentation.shows : [] }
             ShowPage {

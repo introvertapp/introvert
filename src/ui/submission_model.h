@@ -65,6 +65,8 @@ private:
         QVariantList selection;
         QString endpoint;
         QVariantMap plan;
+        providers::Cancellation cancel;
+        QString scope;
     };
     std::optional<Context> context(bool includeIdentity = true) const;
     void libraryChanged();
@@ -79,6 +81,7 @@ private:
     QThreadPool m_pool;
     QThreadPool m_queuePool;
     providers::Cancellation m_stop = std::make_shared<std::atomic_bool>(false);
+    providers::Cancellation m_reviewCancel;
     std::mutex m_mutex;
     std::condition_variable m_wake;
     std::deque<Command> m_commands;
@@ -91,6 +94,8 @@ private:
     QString m_message;
     QMap<QString, QString> m_statusBaseline;
     std::atomic<quint64> m_feedbackGeneration{0};
+    QString m_feedbackScope, m_rawStatusScope;
+    QStringList m_feedbackCanonical, m_rawStatusCanonical;
     bool m_feedbackInitialized = false;
     bool m_haveStatusSnapshot = false;
     quint64 m_generation = 0;

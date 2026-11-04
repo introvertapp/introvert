@@ -1,26 +1,55 @@
 #pragma once
 #include "identity.h"
 #include <QMap>
+#include <QFileInfo>
+#include <QDir>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
 
 namespace introvert::segments {
-// Shared by UI writers and detection jobs. A scan reserves its season before
+// Shared by writers/imports and detection jobs for one database. A scan reserves its season before
 // queueing; already-started writes drain before the scan snapshots revisions.
 class EditLocks final {
     struct Entry {bool detecting=false;int writers=0;};
     struct State {std::mutex mutex;std::condition_variable changed;QMap<QString,Entry> entries;};
     std::shared_ptr<State> m_state=std::make_shared<State>();
+    explicit EditLocks(std::shared_ptr<State> state) : m_state(std::move(state)) {}
     static QString route(providers::ProviderId provider,const QString &id) {
-        return "provider:"+providers::providerName(provider)+':'+QString::number(id.size())+':'+id+"|season:";
+        return "provider:"+providers::providerName(provider)+':'+QString::number(id.size())+':'+id+"|scope:";
     }
-    static QStringList keys(const providers::ShowSummary &show,qint64 season) {
-        QStringList result{route(show.identity.provider,show.identity.itemId)+QString::number(season)};
-        for(const auto &key:showKeys(show))result.append("canonical:"+QString::number(key.size())+':'+key+"|season:"+QString::number(season));
+    static QStringList identities(const providers::ShowSummary &show,const QString &connection) {
+        QStringList result{route(show.identity.provider,show.identity.itemId)
+            +providers::providerScope(show.identity,connection)};
+        for(const auto &key:showKeys(show))result.append("canonical:"+QString::number(key.size())+':'+key);
         return result;
     }
+    static QStringList keys(const providers::ShowSummary &show,qint64 season,const QString &connection={}) {
+        auto result=identities(show,connection);
+        for(auto &key:result)key+="|season:"+QString::number(season);
+        return result;
+    }
+    bool detectingShow(const QStringList &names) const {
+        for(const auto &name:names)for(auto i=m_state->entries.cbegin();i!=m_state->entries.cend();++i)
+            if(i->detecting && i.key().startsWith(name+"|season:"))return true;
+        return false;
+    }
 public:
+    EditLocks() = default;
+    static EditLocks forDatabase(const QString &path) {
+        static std::mutex mutex;
+        static QMap<QString,std::weak_ptr<State>> states;
+        const QFileInfo file(path);
+        auto key=file.canonicalFilePath();
+        if(key.isEmpty()) {
+            const auto directory=file.absoluteDir().canonicalPath();
+            key=directory.isEmpty()?file.absoluteFilePath():QDir(directory).filePath(file.fileName());
+        }
+        std::lock_guard<std::mutex> lock(mutex);
+        if(const auto state=states.value(key).lock())return EditLocks(state);
+        for(auto i=states.begin();i!=states.end();)if(i.value().expired())i=states.erase(i);else ++i;
+        auto state=std::make_shared<State>();states[key]=state;return EditLocks(std::move(state));
+    }
     class Lease final {
         friend class EditLocks;
         std::shared_ptr<State> m_state;QStringList m_keys;bool m_detection,m_armed=false;
@@ -41,14 +70,22 @@ public:
             std::unique_lock<std::mutex> lock(m_state->mutex);
             for(;;) {
                 providers::checkCancelled(cancel);bool waiting=false;
-                for(const auto &key:m_keys)waiting|=m_state->entries.value(key).writers>0;
+                for(const auto &key:m_keys) {
+                    waiting|=m_state->entries.value(key).writers>0;
+                    waiting|=m_state->entries.value(key.left(key.lastIndexOf("|season:"))).writers>0;
+                }
                 if(!waiting)return;
                 m_state->changed.wait_for(lock,std::chrono::milliseconds(20));
             }
         }
     };
-    std::shared_ptr<Lease> detect(const providers::ShowSummary &show,qint64 season) {
-        const auto names=keys(show,season);std::lock_guard<std::mutex> lock(m_state->mutex);
+    bool ownsDetection(const Lease *lease,const providers::ShowSummary &show,qint64 season,const QString &connection={}) const {
+        if(!lease || lease->m_state!=m_state || !lease->m_detection || !lease->m_armed)return false;
+        for(const auto &key:keys(show,season,connection))if(!lease->m_keys.contains(key))return false;
+        return true;
+    }
+    std::shared_ptr<Lease> detect(const providers::ShowSummary &show,qint64 season,const QString &connection={}) {
+        const auto names=keys(show,season,connection);std::lock_guard<std::mutex> lock(m_state->mutex);
         for(const auto &key:names)if(m_state->entries.value(key).detecting)return {};
         for(const auto &key:names)m_state->entries[key];
         auto lease=std::shared_ptr<Lease>(new Lease(m_state,names,true));
@@ -56,8 +93,8 @@ public:
         lease->m_armed=true;
         return lease;
     }
-    std::shared_ptr<Lease> edit(const QList<QPair<providers::ShowSummary,qint64>> &seasons) {
-        QStringList names;for(const auto &season:seasons)names.append(keys(season.first,season.second));names.removeDuplicates();
+    std::shared_ptr<Lease> edit(const QList<QPair<providers::ShowSummary,qint64>> &seasons,const QString &connection={}) {
+        QStringList names;for(const auto &season:seasons)names.append(keys(season.first,season.second,connection));names.removeDuplicates();
         std::lock_guard<std::mutex> lock(m_state->mutex);
         for(const auto &key:names)if(m_state->entries.value(key).detecting)return {};
         for(const auto &key:names)m_state->entries[key];
@@ -66,15 +103,31 @@ public:
         lease->m_armed=true;
         return lease;
     }
-    bool blocked(const providers::ShowSummary &show,qint64 season) const {
+    // Alias/identity changes affect every season, including seasons removed
+    // from the current inventory but still owned by a queued/running scan.
+    std::shared_ptr<Lease> editShow(const QList<providers::ShowSummary> &shows,const QString &connection={}) {
+        QStringList names;for(const auto &show:shows)names.append(identities(show,connection));names.removeDuplicates();
         std::lock_guard<std::mutex> lock(m_state->mutex);
-        for(const auto &key:keys(show,season))if(m_state->entries.value(key).detecting)return true;
+        if(detectingShow(names))return {};
+        for(const auto &key:names)m_state->entries[key];
+        auto lease=std::shared_ptr<Lease>(new Lease(m_state,names,false));
+        for(const auto &key:names)++m_state->entries[key].writers;
+        lease->m_armed=true;
+        return lease;
+    }
+    bool blockedShow(const providers::ShowSummary &show,const QString &connection={}) const {
+        std::lock_guard<std::mutex> lock(m_state->mutex);
+        return detectingShow(identities(show,connection));
+    }
+    bool blocked(const providers::ShowSummary &show,qint64 season,const QString &connection={}) const {
+        std::lock_guard<std::mutex> lock(m_state->mutex);
+        for(const auto &key:keys(show,season,connection))if(m_state->entries.value(key).detecting)return true;
         return false;
     }
     bool blocked(providers::ProviderId provider,const QString &show,std::optional<qint64> season) const {
         std::lock_guard<std::mutex> lock(m_state->mutex);const auto prefix=route(provider,show);
-        if(season)return m_state->entries.value(prefix+QString::number(*season)).detecting;
-        for(auto i=m_state->entries.cbegin();i!=m_state->entries.cend();++i)if(i.key().startsWith(prefix) && i->detecting)return true;
+        for(auto i=m_state->entries.cbegin();i!=m_state->entries.cend();++i)
+            if(i.key().startsWith(prefix) && (!season || i.key().endsWith("|season:"+QString::number(*season))) && i->detecting)return true;
         return false;
     }
 };

@@ -53,7 +53,7 @@ ProviderConfig CatalogService::config(const ProviderSettings &saved, const Cance
     if(result.provider==ProviderId::Local && result.localRoot && !result.localRoot->isEmpty())
         result.fetchImages=m_store.loadLocalMetadata(LocalProvider::rootPath(result)).value("artwork").toString()!="off";
     if (result.provider != ProviderId::Local) {
-        result.credential = m_store.credential("media:" + saved.provider);
+        result.credential = m_store.providerCredential(saved);
         if (!result.credential || result.credential->isEmpty())
             throw ProviderError("Enter your " + providerLabel(result.provider) + " API key/token in Settings → Media.");
     }
@@ -152,7 +152,9 @@ CatalogResult CatalogService::browse(const ProviderConfig &config, const QString
                     return detail(config,listing,show.identity.itemId,cancel);
                 }();
                 checkCancelled(cancel);
-                segments::loadCatalogSegments(m_store.databasePath(), loaded);
+                const auto imported=segments::loadCatalogSegments(m_store.databasePath(), loaded,
+                    config.provider==ProviderId::Local?config.localRoot.value_or(QString()):config.remoteUrl.value_or(QString()));
+                if(!imported.deferredSeasons.isEmpty())log("info","Timestamp import deferred for a season reserved by detection. Refresh after detection finishes to retry.");
             } catch (const ProviderError &) {
                 checkCancelled(cancel); ++unavailable;
                 log("warning", providerLabel(config.provider) + " timestamp import could not load a show. Open the show or refresh to retry.");
@@ -283,7 +285,9 @@ CatalogResult CatalogService::rebuild(const ProviderConfig &config, const QStrin
         if(remote)requireStored(m_cache.putDetail(basic, *detail, show.identity.itemId));
         if (remote && !config.importSegments)
             for (auto &season : detail->seasons) for (auto &episode : season.episodes) episode.importedSegments.clear();
-        segments::loadCatalogSegments(m_store.databasePath(), *detail);
+        const auto imported=segments::loadCatalogSegments(m_store.databasePath(), *detail,
+            config.provider==ProviderId::Local?config.localRoot.value_or(QString()):config.remoteUrl.value_or(QString()));
+        if(!imported.deferredSeasons.isEmpty())log("info","Timestamp import deferred for a season reserved by detection. Refresh after detection finishes to retry.");
         auto row = displayShow(config, show, cancel, false);
         if (listing != "basic") {
             row["posterUrl"] = images.value(show.posterUrl.value_or(QString()));

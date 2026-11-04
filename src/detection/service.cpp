@@ -35,10 +35,19 @@ void DetectionService::completed(const QString &id, const std::function<void()> 
     } catch (...) {} // Delivery/storage failure cannot undo the committed scan.
 }
 DetectionUpdates DetectionService::run(const QString &id, const providers::ShowDetail &detail, int season, const QStringList &kinds,
-    const ProviderSettings &saved, const providers::Cancellation &cancel, const std::function<void()> &notify) const
+    const ProviderSettings &saved, const providers::Cancellation &cancel, const std::function<void()> &notify,
+    std::shared_ptr<segments::EditLocks::Lease> reservation) const
 {
     QElapsedTimer timer; timer.start();
     try {
+        QList<providers::Episode> episodes; for (const auto &group : detail.seasons) if (group.number == season) { episodes = group.episodes; break; }
+        if (episodes.size() < 2) throw std::invalid_argument("Need at least 2 episodes in the season to detect segments");
+        auto locks=segments::EditLocks::forDatabase(m_store.databasePath());
+        const auto connectionAddress=saved.provider=="local"?saved.localRoot:saved.remoteUrl;
+        if(!reservation)reservation=locks.detect(detail.show,season,connectionAddress);
+        if(!locks.ownsDetection(reservation.get(),detail.show,season,connectionAddress))
+            throw providers::ProviderError("This season is already reserved by detection.");
+        reservation->waitForWriters(cancel);
         // A queued scan can wait for an already-started deletion to commit.
         // Snapshot status visibility after those writers have drained, too.
         {
@@ -46,18 +55,16 @@ DetectionUpdates DetectionService::run(const QString &id, const providers::ShowD
             sql::execute(connection.db,"UPDATE detection_jobs SET status_revision=? WHERE id=? AND status='queued'",
                 {segments::currentRevision(connection.db),id});
         }
-        QList<providers::Episode> episodes; for (const auto &group : detail.seasons) if (group.number == season) { episodes = group.episodes; break; }
-        if (episodes.size() < 2) throw std::invalid_argument("Need at least 2 episodes in the season to detect segments");
         const auto keys = segments::showKeys(detail.show); QStringList marks; for (const auto &key : keys) { Q_UNUSED(key); marks.append("?"); }
         const auto episodeWhere = "show_key IN (" + marks.join(',') + ") AND season=? AND episode=?";
         const auto where = episodeWhere + " AND kind=?";
-        std::map<std::pair<QString, QString>, qint64> baseline;
+        std::map<std::pair<QString, QString>, QPair<qint64,qint64>> baseline;
         QMap<QString, segments::SegmentValues> knownSegments;
         for (const auto &episode : episodes) {
-            knownSegments[episode.identity.itemId] = m_segments.load(detail.show, episode);
+            knownSegments[episode.identity.itemId] = m_segments.load(detail.show, episode, connectionAddress, reservation.get());
             sql::Connection connection(m_store.databasePath()); for (const auto &kind : kinds) {
-                auto query = sql::execute(connection.db, "SELECT COALESCE(MAX(revision),0) FROM segments WHERE " + where, parameters(keys, episode, kind));
-                query.next(); baseline[{episode.identity.itemId, kind}] = query.value(0).toLongLong();
+                auto query = sql::execute(connection.db, "SELECT COALESCE(MAX(revision),0),COUNT(*) FROM segments WHERE " + where, parameters(keys, episode, kind));
+                query.next(); baseline[{episode.identity.itemId, kind}] = {query.value(0).toLongLong(),query.value(1).toLongLong()};
             }
         }
         providers::checkCancelled(cancel);
@@ -90,7 +97,7 @@ DetectionUpdates DetectionService::run(const QString &id, const providers::ShowD
                     const auto episodeValues = output.episodes.constFind(episode.identity.itemId); if (episodeValues == output.episodes.cend()) continue;
                     const auto value = episodeValues->constFind(kind); if (value == episodeValues->cend() || !std::isfinite(value->first) || !std::isfinite(value->second) || value->first < 0 || value->first >= value->second
                         || (episode.durationMs && *episode.durationMs && value->second > *episode.durationMs / 1000.)) continue;
-                    const auto arguments = parameters(keys, episode, kind); auto revision = sql::execute(connection.db, "SELECT COALESCE(MAX(revision),0) FROM segments WHERE " + where, arguments); revision.next(); const auto version = revision.value(0).toLongLong(); revision.finish();
+                    const auto arguments = parameters(keys, episode, kind); auto revision = sql::execute(connection.db, "SELECT COALESCE(MAX(revision),0),COUNT(*) FROM segments WHERE " + where, arguments); revision.next(); const QPair<qint64,qint64> version{revision.value(0).toLongLong(),revision.value(1).toLongLong()}; revision.finish();
                     // Reruns replace pre-existing values/deletions of any source,
                     // while retaining changes made after this scan's snapshot.
                     if (version != baseline[{episode.identity.itemId, kind}]) { skipped.append(QVariantMap{{"id", episode.identity.itemId}, {"kind", kind}, {"reason", "changed_during_detection"}}); continue; }

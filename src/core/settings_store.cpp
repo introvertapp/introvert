@@ -383,6 +383,16 @@ ProviderSettings SettingsStore::loadProvider(const QString &provider) const
     return loadProviderFrom(connection.db, provider);
 }
 
+std::optional<QString> SettingsStore::providerCredential(const ProviderSettings &saved) const
+{
+    Connection connection(m_path);
+    auto query = execute(connection.db, "SELECT p.remote_url,c.value FROM provider_settings p "
+        "LEFT JOIN credentials c ON c.account=? WHERE p.provider_id=?", {"media:" + saved.provider, saved.provider});
+    require(query.next() && query.value(0).toString() == saved.remoteUrl,
+        "The media connection changed. Start this operation again with the current connection.");
+    return query.value(1).isNull() ? std::nullopt : std::optional<QString>(query.value(1).toString());
+}
+
 void SettingsStore::saveProvider(const ProviderSettings &settings, CredentialAction action, const QString &key) const
 {
     settings.validate();

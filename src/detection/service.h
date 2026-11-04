@@ -13,7 +13,8 @@ public:
     using Completion = std::function<QVariantMap(const QVariantMap &)>;
     DetectionService(DetectionJobStore store, segments::SegmentStore segments, std::shared_ptr<MediaDetectionRunner> runner, Config config, Completion completion = {});
     DetectionUpdates run(const QString &jobId, const providers::ShowDetail &detail, int season, const QStringList &kinds,
-        const ProviderSettings &saved, const providers::Cancellation &cancel, const std::function<void()> &notify) const;
+        const ProviderSettings &saved, const providers::Cancellation &cancel, const std::function<void()> &notify,
+        std::shared_ptr<segments::EditLocks::Lease> reservation = {}) const;
 private:
     void completed(const QString &jobId, const std::function<void()> &notify) const;
     const DetectionJobStore m_store;

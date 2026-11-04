@@ -377,9 +377,12 @@ SubmissionResult EndpointClient::submit(const QVariantMap &values, const provide
     return {success ? "OK" : "FAIL", response.status, success ? QString() : QString("Endpoint rejected the submission or returned an invalid response"), {}, {}};
 }
 
-QString comparison(const LookupResult &lookup, double start, const std::optional<double> &end)
+QString comparison(const LookupResult &lookup, double start, const std::optional<double> &end, bool millisecondPrecision)
 {
-    for (const auto &match : lookup.matches) if (match.startSeconds == start && match.endSeconds == end) return "DUPLICATE";
+    const auto normalize = [millisecondPrecision](double value) { return millisecondPrecision ? rounded(value * 1000) : value; };
+    for (const auto &match : lookup.matches)
+        if (normalize(match.startSeconds) == normalize(start) && match.endSeconds.has_value() == end.has_value()
+            && (!end || normalize(*match.endSeconds) == normalize(*end))) return "DUPLICATE";
     return lookup.found() ? QString("DIFFERENT") : QString("MISSING");
 }
 

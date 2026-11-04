@@ -22,6 +22,7 @@ class SubmissionStore final {
 public:
     using Clock = EndpointClient::Clock;
     explicit SubmissionStore(QString databasePath, Clock clock = {});
+    double currentTime() const { return m_clock(); }
     void initialize() const;
     QString enqueue(const QVariantMap &plan) const;
     bool moveQueueItem(const QString &key, const QString &target, bool after, const QStringList &order = {}) const;
@@ -30,7 +31,7 @@ public:
     bool processOne(const SettingsStore &settings, const providers::Cancellation &cancelled,
                     const std::function<void()> &progress = {}) const;
     SubmissionSnapshot snapshot() const;
-    QVariantMap episodeStatuses(bool includeActivity = false) const;
+    QVariantMap episodeStatuses(bool includeActivity = false, const QString &scope = {}, const QStringList &canonical = {}) const;
 private:
     QString m_path;
     Clock m_clock;

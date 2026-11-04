@@ -9,6 +9,6 @@ namespace introvert::submissions {
 // preparation may verify the episode through the read-only v4 mapping endpoint.
 QVariantMap prepareSubmission(const providers::ShowDetail &detail, const QVariantList &selection,
                               const QString &endpoint, const SettingsStore &settings, const segments::SegmentStore &segments,
-                              const providers::Cancellation &cancelled = {});
+                              const providers::Cancellation &cancelled = {}, const QString &scope = {});
 
 } // namespace introvert::submissions

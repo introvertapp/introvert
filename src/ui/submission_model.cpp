@@ -1,6 +1,7 @@
 #include "submission_model.h"
 #include <QCoreApplication>
 #include <QEvent>
+#include "segments/identity.h"
 #include <QRunnable>
 #include <chrono>
 
@@ -44,18 +45,30 @@ void SubmissionModel::libraryChanged()
 {
     if (m_closed) return;
     const auto current = context(false);
-    if (current != m_feedbackContext) {
-        m_feedbackContext = current; ++m_feedbackGeneration;
+    const auto canonical = current ? segments::showKeys(m_library.m_detail->show) : QStringList();
+    if (current != m_feedbackContext || canonical != m_feedbackCanonical) {
+        m_feedbackContext = current;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_feedbackScope = current ? providers::providerScope(m_library.m_detail->show.identity,
+                current->key ? (current->key->saved.provider == "local" ? current->key->saved.localRoot : current->key->saved.remoteUrl) : QString()) : QString();
+            m_feedbackCanonical = canonical;
+            ++m_feedbackGeneration;
+        }
         m_feedbackInitialized = false; m_statusBaseline.clear(); m_message.clear();
         for (auto &value : m_statuses) {
             auto row = value.toMap(); row["segments"] = QVariantMap(); value = row;
         }
         // Reattach to known active work immediately, even while the worker is
         // awaiting an HTTP response and cannot publish another snapshot yet.
-        if (m_haveStatusSnapshot) m_statuses = visibleStatuses(m_rawStatuses, m_feedbackGeneration.load());
+        if (m_haveStatusSnapshot && m_rawStatusScope == m_feedbackScope && m_rawStatusCanonical == m_feedbackCanonical)
+            m_statuses = visibleStatuses(m_rawStatuses, m_feedbackGeneration.load());
+        else m_statuses.clear();
+        m_wake.notify_one();
         emit changed();
     }
     if (!m_context || context() == m_context) return;
+    if (m_reviewCancel) m_reviewCancel->store(true);
     ++m_generation; m_plan.reset(); m_review.clear(); m_context.reset(); m_busy = false; emit changed();
 }
 
@@ -99,6 +112,8 @@ void SubmissionModel::push(Command command)
 void SubmissionModel::prepare(const QVariantList &selection, const QString &endpoint)
 {
     if (m_closed || m_busy) return;
+    if (m_reviewCancel) m_reviewCancel->store(true);
+    m_reviewCancel = std::make_shared<std::atomic_bool>(false);
     ++m_generation; m_plan.reset(); m_review.clear(); m_message.clear();
     if (!m_library.m_detail) {
         m_message = "Open a TV show before submitting segments"; emit changed(); return;
@@ -106,7 +121,7 @@ void SubmissionModel::prepare(const QVariantList &selection, const QString &endp
     m_context = context(); m_busy = true;
     auto key = endpoint;
     for (const auto &id : {QString("introdb_app"), QString("theintrodb_org")}) if (endpoint == label(id)) key = id;
-    push({Kind::Prepare, m_generation, m_library.m_detail, selection, key, {}});
+    push({Kind::Prepare, m_generation, m_library.m_detail, selection, key, {}, m_reviewCancel, m_feedbackScope});
     emit changed();
 }
 
@@ -122,6 +137,7 @@ void SubmissionModel::confirm()
 void SubmissionModel::cancelReview()
 {
     if (m_closed) return;
+    if (m_reviewCancel) m_reviewCancel->store(true);
     ++m_generation; m_plan.reset(); m_review.clear(); m_context.reset();
     m_busy = false; m_message.clear(); emit changed();
 }
@@ -156,18 +172,51 @@ void SubmissionModel::run()
             finished(kind, generation, value, error);
         }, Qt::QueuedConnection);
     };
-    QVariantMap previous; std::optional<quint64> previousGeneration;
+    QVariantMap previous, cached; std::optional<quint64> previousGeneration, cachedGeneration;
+    std::optional<qint64> cachedRevision;
+    std::unique_ptr<sql::Connection> watch;
+    QMap<QString, double> limits;
+    bool pending = true;
     const auto publish = [&] {
-        const auto generation = m_feedbackGeneration.load();
-        const auto settings = m_settings.loadEndpoints();
-        QVariantList endpoints;
-        for (const auto &id : {QString("introdb_app"), QString("theintrodb_org")}) {
-            const auto enabled = settings.value(id == "introdb_app" ? "introdb_enabled" : "theintrodb_enabled").toBool();
-            if (enabled && m_settings.hasCredential("endpoints:" + id)) endpoints.append(label(id));
+        if (!watch) watch = std::make_unique<sql::Connection>(m_settings.databasePath());
+        auto token = sql::execute(watch->db, "SELECT revision FROM submission_state WHERE id=1");
+        if (!token.next()) throw DatabaseError("Submission state is missing.");
+        const auto revision = token.value(0).toLongLong(); token.finish();
+        quint64 generation; QString scope; QStringList canonical;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            generation = m_feedbackGeneration.load(); scope = m_feedbackScope; canonical = m_feedbackCanonical;
         }
-        const auto snapshot = m_store.snapshot();
-        const QVariantMap value{{"queue", snapshot.queue}, {"history", snapshot.history}, {"statistics", snapshot.statistics},
-            {"endpoints", endpoints}, {"statuses", m_store.episodeStatuses(true)}};
+        const bool changed = !cachedRevision || *cachedRevision != revision;
+        if (changed) {
+            const auto settings = m_settings.loadEndpoints(); QVariantList endpoints;
+            for (const auto &id : {QString("introdb_app"), QString("theintrodb_org")}) {
+                const auto enabled = settings.value(id == "introdb_app" ? "introdb_enabled" : "theintrodb_enabled").toBool();
+                if (enabled && m_settings.hasCredential("endpoints:" + id)) endpoints.append(label(id));
+            }
+            const auto snapshot = m_store.snapshot();
+            cached = {{"queue", snapshot.queue}, {"history", snapshot.history}, {"statistics", snapshot.statistics}, {"endpoints", endpoints}};
+            pending = !snapshot.queue.isEmpty(); limits.clear();
+            auto query = sql::execute(watch->db, "SELECT endpoint,resume_at FROM submit_api_rate_limits");
+            while (query.next()) limits[label(query.value(0).toString())] = query.value(1).toDouble();
+        }
+        if (changed || cachedGeneration != generation) {
+            cached["statuses"] = m_store.episodeStatuses(true, scope, canonical); cached["scope"] = scope;
+            cached["canonical"] = canonical;
+            cachedGeneration = generation;
+        }
+        cachedRevision = revision;
+        auto value = cached;
+        if (!limits.isEmpty()) {
+            auto queue = value.value("queue").toList();
+            for (auto &entry : queue) {
+                auto row = entry.toMap();
+                if (!row.value("status").toString().startsWith("Rate limited")) continue;
+                const auto seconds = qint64(std::max(0., limits.value(row.value("endpoint").toString()) - m_store.currentTime()));
+                row["status"] = QString("Rate limited %1:%2").arg(seconds / 60).arg(seconds % 60, 2, 10, QChar('0')); entry = row;
+            }
+            value["queue"] = queue;
+        }
         if (value != previous || previousGeneration != generation) {
             previous = value; previousGeneration = generation; post(Kind::Snapshot, generation, value);
         }
@@ -183,13 +232,16 @@ void SubmissionModel::run()
                 try {
                     QVariant value;
                     if (command->kind == Kind::Prepare) {
-                        value = submissions::prepareSubmission(*command->detail, command->selection, command->endpoint, m_settings, m_segments, m_stop);
+                        providers::checkCancelled(command->cancel);
+                        value = submissions::prepareSubmission(*command->detail, command->selection, command->endpoint, m_settings, m_segments, command->cancel, command->scope);
                     } else {
                         const auto client = submissions::EndpointClient::fromStore(command->plan.value("endpoint").toString(), m_settings);
                         for (const auto &item : command->plan.value("items").toList()) client.validate(item.toMap());
                         value = m_store.enqueue(command->plan);
                     }
                     post(command->kind, command->generation, value);
+                } catch (const providers::Cancelled &) {
+                    // Obsolete preparation never cancels confirmed queue commands.
                 } catch (const submissions::SubmissionError &error) {
                     post(command->kind, command->generation, {}, QString::fromUtf8(error.what()));
                 } catch (...) {
@@ -197,8 +249,12 @@ void SubmissionModel::run()
                 }
             }
             publish();
-            m_store.processOne(m_settings, m_stop, publish);
+            if (pending) {
+                m_store.processOne(m_settings, m_stop, publish);
+                publish();
+            }
         } catch (...) {
+            watch.reset(); cachedRevision.reset();
             if (!m_stop->load()) post(Kind::Error, 0, {}, "Submission processing could not access app.db or endpoint configuration. Pending jobs remain stored and will retry.");
         }
         std::unique_lock<std::mutex> lock(m_mutex);
@@ -229,6 +285,8 @@ void SubmissionModel::finished(Kind kind, quint64 generation, const QVariant &va
         }
         m_statistics = row.value("statistics").toMap(); m_endpoints = row.value("endpoints").toList();
         m_rawStatuses = row.value("statuses").toMap(); m_haveStatusSnapshot = true;
+        m_rawStatusScope = row.value("scope").toString();
+        m_rawStatusCanonical = row.value("canonical").toStringList();
         m_statuses = visibleStatuses(m_rawStatuses, generation);
     } else if (kind == Kind::Error) {
         if (m_message != error) emit errorOccurred(error);
@@ -262,6 +320,7 @@ void SubmissionModel::close()
 {
     if (m_closed) return;
     m_closed = true; m_stop->store(true); m_wake.notify_one();
+    if (m_reviewCancel) m_reviewCancel->store(true);
     disconnect(&m_library, nullptr, this, nullptr);
     m_queuePool.waitForDone();
     m_pool.waitForDone();

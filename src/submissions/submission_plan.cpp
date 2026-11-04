@@ -8,7 +8,7 @@ namespace introvert::submissions {
 
 QVariantMap prepareSubmission(const providers::ShowDetail &detail, const QVariantList &selection,
                               const QString &endpoint, const SettingsStore &settings, const segments::SegmentStore &segments,
-                              const providers::Cancellation &cancelled)
+                              const providers::Cancellation &cancelled, const QString &scope)
 {
     if (endpoint != "introdb_app" && endpoint != "theintrodb_org") throw SubmissionError("Choose a submission endpoint");
     const auto client = EndpointClient::fromStore(endpoint, settings);
@@ -22,6 +22,7 @@ QVariantMap prepareSubmission(const providers::ShowDetail &detail, const QVarian
     std::set<std::pair<QString, QString>> seen;
     QSet<qint64> seasons;
     for (const auto &value : selection) {
+        providers::checkCancelled(cancelled);
         if (value.metaType().id() != QMetaType::QVariantMap) throw SubmissionError("Invalid episode or segment selection");
         const auto row = value.toMap();
         const auto id = row.value("id");
@@ -73,7 +74,10 @@ QVariantMap prepareSubmission(const providers::ShowDetail &detail, const QVarian
         }
     }
     if (seasons.size() != 1) throw SubmissionError("Select episodes from one season");
-    return {{"endpoint", endpoint}, {"provider", providers::providerName(detail.show.identity.provider)}, {"show_id", detail.show.identity.itemId},
+    const auto saved = settings.loadProvider(providers::providerName(detail.show.identity.provider));
+    const auto sourceScope = scope.isEmpty() ? providers::providerScope(detail.show.identity,
+        saved.provider == "local" ? saved.localRoot : saved.remoteUrl) : scope;
+    return {{"scope", sourceScope}, {"endpoint", endpoint}, {"provider", providers::providerName(detail.show.identity.provider)}, {"show_id", detail.show.identity.itemId},
         {"show", detail.show.title}, {"imdb", detail.show.externalIds.imdb ? QVariant(*detail.show.externalIds.imdb) : QVariant()},
         {"tmdb", detail.show.externalIds.tmdb ? QVariant(*detail.show.externalIds.tmdb) : QVariant()},
         {"tvdb", detail.show.externalIds.tvdb ? QVariant(*detail.show.externalIds.tvdb) : QVariant()},

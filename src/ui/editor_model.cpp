@@ -257,10 +257,10 @@ void EditorModel::save(const QVariantList &rows)
     } catch (const SegmentError &error) { m_message = QString::fromUtf8(error.what()); emit errorOccurred(m_message); emit changed(); return; }
     const auto context = *m_context; const auto length = duration();
     m_busy = true; m_message.clear();
-    submit(Kind::Save, [this, context, length, changes](const Cancellation &) {
+    submit(Kind::Save, [this, context, length, changes, connection=m_library.connectionAddress()](const Cancellation &) {
         // A requested save remains atomic even if the dialog closes before its
         // worker starts. Only obsolete display results are discarded.
-        const auto edit=m_library.m_editLocks.edit({{context.detail.show,context.episode.seasonNumber.value_or(-1)}});
+        const auto edit=m_library.m_editLocks.edit({{context.detail.show,context.episode.seasonNumber.value_or(-1)}},connection);
         if(!edit)throw SegmentError("Season timestamps cannot be edited during detection");
         m_store.save(context.detail.show, context.episode, changes, length);
         Result result; result.values = m_store.load(context.detail.show, context.episode);

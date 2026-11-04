@@ -24,8 +24,9 @@ QVariantList readRows(QSqlDatabase &db, const QString &statement, const QVariant
     while (query.next()) { QVariantMap row; for (int i = 0; i < record.count(); ++i) row[record.fieldName(i)] = query.value(i); result.append(row); }
     return result;
 }
-const QString summaryColumns = "d.id,provider,show_id,title,season,kinds,status,current,total,message,error,result,created,updated,status_revision,q.position AS queueOrder,q.running AS queueRunning";
-const QString summaryFrom = " FROM detection_jobs d LEFT JOIN queue_order q ON q.key='d:'||d.id ";
+const QString summaryColumns = "d.id,provider,show_id,title,season,kinds,status,current,total,message,error,result,created,updated,status_revision,COALESCE(s.scope,'') AS scope,q.position AS queueOrder,q.running AS queueRunning";
+const QString scopedFrom = " FROM detection_jobs d LEFT JOIN detection_job_scopes s ON s.job_id=d.id ";
+const QString summaryFrom = scopedFrom + "LEFT JOIN queue_order q ON q.key='d:'||d.id ";
 }
 void DetectionJobStore::initialize() const
 {
@@ -38,12 +39,13 @@ void DetectionJobStore::initialize() const
     while(columns.next())hasRevision|=columns.value(1).toString()=="status_revision";columns.finish();
     if(!hasRevision)sql::execute(connection.db,"ALTER TABLE detection_jobs ADD COLUMN status_revision INTEGER NOT NULL DEFAULT 0");
     queueOrder::initialize(connection.db);
+    sql::execute(connection.db, "CREATE TABLE IF NOT EXISTS detection_job_scopes(job_id TEXT PRIMARY KEY,scope TEXT NOT NULL)");
     sql::execute(connection.db, "DELETE FROM queue_order WHERE key LIKE 'd:%'");
     sql::execute(connection.db, "UPDATE detection_jobs SET status='failed',message='Previous detection was interrupted',updated=? WHERE status IN ('queued','running')", {now()}); transaction.commit();
 }
 QVariantList DetectionJobStore::rows() const
 {
-    sql::Connection connection(m_path); return readRows(connection.db, "SELECT * FROM detection_jobs ORDER BY created DESC");
+    sql::Connection connection(m_path); return readRows(connection.db, "SELECT d.*,COALESCE(s.scope,'') AS scope" + scopedFrom + "ORDER BY created DESC");
 }
 QVariantList DetectionJobStore::summaries() const
 {
@@ -53,17 +55,21 @@ QVariantList DetectionJobStore::summaries() const
 }
 QVariantMap DetectionJobStore::row(const QString &id) const
 {
-    sql::Connection connection(m_path); const auto rows = readRows(connection.db, "SELECT * FROM detection_jobs WHERE id=?", {id});
+    sql::Connection connection(m_path); const auto rows = readRows(connection.db, "SELECT d.*,COALESCE(s.scope,'') AS scope" + scopedFrom + "WHERE d.id=?", {id});
     return rows.isEmpty() ? QVariantMap{} : rows.first().toMap();
 }
-QPair<QString, bool> DetectionJobStore::create(const providers::ShowDetail &detail, int season, const QStringList &kinds) const
+QPair<QString, bool> DetectionJobStore::create(const providers::ShowDetail &detail, int season, const QStringList &kinds, const QString &scope) const
 {
     const auto provider = providers::providerName(detail.show.identity.provider); sql::Connection connection(m_path); sql::Transaction transaction(connection.db);
-    auto query = sql::execute(connection.db, "SELECT id FROM detection_jobs WHERE provider=? AND show_id=? AND season=? AND status IN ('queued','running') ORDER BY created DESC LIMIT 1", {provider, detail.show.identity.itemId, season});
+    const auto sourceScope = scope.isEmpty() ? providers::providerScope(detail.show.identity) : scope;
+    auto query = sql::execute(connection.db, "SELECT j.id FROM detection_jobs j JOIN detection_job_scopes s ON s.job_id=j.id "
+        "WHERE provider=? AND show_id=? AND season=? AND s.scope=? AND status IN ('queued','running') ORDER BY created DESC LIMIT 1",
+        {provider, detail.show.identity.itemId, season, sourceScope});
     if (query.next()) { const auto id = query.value(0).toString(); query.finish(); transaction.commit(); return {id, false}; } query.finish();
     const auto id = QUuid::createUuid().toString(QUuid::WithoutBraces); const auto time = now();
     sql::execute(connection.db, "INSERT INTO detection_jobs VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", {id, provider, detail.show.identity.itemId, detail.show.title, season,
         QString::fromUtf8(QJsonDocument(QJsonArray::fromStringList(kinds)).toJson(QJsonDocument::Compact)), "queued", 0, 1000, "Scan queued", "", "{}", "{}", time, time,segments::currentRevision(connection.db)});
+    sql::execute(connection.db, "INSERT INTO detection_job_scopes VALUES(?,?)", {id, sourceScope});
     queueOrder::append(connection.db, "d:" + id); transaction.commit(); return {id, true};
 }
 void DetectionJobStore::progress(const QString &id, const QString &phase, int current, int total) const
@@ -95,7 +101,7 @@ QVariantList DetectionJobStore::queue(const QVariantList &rows)
     for (const auto &value : rows) {
         const auto row = value.toMap(); const auto status = row.value("status").toString(); if (status != "queued" && status != "running") continue;
         const int season = row.value("season").toInt();
-        result.append(QVariantMap{{"type", "Detection"}, {"endpoint", ""}, {"show", row.value("title")}, {"episode", "Season " + QString::number(season)}, {"code", QString("S%1").arg(season, 2, 10, QLatin1Char('0'))},
+        result.append(QVariantMap{{"scope", row.value("scope")}, {"type", "Detection"}, {"endpoint", ""}, {"show", row.value("title")}, {"episode", "Season " + QString::number(season)}, {"code", QString("S%1").arg(season, 2, 10, QLatin1Char('0'))},
             {"date", QDateTime::fromMSecsSinceEpoch(qint64(std::floor(std::nearbyint(row.value("created").toDouble() * 1000000.) / 1000.)), QTimeZone::UTC).toString(Qt::ISODateWithMs)}, {"status", status == "running" || row.value("queueRunning").toBool() ? "Detecting" : "Queued"},
             {"showId", row.value("show_id")}, {"providerId", row.value("provider")}, {"jobId", row.value("id")}, {"progressCurrent", row.value("current")}, {"progressTotal", row.value("total")}, {"queueKey", "d:" + row.value("id").toString()},
             {"queueOrder", row.value("queueOrder")}, {"queueRunning", status == "running" || row.value("queueRunning").toBool()}});

@@ -61,6 +61,6 @@ private:
     Clock m_clock;
 };
 
-QString comparison(const LookupResult &lookup, double start, const std::optional<double> &end);
+QString comparison(const LookupResult &lookup, double start, const std::optional<double> &end, bool millisecondPrecision = false);
 
 } // namespace introvert::submissions
