@@ -162,6 +162,25 @@ std::optional<ShowDetail> PlexProvider::getShow(const ProviderConfig &config, co
     const auto path = "/library/metadata/" + detail::quote(showId);
     const auto metadata = items(config, path, {{"includeGuids", 1}, {"includePreferences",1}}, cancelled);
     if (metadata.isEmpty()) return std::nullopt;
+    auto ordering=metadata.first()["showOrdering"].toString();
+    for(const auto &setting:metadata.first()["Preferences"].toObject()["Setting"].toArray())
+        if(setting.toObject()["id"]=="showOrdering")ordering=setting.toObject()["value"].toString();
+    // An empty show override means Library default, not an unknown source.
+    // Read the actual library preference; never assume TMDB or TVDB from IDs.
+    const auto section=detail::nonnegativeNumber(metadata.first()["librarySectionID"]);
+    if(ordering.isEmpty() && section && *section>0) {
+        try {
+            const auto preferences=request(config,"/library/sections/"+QString::number(*section)+"/prefs",{},cancelled).toObject();
+            for(const auto &value:preferences["Setting"].toArray()) {
+                const auto setting=value.toObject();
+                if(setting["id"]=="showOrdering")ordering=setting[setting.contains("value")?"value":"default"].toString();
+            }
+        } catch(const ProviderError &error) {
+            // Restricted/older servers can still provide usable show metadata.
+            // Submission remains blocked unless an exact episode ID is present.
+            if(error.httpStatus()!=403 && error.httpStatus()!=404 && error.httpStatus()!=405)throw;
+        }
+    }
     QList<QJsonObject> episodes;
     try { episodes = items(config, path + "/allLeaves", {{"includeMarkers", 1}, {"includeGuids", 1}}, cancelled); }
     catch (const ProviderError &) { /* Preserve the source's season-children fallback. */ }
@@ -190,9 +209,6 @@ std::optional<ShowDetail> PlexProvider::getShow(const ProviderConfig &config, co
             const auto value=guid.toObject()["id"].toString();
             if(value.startsWith("tvdb://")) {episode.tvdbEpisodeId=value.mid(7);episode.numberingSource="tvdb";}
         }
-        auto ordering=metadata.first()["showOrdering"].toString();
-        for(const auto &setting:metadata.first()["Preferences"].toObject()["Setting"].toArray())
-            if(setting.toObject()["id"]=="showOrdering")ordering=setting.toObject()["value"].toString();
         if(ordering=="tmdbAiring")episode.numberingSource="tmdb";
         else if(!normalizedEpisodeOrder(ordering).isEmpty()) {episode.numberingSource="tvdb";episode.episodeOrder=normalizedEpisodeOrder(ordering);}
         if (m_machine && !m_machine->isEmpty()) episode.itemUrl = web(config, key);

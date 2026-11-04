@@ -184,7 +184,6 @@ Rectangle {
                         row.submissionErrorRequested(modelData.kind.charAt(0).toUpperCase()+modelData.kind.slice(1)+" submission failed",message)
                     }
                 }
-                Skeleton { visible: modelData.result==="PROCESSING"; width: parent.width; height: 5; theme: row.theme }
                 Text { objectName: "submissionInlineError_"+row.episode.id+"_"+modelData.kind; visible: modelData.result!=="FAIL" && Boolean(modelData.error); width: parent.width; text: modelData.error || ""; horizontalAlignment: Text.AlignRight; color: row.statusColor(modelData.result); font.pixelSize: 12; wrapMode: Text.WordWrap }
             }
         }
