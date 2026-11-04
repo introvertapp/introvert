@@ -2,10 +2,15 @@
 
 [← Documentation](../README.md#table-of-contents)
 
-Download the app from [GitHub Releases](https://github.com/introvertapp/introvert/releases).
+Download the app from the [latest application release](https://github.com/introvertapp/introvert/releases/latest).
 Choose the package for your operating system and processor under **Assets**.
 Packaged releases include the required application runtimes; you do not need
 Qt, FFmpeg, Python, or development tools.
+
+**The detector is not bundled with the app.** After installing Introvert,
+[install the detector separately](#install-the-detector) through Settings before
+running automated detection. You can browse, play media, and edit timestamps
+without it.
 
 Current releases do not have trusted publisher signatures. Use the workarounds
 below only for packages you downloaded from this project's GitHub Releases.
@@ -32,6 +37,7 @@ Native Windows and Linux runtime and installation testing is still pending.
 1. Download and open the ZIP for your Mac.
 2. Move **Introvert.app** to **Applications**.
 3. Open Introvert and allow access to your media folders or local network when prompted.
+4. [Install the detector](#install-the-detector) before running detection.
 
 ### If macOS blocks the app
 
@@ -57,6 +63,7 @@ download a fresh copy rather than disabling Gatekeeper.
 1. Download and run the `windows-x86_64-setup.exe` installer.
 2. Follow the installer, then open **Introvert** from the Start menu.
 3. Allow network access if prompted and you plan to connect a media server.
+4. [Install the detector](#install-the-detector) before running detection.
 
 Installation is for your user account.
 
@@ -93,6 +100,7 @@ sudo dnf install ./Introvert-*.rpm
 
 Launch **Introvert** from your desktop's application menu. Later application
 updates may ask for system authorization through your package manager.
+Before running detection, [install the detector](#install-the-detector).
 
 ### If Linux rejects an unsigned RPM
 
@@ -107,6 +115,27 @@ This [DNF option](https://dnf.readthedocs.io/en/latest/conf_ref.html)
 leaves repository signature checks unchanged. A stricter system policy may still
 require signed packages. Local DEB installation with `apt` normally needs no
 signature workaround.
+
+## Install the detector
+
+Detector installation is a separate, manual step inside Introvert on all
+platforms:
+
+1. Open **Settings → Application**.
+2. Click **Check for Updates**.
+3. In the **Detector** row, click the green version badge under **Latest** to
+   download and install the detector.
+4. Wait for the installation confirmation. The installed version replaces
+   **Not installed**, and you can start detection without restarting Introvert.
+
+You start the installation manually; Introvert handles the download,
+verification, and installation. If you try to start detection without a detector,
+the app prompts you to install it through these Settings controls.
+
+The app and detector receive independent updates. Use the same controls for
+later detector updates. Compatible detector updates apply to new scans without
+updating or restarting the app. Scans already running keep their current
+detector version.
 
 ## Next step
 

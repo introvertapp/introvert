@@ -54,12 +54,18 @@ rewrite the media files or change the markers on a connected media server.
 
 ## Quick start
 
+The detector is not bundled with the app. Install it separately before running
+automated detection. Browsing, playback, and timestamp editing work without it.
+
 1. [Install Introvert](docs/installation.md) for your operating system.
-2. Open **Settings → Media** and [connect a server or local folder](docs/setup.md).
-3. Return to **TV Shows**, open a show, and choose a season with at least two episodes.
-4. Choose **Intro**, **Credits**, or both, then click **Detect Segments**.
-5. Open an episode's video editor to [check and save any corrections](docs/editor.md).
-6. Optionally, [submit selected timestamps](docs/sharing.md) to a community database.
+2. [Install the detector](docs/installation.md#install-the-detector): open
+   **Settings → Application**, click **Check for Updates**, then click the green
+   **Latest** version badge in the **Detector** row.
+3. Open **Settings → Media** and [connect a server or local folder](docs/setup.md).
+4. Return to **TV Shows**, open a show, and choose a season with at least two episodes.
+5. Choose **Intro**, **Credits**, or both, then click **Detect Segments**.
+6. Open an episode's video editor to [check and save any corrections](docs/editor.md).
+7. Optionally, [submit selected timestamps](docs/sharing.md) to a community database.
 
 ## Detection performance
 

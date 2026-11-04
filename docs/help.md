@@ -31,12 +31,15 @@ successful detection completion; they do not report submission completion.
 
 ## Updates
 
-The detector is optional until you run detection. Its installed version shows
-**Not installed** until you download it through the same update controls below.
+The app and detector are updated independently. The detector is
+[installed separately](installation.md#install-the-detector) and is required
+only for automated detection. Its installed version shows **Not installed**
+until you download it through the same controls below.
 
 1. Open **Settings → Application** and click **Check for Updates**.
-2. If an update is available, click the green **Latest** version download badge
-   for Introvert or the Detector.
+2. When a download is available, click the green **Latest** version badge for
+   Introvert or the Detector. Use the Detector badge for first installation as
+   well as updates.
 3. Follow the status message. For an application update, click **Restart to Update**
    when the download is ready.
 
@@ -88,8 +91,8 @@ saved credentials.
 Local media files are separate from the database. If their paths differ on the
 new machine, choose the destination media folder in **Settings → Media**.
 Server sources must remain reachable from the new machine. Install the app
-package for the destination OS and CPU; copying the database does not require
-copying a detector package from the old machine.
+package for the destination OS and CPU, then [install the detector](installation.md#install-the-detector)
+through Settings before running detection there.
 
 ## Troubleshooting
 
@@ -99,6 +102,7 @@ copying a detector package from the old machine.
 | New local episodes are missing | Use **Rescan for changes**. Use filenames with season/episode numbers such as `S01E01`. |
 | Local show has the wrong title or no artwork | Check metadata credentials, use **Fetch metadata**, or correct the match with **Identify**. |
 | Video will not open | Check file access and original-file download permissions on the server. Introvert does not use server transcoding. |
+| Detector unavailable | [Install the detector](installation.md#install-the-detector) through **Settings → Application → Check for Updates**, then start detection again. |
 | No Intro or Credits found | Check that the season has at least two usable episodes and a recurring sequence within the [search areas](detection.md#existing-timestamps-and-missed-matches). Add the range manually if needed. |
 | Re-running detection leaves a timestamp unchanged | Existing timestamps, edits, and intentional deletions are protected. [Edit the range](editor.md) to correct it. |
 | Submission fails | Click **FAILED** on the episode; check the endpoint key, show IDs, and episode mapping. |
