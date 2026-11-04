@@ -22,10 +22,10 @@ Settings save automatically. Return to **TV Shows** to load the selected source.
 Use your server's actual address in place of `server`. Use a direct server URL
 that does not redirect to another address. Your credential must allow access to
 the TV library and original media files. Detection and playback use those files
-directly; Introvert does not ask the server to transcode them.
+directly; INTROvert does not ask the server to transcode them.
 
 Server timestamp imports are **off by default** and configured separately for
-each provider. Turning imports off keeps timestamps already saved in Introvert.
+each provider. Turning imports off keeps timestamps already saved in INTROvert.
 Use **Rebuild Cache** to refresh the selected server's library and artwork.
 
 ## Local folders and network storage

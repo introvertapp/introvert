@@ -1,6 +1,6 @@
-# Introvert
+# INTROvert
 
-Introvert is a desktop application for detecting, reviewing, and editing TV
+INTROvert is a desktop application for detecting, reviewing, and editing TV
 episode segment timestamps. It combines automated intro and credits detection
 with a video editor for manually matching segment boundaries to the exact frames
 of an episode.
@@ -23,7 +23,7 @@ timestamps entirely by hand. Recap, Intro, Credits, and Preview segments can all
 be edited, with keyboard shortcuts and episode navigation keeping the review
 workflow close to the video.
 
-Introvert also brings the surrounding timestamp workflow into one application:
+INTROvert also brings the surrounding timestamp workflow into one application:
 
 - **Media libraries:** Browse episodes from Plex, Emby, Jellyfin, or local media
   folders, including network storage.
@@ -57,7 +57,7 @@ rewrite the media files or change the markers on a connected media server.
 The detector is not bundled with the app. Install it separately before running
 automated detection. Browsing, playback, and timestamp editing work without it.
 
-1. [Install Introvert](docs/installation.md) for your operating system.
+1. [Install INTROvert](docs/installation.md) for your operating system.
 2. [Install the detector](docs/installation.md#install-the-detector): open
    **Settings → Application**, click **Check for Updates**, then click the green
    **Latest** version badge in the **Detector** row.
@@ -83,7 +83,7 @@ SSD; times below are for the whole season.
 | 10 × 60 min | 4K | ≈7.7 s | ≈13.0 s |
 
 Measured on a **Mac mini · Apple M6 · 12-core CPU · 16 GB RAM**, running
-**macOS 27.2** (Introvert 0.1.17, detector 0.51.2). Each value is the rounded
+**macOS 27.2** (INTROvert 0.1.17, detector 0.51.2). Each value is the rounded
 median of three fresh-analysis runs using synthetic 24 fps H.264/AAC files with
 repeated moving test-pattern video, generated music and quiet gaps. File generation
 and library import are excluded; operating-system file caches were not flushed.

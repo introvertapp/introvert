@@ -2,7 +2,7 @@
 
 [← Documentation](../README.md#table-of-contents)
 
-Introvert supports **Recap**, **Intro**, **Credits**, and **Preview** ranges.
+INTROvert supports **Recap**, **Intro**, **Credits**, and **Preview** ranges.
 Edits are saved locally; they do not rewrite videos or server markers.
 
 ## Edit without opening video
@@ -30,7 +30,7 @@ when zoomed in. Audio levels can help locate transitions. The playback controls
 also offer frame-step size, playback speed, mute, auto-play, and embedded
 subtitles when available. Hover over an icon to see its action.
 
-Use the episode drawer or **J / L** to switch episodes. Introvert asks you to
+Use the episode drawer or **J / L** to switch episodes. INTROvert asks you to
 save or discard unsaved changes before leaving. The **Reset icon** restores
 the saved timeline and resets zoom.
 

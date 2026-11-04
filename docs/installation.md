@@ -7,7 +7,7 @@ Choose the package for your operating system and processor under **Assets**.
 Packaged releases include the required application runtimes; you do not need
 Qt, FFmpeg, Python, or development tools.
 
-**The detector is not bundled with the app.** After installing Introvert,
+**The detector is not bundled with the app.** After installing INTROvert,
 [install the detector separately](#install-the-detector) through Settings before
 running automated detection. You can browse, play media, and edit timestamps
 without it.
@@ -35,19 +35,19 @@ Native Windows and Linux runtime and installation testing is still pending.
 ## macOS
 
 1. Download and open the ZIP for your Mac.
-2. Move **Introvert.app** to **Applications**.
-3. Open Introvert and allow access to your media folders or local network when prompted.
+2. Move `Introvert.app` to **Applications**.
+3. Open INTROvert and allow access to your media folders or local network when prompted.
 4. [Install the detector](#install-the-detector) before running detection.
 
 ### If macOS blocks the app
 
-1. Try opening Introvert once, then dismiss the warning.
+1. Try opening INTROvert once, then dismiss the warning.
 2. Open **System Settings → Privacy & Security**.
-3. Click **Open Anyway**, confirm, and open Introvert again.
+3. Click **Open Anyway**, confirm, and open INTROvert again.
 
-This creates an exception for Introvert. See [Apple's instructions](https://support.apple.com/en-us/102445).
+This creates an exception for INTROvert. See [Apple's instructions](https://support.apple.com/en-us/102445).
 
-If the official download is still blocked by quarantine, quit Introvert, open
+If the official download is still blocked by quarantine, quit INTROvert, open
 **Terminal**, and run:
 
 ```sh
@@ -55,13 +55,13 @@ xattr -dr com.apple.quarantine "/Applications/Introvert.app"
 ```
 
 Open the app again. This removes the downloaded-file quarantine flag from
-Introvert only. Adjust the path if you installed it elsewhere. If it still fails,
+INTROvert only. Adjust the path if you installed it elsewhere. If it still fails,
 download a fresh copy rather than disabling Gatekeeper.
 
 ## Windows
 
 1. Download and run the `windows-x86_64-setup.exe` installer.
-2. Follow the installer, then open **Introvert** from the Start menu.
+2. Follow the installer, then open **INTROvert** from the Start menu.
 3. Allow network access if prompted and you plan to connect a media server.
 4. [Install the detector](#install-the-detector) before running detection.
 
@@ -84,7 +84,7 @@ on a managed PC, ask your administrator.
 ## Linux
 
 Download the DEB or RPM for your processor. Open a terminal in the download
-folder containing only the Introvert package you want to install.
+folder containing only the INTROvert package you want to install.
 
 On Ubuntu or a compatible Debian-based system:
 
@@ -98,7 +98,7 @@ On a compatible RPM system using DNF:
 sudo dnf install ./Introvert-*.rpm
 ```
 
-Launch **Introvert** from your desktop's application menu. Later application
+Launch **INTROvert** from your desktop's application menu. Later application
 updates may ask for system authorization through your package manager.
 Before running detection, [install the detector](#install-the-detector).
 
@@ -118,7 +118,7 @@ signature workaround.
 
 ## Install the detector
 
-Detector installation is a separate, manual step inside Introvert on all
+Detector installation is a separate, manual step inside INTROvert on all
 platforms:
 
 1. Open **Settings → Application**.
@@ -126,9 +126,9 @@ platforms:
 3. In the **Detector** row, click the green version badge under **Latest** to
    download and install the detector.
 4. Wait for the installation confirmation. The installed version replaces
-   **Not installed**, and you can start detection without restarting Introvert.
+   **Not installed**, and you can start detection without restarting INTROvert.
 
-You start the installation manually; Introvert handles the download,
+You start the installation manually; INTROvert handles the download,
 verification, and installation. If you try to start detection without a detector,
 the app prompts you to install it through these Settings controls.
 

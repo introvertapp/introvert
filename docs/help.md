@@ -38,7 +38,7 @@ until you download it through the same controls below.
 
 1. Open **Settings → Application** and click **Check for Updates**.
 2. When a download is available, click the green **Latest** version badge for
-   Introvert or the Detector. Use the Detector badge for first installation as
+   INTROvert or the Detector. Use the Detector badge for first installation as
    well as updates.
 3. Follow the status message. For an application update, click **Restart to Update**
    when the download is ready.
@@ -55,19 +55,19 @@ restarting. On Linux, application installation may require system authorization.
 You can also install a newer [release package](installation.md) manually.
 
 Checks are **Manual** by default. **Automatic** checks at startup and periodically
-while Introvert is open; it still waits for you to download and install updates.
+while INTROvert is open; it still waits for you to download and install updates.
 App updates keep your settings and saved timestamps.
 
 ## Back up or move your data
 
 To move to another machine, including a different operating system:
 
-1. Quit Introvert completely on both machines. On macOS, use **Cmd + Q**;
+1. Quit INTROvert completely on both machines. On macOS, use **Cmd + Q**;
    closing the window keeps the app running.
 2. Copy `data/app.db` from the source application-data folder into `data/` in
    the destination application-data folder, replacing its existing database.
    Keep a backup of the destination database first if it contains data you need.
-3. Open the same or a newer version of Introvert on the destination machine.
+3. Open the same or a newer version of INTROvert on the destination machine.
 
 The database carries settings, API keys, library metadata, saved timestamps and
 intentional deletions, detection records, submission queue, and history. No
@@ -85,7 +85,7 @@ Linux uses `$XDG_DATA_HOME/Introvert` when that variable is set. A custom
 
 Downloaded artwork lives separately in `data/media-image-cache` and can be
 fetched again. To back up artwork too, copy the whole application-data folder
-while Introvert is closed. Keep backups private: the database contains your
+while INTROvert is closed. Keep backups private: the database contains your
 saved credentials.
 
 Local media files are separate from the database. If their paths differ on the
@@ -101,7 +101,7 @@ through Settings before running detection there.
 | Library will not load | Check **Settings → Media**, the server URL and key, or local folder permissions. Mount network storage and allow local-network access if prompted. |
 | New local episodes are missing | Use **Rescan for changes**. Use filenames with season/episode numbers such as `S01E01`. |
 | Local show has the wrong title or no artwork | Check metadata credentials, use **Fetch metadata**, or correct the match with **Identify**. |
-| Video will not open | Check file access and original-file download permissions on the server. Introvert does not use server transcoding. |
+| Video will not open | Check file access and original-file download permissions on the server. INTROvert does not use server transcoding. |
 | Detector unavailable | [Install the detector](installation.md#install-the-detector) through **Settings → Application → Check for Updates**, then start detection again. |
 | No Intro or Credits found | Check that the season has at least two usable episodes and a recurring sequence within the [search areas](detection.md#existing-timestamps-and-missed-matches). Add the range manually if needed. |
 | Re-running detection leaves a timestamp unchanged | Existing timestamps, edits, and intentional deletions are protected. [Edit the range](editor.md) to correct it. |

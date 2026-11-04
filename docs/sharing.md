@@ -46,7 +46,7 @@ Episode feedback includes **Submitted**, **Exists**, **Queued**, **Submitting**,
 **Limited**, **Skipped**, and **Failed**. **Exists** means the service already
 has a matching timestamp. Click **FAILED** for details on an unsuccessful submission.
 
-Introvert checks for duplicates and observes service rate limits. If a service
+INTROvert checks for duplicates and observes service rate limits. If a service
 limits requests, let the queue wait rather than repeatedly submitting the same
 items. For failures, correct the reported key, identification, or connection
 problem before reviewing and submitting again.

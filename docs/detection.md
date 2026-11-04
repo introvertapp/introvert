@@ -47,7 +47,7 @@ time remaining. If one show cannot load, the scan logs the error and continues.
 ## Progress and stopping
 
 - Use **Queue** to check active work and **History** for completed jobs.
-- You can browse other screens while detection runs. Keep Introvert open;
+- You can browse other screens while detection runs. Keep INTROvert open;
   a large library may take a long time.
 - Click **Stop Detection** to stop the show's queued detection group, or
   **Stop Scan** in Settings to stop the full-library scan.
