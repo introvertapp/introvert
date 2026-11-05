@@ -149,8 +149,20 @@ bool SubmissionStore::moveQueueItem(const QString &key, const QString &target, b
 
 QString SubmissionStore::enqueue(const QVariantMap &plan) const
 {
+    return enqueueMany({plan}).first();
+}
+
+QStringList SubmissionStore::enqueueMany(const QVariantList &plans) const
+{
+    sql::Connection connection(m_path); sql::Transaction transaction(connection.db);
+    QStringList jobs;
+    for (const auto &plan : plans) jobs.append(enqueuePlan(plan.toMap(), connection.db));
+    transaction.commit(); return jobs;
+}
+
+QString SubmissionStore::enqueuePlan(const QVariantMap &plan, QSqlDatabase &db) const
+{
     const auto now = m_clock();
-    sql::Connection connection(m_path); auto &db = connection.db; sql::Transaction transaction(db);
     const auto candidates = rows(db, "SELECT j.*,COALESCE(s.scope,'') AS scope FROM submit_jobs j LEFT JOIN submit_job_scopes s ON s.job_id=j.id WHERE endpoint=? AND season=? AND status IN " + activeSql
         + " ORDER BY created DESC", {plan.value("endpoint"), plan.value("season")});
     QString id;
@@ -190,15 +202,15 @@ QString SubmissionStore::enqueue(const QVariantMap &plan) const
     for (const auto &row : rows(db, "SELECT episode_id FROM submit_items WHERE job_id=? AND status IN " + pendingSql + " GROUP BY episode_id ORDER BY MIN(id)", {id}))
         queueOrder::append(db, "s:" + id + ':' + row.value("episode_id").toString());
     sql::execute(db, "UPDATE submit_jobs SET updated=? WHERE id=?", {now, id});
-    transaction.commit(); return id;
+    return id;
 }
 
-std::optional<SubmissionClaim> SubmissionStore::nextItem() const
+std::optional<SubmissionClaim> SubmissionStore::nextItem(const QString &endpoint) const
 {
     const auto now = m_clock();
     sql::Connection connection(m_path); auto &db = connection.db; sql::Transaction transaction(db);
     sql::execute(db, "DELETE FROM submit_api_rate_limits WHERE resume_at<=?", {now});
-    const auto jobs = rows(db, "SELECT * FROM submit_jobs WHERE status IN " + activeSql + " ORDER BY created");
+    const auto jobs = rows(db, "SELECT * FROM submit_jobs WHERE status IN " + activeSql + " AND (?='' OR endpoint=?) ORDER BY created", {sql::text(endpoint), sql::text(endpoint)});
     for (const auto &job : jobs) if (job.value("next_at").toDouble() > now && job.value("status") == "running") {
         transaction.commit(); return {};
     }
@@ -208,8 +220,8 @@ std::optional<SubmissionClaim> SubmissionStore::nextItem() const
         " AND status!='rate_limited' AND endpoint IN (SELECT endpoint FROM submit_api_rate_limits)");
     const auto candidates = rows(db, "SELECT i.* FROM submit_items i JOIN submit_jobs j ON j.id=i.job_id "
         "JOIN queue_order q ON q.key='s:'||j.id||':'||i.episode_id WHERE j.status IN " + activeSql +
-        " AND i.status IN " + pendingSql + " AND j.next_at<=? AND NOT EXISTS "
-        "(SELECT 1 FROM submit_api_rate_limits l WHERE l.endpoint=j.endpoint) ORDER BY q.running DESC,q.position,i.id LIMIT 1", {now});
+        " AND (?='' OR j.endpoint=?) AND i.status IN " + pendingSql + " AND j.next_at<=? AND NOT EXISTS "
+        "(SELECT 1 FROM submit_api_rate_limits l WHERE l.endpoint=j.endpoint) ORDER BY q.running DESC,q.position,i.id LIMIT 1", {sql::text(endpoint), sql::text(endpoint), now});
     for (const auto &item : candidates) {
         const auto found = std::find_if(jobs.cbegin(), jobs.cend(), [&](const auto &job) { return job.value("id") == item.value("job_id"); });
         if (found == jobs.cend()) continue;
@@ -256,9 +268,9 @@ void SubmissionStore::finish(const SubmissionClaim &claim, const SubmissionCompl
 }
 
 bool SubmissionStore::processOne(const SettingsStore &settings, const providers::Cancellation &cancelled,
-                                 const std::function<void()> &progress) const
+                                 const std::function<void()> &progress, const QString &endpoint) const
 {
-    const auto selected = nextItem();
+    const auto selected = nextItem(endpoint);
     if (!selected) return false;
     const auto &job = selected->job; const auto &item = selected->item;
     if (progress) progress();
@@ -298,11 +310,20 @@ bool SubmissionStore::processOne(const SettingsStore &settings, const providers:
 QVariantMap SubmissionStore::episodeStatuses(bool includeActivity, const QString &scope, const QStringList &canonical) const
 {
     sql::Connection connection(m_path);
-    const auto records = rows(connection.db, "SELECT j.provider,j.show_id,i.episode_id,i.kind,i.status,i.comparison,i.error,i.http_status,j.endpoint,i.start,i.end,i.updated,i.status_revision,i.id,i.revision "
+    const auto records = rows(connection.db, "SELECT j.provider,j.show_id,i.episode_id,i.season,i.kind,i.status,i.comparison,i.error,i.http_status,j.endpoint,i.start,i.end,i.updated,i.status_revision,i.id,i.revision "
         ",j.id AS source_job,j.canonical,j.tmdb,j.imdb,COALESCE(s.scope,'') AS scope FROM submit_items i JOIN submit_jobs j ON j.id=i.job_id "
         "LEFT JOIN submit_job_scopes s ON s.job_id=j.id ORDER BY i.updated DESC,i.id DESC");
     QVariantMap result;
     QMap<QString, bool> visibleJobs;
+    QMap<QString, QString> primaryEndpoints;
+    QMap<QString, qint64> limitOrigins;
+    if (includeActivity) for (const auto &item : rows(connection.db,
+        "SELECT i.id,j.endpoint FROM submit_items i JOIN submit_jobs j ON j.id=i.job_id "
+        "JOIN submit_api_rate_limits l ON l.endpoint=j.endpoint WHERE i.status='RATE LIMITED' AND j.status IN " + activeSql +
+        " ORDER BY i.updated DESC,i.id DESC")) {
+        const auto endpoint = item.value("endpoint").toString();
+        if (!limitOrigins.contains(endpoint)) limitOrigins[endpoint] = item.value("id").toLongLong();
+    }
     for (const auto &item : records) {
         if (!scope.isEmpty() || !canonical.isEmpty()) {
             const auto job = item.value("source_job").toString();
@@ -315,16 +336,25 @@ QVariantMap SubmissionStore::episodeStatuses(bool includeActivity, const QString
         }
         const auto key = item.value("provider").toString() + ':' + item.value("show_id").toString() + ':' + item.value("episode_id").toString();
         auto state = result.value(key).toMap();
+        if (includeActivity) state["season"] = item.value("season");
         auto segments = state.value("segments").toMap(), badges = state.value("badges").toMap();
         const auto kind = item.value("kind").toString();
-        if (!segments.contains(kind)) {
+        const auto primaryEndpoint = primaryEndpoints.value(key + ":" + kind);
+        const auto itemEndpoint = item.value("endpoint") == "introdb_app" ? QString("introdb.app") : QString("theintrodb.org");
+        const auto statusKey = primaryEndpoint.isEmpty() || primaryEndpoint == itemEndpoint ? kind : kind + ":" + item.value("endpoint").toString();
+        if (primaryEndpoint.isEmpty()) primaryEndpoints[key + ":" + kind] = itemEndpoint;
+        if (!segments.contains(statusKey)) {
             QVariantMap current{{"kind", kind}, {"result", item.value("status")},
                 {"comparison", item.value("comparison").isNull() ? QString("") : item.value("comparison").toString()},
                 {"error", item.value("error")}, {"httpStatus", nullable(item.value("http_status"))}};
+            if (includeActivity) {
+                current["endpoint"] = itemEndpoint;
+                current["rateLimitOrigin"] = limitOrigins.value(item.value("endpoint").toString(), -1) == item.value("id").toLongLong();
+            }
             if(item.value("status_revision").toLongLong()>0)current["statusRevision"]=item.value("status_revision");
             if(includeActivity)current["activity"]=QString("%1:%2:%3").arg(item.value("id").toLongLong()).arg(item.value("revision").toLongLong())
                 .arg(item.value("updated").toDouble(),0,'g',17);
-            segments[kind]=current;
+            segments[statusKey]=current;
         }
         if (item.value("status") == "OK" || item.value("status") == "DUPLICATE") {
             auto values = badges.value(kind).toList();

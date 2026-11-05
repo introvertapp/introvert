@@ -26,6 +26,14 @@ Item {
     property var submissions: null
     property var detector: null
     property var episodes: []
+    property var mediaLibrary: null
+    readonly property var submissionEpisodes: {
+        var currentEpisodes=episodes // Reevaluate the catalog after segment edits and refreshes.
+        if(!detectionSeasons.length || !mediaLibrary) return currentEpisodes
+        var rows=[]
+        requestedDetectionSeasons.forEach(function(number){rows=rows.concat(mediaLibrary.episodesForSeason(number))})
+        return rows
+    }
     property bool preview: false
     property bool loading: false
     property string errorMessage: ""
@@ -47,24 +55,24 @@ Item {
         detectionSeasons = detectionSeasons.indexOf(number) >= 0 ? detectionSeasons.filter(function(value) { return value !== number }) : detectionSeasons.concat([number])
     }
     function openSeason(number) { if(preview) season = number; seasonRequested(number) }
-    readonly property int selectedCount: Object.keys(selectionByEpisode).filter(function(id){return selectionByEpisode[id].length>0}).length
-    readonly property int selectedSegmentCount: Object.keys(selectionByEpisode).reduce(function(n,id){return n+selectionByEpisode[id].length},0)
+    readonly property int selectedCount: selectedPayload().length
+    readonly property int selectedSegmentCount: selectedPayload().reduce(function(n,item){return n+item.segmentTypes.length},0)
     readonly property var selectedTypes: {
         var counts={}
-        Object.keys(selectionByEpisode).forEach(function(id){selectionByEpisode[id].forEach(function(kind){counts[kind]=(counts[kind] || 0)+1})})
+        selectedPayload().forEach(function(item){item.segmentTypes.forEach(function(kind){var label=kind.charAt(0).toUpperCase()+kind.slice(1);counts[label]=(counts[label] || 0)+1})})
         return counts
     }
-    function hasKind(kind) {return episodes.some(function(ep){return ep.segmentValues ? Boolean(ep.segmentValues[kind.toLowerCase()]) : ep[kind.toLowerCase()] && ep[kind.toLowerCase()]!=="—"})}
+    function hasKind(kind) {return submissionEpisodes.some(function(ep){return ep.segmentValues ? Boolean(ep.segmentValues[kind.toLowerCase()]) : ep[kind.toLowerCase()] && ep[kind.toLowerCase()]!=="—"})}
     function selectKind(kind,checked) {
         var next=Object.assign({},selectionByEpisode)
-        episodes.forEach(function(ep){
+        submissionEpisodes.forEach(function(ep){
             var kinds=(next[ep.id] || []).filter(function(value){return value!==kind})
             if(checked && (ep.segmentValues ? ep.segmentValues[kind.toLowerCase()] : ep[kind.toLowerCase()] && ep[kind.toLowerCase()]!=="—")) kinds.push(kind)
             next[ep.id]=kinds
         })
         selectionByEpisode=next
     }
-    function selectedPayload() {return episodes.filter(function(ep){return (selectionByEpisode[ep.id] || []).length>0}).map(function(ep){return {id:ep.id,segmentTypes:selectionByEpisode[ep.id].map(function(kind){return kind.toLowerCase()})}})}
+    function selectedPayload() {return submissionEpisodes.filter(function(ep){return (selectionByEpisode[ep.id] || []).length>0}).map(function(ep){return {id:ep.id,segmentTypes:selectionByEpisode[ep.id].map(function(kind){return kind.toLowerCase()})}})}
     function scanStateFor(ep) {
         if(!detector || !detector.status.id)return ""
         var state=detector.status, kinds=JSON.parse(state.kinds || "[]")
@@ -94,7 +102,13 @@ Item {
         })
         return {segments:segments,badges:badges}
     }
-    property string endpoint: submissions && submissions.endpoints.length ? submissions.endpoints[0] : "introdb.app"
+    property var selectedEndpoints: []
+    readonly property var availableEndpoints: submissions ? submissions.endpoints : ["introdb.app", "theintrodb.org"]
+    readonly property var requestedEndpoints: selectedEndpoints.length ? selectedEndpoints.filter(function(value){return availableEndpoints.indexOf(value)>=0}) : availableEndpoints.slice(0,1)
+    readonly property string endpoint: requestedEndpoints.join(", ")
+    function chooseEndpoint(value, multiple) {
+        selectedEndpoints = multiple ? (requestedEndpoints.indexOf(value)>=0 ? requestedEndpoints.filter(function(item){return item!==value}) : requestedEndpoints.concat([value])) : [value]
+    }
     function clearSelection() { selectionByEpisode={} }
     onShowChanged: {if(!show || show.id!==selectionShowId) { clearSelection();detectionSeasons=[];selectionShowId=show ? String(show.id || "") : "";resetScroll() }}
     property string selectionShowId: ""
@@ -103,7 +117,7 @@ Item {
         // Include the reserved frosted-header space in the initial viewport.
         if(episodeList.headerItem) episodeList.contentY=episodeList.headerItem.y
     })}
-    onSeasonChanged: {clearSelection();resetScroll()}
+    onSeasonChanged: {resetScroll()}
     onLoadingChanged: if(!loading) resetScroll()
     signal backRequested()
     signal editorRequested(string episodeTitle, var episode)
@@ -146,11 +160,22 @@ Item {
         footer: Column {
             width: episodeList.width; spacing: 10; topPadding: 20
             RowLayout {
-                Repeater { model: ["Recap","Intro","Credits","Preview"]; SegmentSwitch { compact: true; required property string modelData; objectName: "selectAll_"+modelData; text: modelData; enabled: page.hasKind(modelData); checked: enabled && page.episodes.every(function(ep){return !(ep.segmentValues ? ep.segmentValues[modelData.toLowerCase()] : ep[modelData.toLowerCase()] && ep[modelData.toLowerCase()]!=="—") || (page.selectionByEpisode[ep.id] || []).indexOf(modelData)>=0}); onToggled: page.selectKind(modelData,checked) } }
+                Repeater { model: ["Recap","Intro","Credits","Preview"]; SegmentSwitch { compact: true; required property string modelData; objectName: "selectAll_"+modelData; text: modelData; enabled: page.hasKind(modelData); checked: enabled && page.submissionEpisodes.every(function(ep){return !(ep.segmentValues ? ep.segmentValues[modelData.toLowerCase()] : ep[modelData.toLowerCase()] && ep[modelData.toLowerCase()]!=="—") || (page.selectionByEpisode[ep.id] || []).indexOf(modelData)>=0}); onToggled: page.selectKind(modelData,checked) } }
             }
             RowLayout {
-                AppComboBox { id: endpointPicker; onActivated: page.endpoint=currentText; model: page.submissions ? page.submissions.endpoints : ["introdb.app", "theintrodb.org"]; Layout.preferredWidth: 180 }
-                AppButton { objectName: "reviewSubmissionControl"; text: page.selectedCount > 0 ? "Submit (" + page.selectedCount + ")" : "Submit"; enabled: page.selectedCount > 0 && (!page.submissions || !page.submissions.busy); theme: page.theme; onClicked: page.reviewRequested() }
+                Repeater {
+                    model: page.availableEndpoints
+                    AppButton {
+                        id: endpointButton
+                        required property string modelData
+                        objectName: "endpoint_"+modelData
+                        text: modelData === "introdb.app" ? "IntroDB" : modelData === "theintrodb.org" ? "TheIntroDB" : modelData; theme: page.theme; selected: page.requestedEndpoints.indexOf(modelData)>=0
+                        onClicked: page.chooseEndpoint(modelData,false)
+                        Keys.onSpacePressed: function(event) { page.chooseEndpoint(modelData,Boolean(event.modifiers & Qt.ShiftModifier)); event.accepted=true }
+                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: function(mouse) { endpointButton.forceActiveFocus(); page.chooseEndpoint(endpointButton.modelData,Boolean(mouse.modifiers & Qt.ShiftModifier)) } }
+                    }
+                }
+                AppButton { objectName: "reviewSubmissionControl"; progress: page.submissions ? page.submissions.progress : -1; text: page.selectedCount > 0 ? "Submit (" + page.selectedCount + ")" : "Submit"; enabled: page.requestedEndpoints.length>0 && page.selectedCount > 0 && (!page.submissions || !page.submissions.busy); theme: page.theme; onClicked: page.reviewRequested() }
                 AppButton { objectName: "identifyLocalShowControl"; visible: Boolean(page.show && page.show.provider==="local" && page.localMetadata); text: "Identify"; enabled: Boolean(page.localMetadata) && !page.localMetadata.busy && !page.loading; theme: page.theme; onClicked: { page.localMetadata.activate(); providerShowId.text=""; identifyShow.open() } }
             }
 
@@ -219,7 +244,7 @@ Item {
                     readonly property bool wholeSeasonSelected: page.detectionSeasons.indexOf(Number(modelData)) >= 0
                     objectName: "season_" + modelData; text: "Season " + modelData; fontSize: 11; implicitHeight: 31
                     selected: page.season === modelData || wholeSeasonSelected
-                    progress: page.seasonDetectionProgress(Number(modelData))
+                    progress: page.requestedDetectionActive ? page.seasonDetectionProgress(Number(modelData)) : page.submissions && page.submissions.seasonProgress[String(modelData)] ? page.submissions.seasonProgress[String(modelData)].progress : page.seasonDetectionProgress(Number(modelData))
                     selectionColor: page.theme.selected
                     selectionBorderColor: page.theme.accent
                     theme: page.theme

@@ -127,6 +127,7 @@ ApplicationWindow {
             SettingsPage { detector: window.uiPreview ? null : window.detector; appNotifications: window.appNotifications; applicationLogs: window.applicationLogs; applicationUpdates: window.applicationUpdates; segmentManager: window.uiPreview ? null : window.segmentManager; theme: colors; appSettings: window.appSettings; mediaLibrary: window.uiPreview ? null : window.mediaLibrary; preview: window.uiPreview; previewShows: window.presentation ? window.presentation.shows : [] }
             ShowPage {
                 id: showDetails
+                mediaLibrary: window.uiPreview ? null : window.mediaLibrary
                 headerInset: pages.y+20
                 timestampFormat: window.appSettings.timestampFormat
                 detector: window.uiPreview ? null : window.detector
@@ -141,7 +142,7 @@ ApplicationWindow {
                 episodes: window.presentation ? window.presentation.episodes : window.mediaLibrary ? window.mediaLibrary.episodes : window.episodeItems
                 onBackRequested: { window.selectedShow = null; if(window.mediaLibrary && !window.uiPreview) window.mediaLibrary.closeShow() }
                 onEditorRequested: function(episodeTitle, episode) { editor.episodeTitle=episodeTitle; editor.loadEpisode(episode); if(window.videoEditor && !window.uiPreview) window.videoEditor.openEpisode(episode.id); editor.open() }
-                onReviewRequested: { if(window.submissions && !window.uiPreview) window.submissions.prepare(showDetails.selectedPayload(),showDetails.endpoint); else review.open() }
+                onReviewRequested: { if(window.submissions && !window.uiPreview) window.submissions.prepareMany(showDetails.selectedPayload(),showDetails.requestedEndpoints); else review.open() }
                 onSubmissionErrorRequested: function(title,message) {window.explain(title,message)}
                 onUnavailableRequested: function(title) { window.explain(title, "This interface is ready for integration. No operation has been started or saved.") }
             }

@@ -48,7 +48,7 @@ public:
     QObject *localMetadata() const;
     QVariantList shows() const { return m_shows; }
     QVariantList episodes() const { return m_episodes; }
-    QVariantList episodesForSeason(int number) const;
+    Q_INVOKABLE QVariantList episodesForSeason(int number) const;
     QVariantMap show() const { return m_show; }
     int season() const { return m_season; }
     bool busy() const { return m_busy; }

@@ -11,8 +11,8 @@ Column {
     property var shows: []
     spacing: section === "endpoints" ? 12 : 16
     readonly property var fields: [
-        {kind:"heading",label:"introdb.app"},{kind:"toggle",label:"Enabled",key:"introdb_enabled"},{kind:"url",label:"URL",key:"introdb_api_url",value:"https://api.introdb.app/submit"},{kind:"url",label:"Lookup URL",key:"introdb_lookup_url",value:"https://api.introdb.app/segments"},{kind:"secret",label:"API Key",key:"introdb_app"},
-        {kind:"heading",label:"theintrodb.org"},{kind:"toggle",label:"Enabled",key:"theintrodb_enabled"},{kind:"url",label:"URL",key:"theintrodb_base_url",value:"https://api.theintrodb.org/v3"},{kind:"secret",label:"API Key",key:"theintrodb_org"},
+        {kind:"heading",label:"IntroDB"},{kind:"toggle",label:"Enabled",key:"introdb_enabled"},{kind:"url",label:"URL",key:"introdb_api_url",value:"https://api.introdb.app/submit"},{kind:"url",label:"Lookup URL",key:"introdb_lookup_url",value:"https://api.introdb.app/segments"},{kind:"secret",label:"API Key",key:"introdb_app"},
+        {kind:"heading",label:"TheIntroDB"},{kind:"toggle",label:"Enabled",key:"theintrodb_enabled"},{kind:"url",label:"URL",key:"theintrodb_base_url",value:"https://api.theintrodb.org/v3"},{kind:"secret",label:"API Key",key:"theintrodb_org"},
         {kind:"heading",label:"Global submission settings"},{kind:"number",label:"API Timeout (ms)",key:"api_timeout_ms",value:"10000"},{kind:"number",label:"API Delay (seconds)",key:"api_delay_seconds",value:"-1"},{kind:"toggle",label:"Save submissions in local DB",key:"save_submissions_local_db"}
     ]
     Repeater {

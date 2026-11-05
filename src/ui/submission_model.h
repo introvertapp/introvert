@@ -9,7 +9,7 @@
 
 namespace introvert::ui {
 
-// Presentation only: one worker owns processing; SQLite owns durable job state.
+// Presentation and review worker; endpoint workers process SQLite-owned durable jobs.
 class SubmissionModel final : public QObject {
     Q_OBJECT
     Q_PROPERTY(QVariantList queue READ queue NOTIFY changed)
@@ -19,6 +19,8 @@ class SubmissionModel final : public QObject {
     Q_PROPERTY(QVariantList endpoints READ endpoints NOTIFY changed)
     Q_PROPERTY(QVariantMap review READ review NOTIFY changed)
     Q_PROPERTY(QVariantMap episodeStatuses READ episodeStatuses NOTIFY changed)
+    Q_PROPERTY(QVariantMap seasonProgress READ seasonProgress NOTIFY changed)
+    Q_PROPERTY(double progress READ progress NOTIFY changed)
     Q_PROPERTY(QString message READ message NOTIFY changed)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
     Q_PROPERTY(bool ready READ ready NOTIFY changed)
@@ -33,10 +35,13 @@ public:
     QVariantList endpoints() const { return m_endpoints; }
     QVariantMap review() const { return m_review; }
     QVariantMap episodeStatuses() const { return m_statuses; }
+    QVariantMap seasonProgress() const;
+    double progress() const;
     QString message() const { return m_message; }
     bool busy() const { return m_busy; }
     bool ready() const { return m_plan.has_value() && !m_busy; }
     Q_INVOKABLE void prepare(const QVariantList &selection, const QString &endpoint);
+    Q_INVOKABLE void prepareMany(const QVariantList &selection, const QVariantList &endpoints);
     Q_INVOKABLE void confirm();
     Q_INVOKABLE void cancelReview();
     Q_INVOKABLE void moveQueueItem(const QString &key, const QString &target, bool after, const QStringList &order);
@@ -63,7 +68,7 @@ private:
         quint64 generation;
         std::optional<providers::ShowDetail> detail;
         QVariantList selection;
-        QString endpoint;
+        QVariantList endpoints;
         QVariantMap plan;
         providers::Cancellation cancel;
         QString scope;
@@ -80,6 +85,7 @@ private:
     segments::SegmentStore m_segments;
     QThreadPool m_pool;
     QThreadPool m_queuePool;
+    QThreadPool m_endpointPool;
     providers::Cancellation m_stop = std::make_shared<std::atomic_bool>(false);
     providers::Cancellation m_reviewCancel;
     std::mutex m_mutex;
@@ -90,7 +96,7 @@ private:
     std::optional<QVariantMap> m_plan;
     QVariantList m_queue, m_history, m_endpoints;
     QVariantMap m_queuePositions;
-    QVariantMap m_statistics, m_review, m_statuses, m_rawStatuses;
+    QVariantMap m_statistics, m_review, m_statuses, m_rawStatuses, m_progressStatuses;
     QString m_message;
     QMap<QString, QString> m_statusBaseline;
     std::atomic<quint64> m_feedbackGeneration{0};

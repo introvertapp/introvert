@@ -28,7 +28,7 @@ Rectangle {
     readonly property var orderedRows: history ? items.slice().sort(function(a,b) { return String(a[sortKey]).localeCompare(String(b[sortKey])) * (descending ? -1 : 1) }) : items.slice().sort(queueCompare)
     property bool descending: history
     property int pageNumber: 0
-    readonly property var columns: history ? [{key:"type",label:"Type",weight:120},{key:"endpoint",label:"Endpoint",weight:150},{key:"show",label:"Show Title",weight:220},{key:"episode",label:"Episode Title",weight:260},{key:"code",label:"Season/Episode",weight:150},{key:"date",label:"Date/Time Added",weight:210},{key:"status",label:"Status",weight:150}] : [{key:"type",label:"Type",weight:120},{key:"show",label:"Show Title",weight:220},{key:"episode",label:"Episode Title",weight:260},{key:"code",label:"Season/Episode",weight:150},{key:"date",label:"Date/Time Added",weight:210},{key:"status",label:"Status",weight:150}]
+    readonly property var columns: [{key:"type",label:"Type",weight:120},{key:"endpoint",label:"Endpoint",weight:150},{key:"show",label:"Show Title",weight:220},{key:"episode",label:"Episode Title",weight:260},{key:"code",label:"Season/Episode",weight:150},{key:"date",label:"Date/Time Added",weight:210},{key:"status",label:"Status",weight:150}]
     readonly property real totalWeight: columns.reduce(function(total,c) { return total+c.weight },0)
     readonly property var sortedRows: query === "" ? orderedRows : orderedRows.filter(function(row) { return JSON.stringify(row).toLowerCase().indexOf(query.toLowerCase()) >= 0 })
     readonly property int displayedCount: visualState === "ready" ? (history ? Math.min(100, Math.max(0, sortedRows.length-pageNumber*100)) : sortedRows.length) : 0
@@ -38,6 +38,7 @@ Rectangle {
     property var columnOverrides: ({})
     function columnWidth(column) { return columnOverrides[column.key] || (history ? viewport.width : Math.max(viewport.width,1110)) * column.weight / totalWeight }
     function displayValue(record, key) {
+        if(key === "endpoint") return record.endpoint === "introdb.app" ? "IntroDB" : record.endpoint === "theintrodb.org" ? "TheIntroDB" : record.endpoint || "—"
         if(key !== "date") return String(record[key])
         var date = new Date(record[key])
         return isNaN(date.getTime()) ? String(record[key]) : date.toLocaleString(Qt.locale(), Locale.ShortFormat)

@@ -13,6 +13,7 @@ Dialog {
     property int activeSeason: 1
     property var selectedTypes: ({})
     property string endpoint: "IntroDB"
+    readonly property string endpointLabel: String(backend ? backend.review.endpoint || "—" : endpoint).replace(/theintrodb\.org/g,"TheIntroDB").replace(/introdb\.app/g,"IntroDB")
     objectName: "submissionReviewDialog"
     parent: Overlay.overlay; anchors.centerIn: parent
     width: Math.min(520, parent ? parent.width - 40 : 520)
@@ -22,13 +23,13 @@ Dialog {
     header: Text { text: review.title; padding: 20; bottomPadding: 8; color: review.theme.text; font.pixelSize: 18; font.bold: true }
     contentItem: ColumnLayout {
         spacing: 10
-        Repeater { model: [{label:"Show",value:review.showTitle},{label:"Season",value:String(review.activeSeason)},{label:"Episodes",value:String(review.selectedEpisodes)},{label:"IMDb",value:review.backend ? review.backend.review.imdb || "—" : "—"},{label:"TMDB",value:review.backend ? review.backend.review.tmdb || "—" : "—"},{label:"Submitting",value:Object.keys(review.selectedTypes).join(" / ")},{label:"Segments",value:String(review.selectedSegments)},{label:"Types",value:Object.keys(review.selectedTypes).map(function(kind){return kind+" "+review.selectedTypes[kind]}).join(" / ")},{label:"Endpoint",value:review.endpoint}]
+        Repeater { model: [{label:"Show",value:review.backend ? (review.backend.review.show || "—") : review.showTitle},{label:"Season",value:review.backend ? String(review.backend.review.season) : String(review.activeSeason)},{label:"Episodes",value:String(review.backend ? review.backend.review.episodes : review.selectedEpisodes)},{label:"IMDb",value:review.backend ? review.backend.review.imdb || "—" : "—"},{label:"TMDB",value:review.backend ? review.backend.review.tmdb || "—" : "—"},{label:"Submitting",value:Object.keys(review.selectedTypes).join(" / ")},{label:"Segments",value:String(review.backend ? review.backend.review.segments : review.selectedSegments)},{label:"Types",value:Object.keys(review.selectedTypes).map(function(kind){return kind+" "+review.selectedTypes[kind]}).join(" / ")},{label:"Endpoint",value:review.endpointLabel}]
             RowLayout { required property var modelData; Text { text: modelData.label + ":"; color: review.theme.muted; font.pixelSize: 15 } Text { text: modelData.value; color: review.theme.text; font.pixelSize: 15; font.bold: true; elide: Text.ElideRight } Item { Layout.fillWidth: true } }
         }
         Text { Layout.fillWidth: true; font.pixelSize: 12; color: review.theme.muted; text: review.backend ? review.backend.message : "No submission is ready to send."; visible: text !== "" }
         ScrollView {
             id: targetsScroll; Layout.fillWidth: true; Layout.preferredHeight: Math.min(targetsText.implicitHeight,120)
-            visible: review.endpoint==="theintrodb.org" && targetsText.text.length>0
+            visible: review.endpoint.indexOf("theintrodb.org")>=0 && targetsText.text.length>0
             clip: true; contentWidth: availableWidth
             ScrollBar.vertical.policy: ScrollBar.AlwaysOff; ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
         Text {
