@@ -14,6 +14,6 @@ void checkIntroConsistency(const std::vector<AudioRecurrence> &matches,
 void checkSeasonConsistency(const std::vector<AudioRecurrence> &matches,
     std::vector<AudioSegment> &selected, const Cancellation &cancel, qint64 &work, QVariantList *diagnostics,
     const QVariantList &windows = {},QVariantList *confirmationCandidates = nullptr,
-    const std::vector<AudioSegment> *priorSelections = nullptr);
+    const std::vector<AudioSegment> *priorSelections = nullptr,bool finalReview = false);
 
 } // namespace introvert::detection

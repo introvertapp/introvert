@@ -28,4 +28,7 @@ private:
 // Shared source retains compatibility with already installed algorithm-only modules.
 // Session-capable modules execute their own copy; the host supplies only services.
 void runAlgorithmPipeline(Algorithm &algorithm, const QVariantMap &input, const PipelineServices &services);
+// An unsuccessful review may retain an existing audio selection, but cannot
+// promote an unconfirmed hypothesis or restore a quarantined gross outlier.
+QVariantMap acceptedBoundarySelection(const QVariantMap &original,const QVariantMap &refined);
 }

@@ -33,7 +33,7 @@ QVariantMap refineBoundary(const QVariantMap &window,const QString &kind,const Q
 {
     if((kind!="intro" && kind!="credits") || (edge!="start" && edge!="end") || (kind=="credits" && edge=="end")
         || !std::isfinite(reference) || reference<0 || (!constraint.isEmpty() && constraint!="preceding_black"
-            && constraint!="consensus_transition" && constraint!="isolated_consensus_transition")
+            && constraint!="consensus_transition" && constraint!="isolated_consensus_transition" && constraint!="season_transition")
         || (constraint=="preceding_black" && (kind!="intro" || edge!="start")))throw DetectionError("visual_invalid_scope","Invalid audio boundary.");
     QVariantMap decision{{"status","audio_fallback"},{"reason","no_supported_transition"},{"audio_time",reference}};
     if(window.value("status")!="analyzed") {decision["reason"]=window.value("code",window.value("reason","visual_unavailable"));return decision;}

@@ -174,7 +174,7 @@ void checkIntroConsistency(const std::vector<AudioRecurrence> &matches,
 }
 void checkSeasonConsistency(const std::vector<AudioRecurrence> &matches,
     std::vector<AudioSegment> &selected,const Cancellation &cancel,qint64 &work,QVariantList *diagnostics,const QVariantList &windows,
-    QVariantList *confirmationCandidates,const std::vector<AudioSegment> *priorSelections)
+    QVariantList *confirmationCandidates,const std::vector<AudioSegment> *priorSelections,bool finalReview)
 {
     const auto tick=[&](qint64 amount=1) {
         work+=amount;
@@ -207,7 +207,7 @@ void checkSeasonConsistency(const std::vector<AudioRecurrence> &matches,
     for(const auto type:{SegmentType::Intro,SegmentType::Credits}) {
         std::vector<const AudioSegment *> remaining;
         for(const auto &s:references)if(s.type==type)remaining.push_back(&s);
-        if(remaining.size()<5)continue;
+        if(remaining.size()<size_t(finalReview?3:5))continue;
         const size_t referenceCount=remaining.size();
         const size_t episodeCount=std::max({referenceCount,
             size_t(std::count_if(indexed.begin(),indexed.end(),[&](const auto &entry){return entry.first.second==type;})),
@@ -230,7 +230,7 @@ void checkSeasonConsistency(const std::vector<AudioRecurrence> &matches,
             cohorts.emplace_back(remaining.begin()+bestBegin,remaining.begin()+bestEnd);
             remaining.erase(remaining.begin()+bestBegin,remaining.begin()+bestEnd);
         }
-        if(cohorts.empty() || cohorts.front().size()<4)continue;
+        if(cohorts.empty() || cohorts.front().size()<size_t(finalReview?3:4))continue;
         for(const auto &group:indexed) {
             if(group.first.second!=type)continue;
             tick();const auto &episode=group.first.first;
@@ -250,6 +250,16 @@ void checkSeasonConsistency(const std::vector<AudioRecurrence> &matches,
             if(conflictingRecovery)continue;
             const auto &dominant=cohorts.front();
             const double typicalDuration=dominant[dominant.size()/2]->range.duration();
+            if(finalReview) {
+                // Review a fixed final snapshot once, never feeding hypotheses
+                // back as references. Complete selections and minority versions
+                // do not need to repeat their already accepted boundary work.
+                if(dominant.size()*2<episodeCount || !original)continue;
+                if(existing!=selected.end() && original->range.duration()>=typicalDuration*.5)continue;
+                if(confirmationCandidates && std::any_of(confirmationCandidates->cbegin(),confirmationCandidates->cend(),[&](const auto &v) {
+                    const auto p=v.toMap();return p.value("episode")==episode && p.value("segment_type")==segmentName(type);
+                }))continue;
+            }
             const auto edges=original?original->evidence.value("refinement").toMap():QVariantMap{};
             bool minorityPair=false;QSet<QString> internalPeers;
             if(original)for(const auto match:group.second) {
@@ -270,8 +280,9 @@ void checkSeasonConsistency(const std::vector<AudioRecurrence> &matches,
             // PCM resolves where two recordings stop agreeing, not whether the
             // sequence itself ends. Several full references can contradict that
             // shortcut without invalidating an independently matched short pair.
-            const bool internalFragment=dominant.size()*4>=episodeCount*3 && internalPeers.size()>=4;
-            bool variant=minorityPair || (edges.value("start_resolved").toBool() && edges.value("end_resolved").toBool() && !internalFragment);
+            const bool internalFragment=(dominant.size()*4>=episodeCount*3 && internalPeers.size()>=4)
+                || (finalReview && dominant.size()*2>=episodeCount && internalPeers.size()>=3);
+            bool variant=minorityPair || (!finalReview && edges.value("start_resolved").toBool() && edges.value("end_resolved").toBool() && !internalFragment);
             if(original && !variant && dominant.size()*100>=referenceCount*65
                 && typicalDuration-original->range.duration()>std::max(2.,typicalDuration*.1)) {
                 std::vector<AudioSegment> enclosures;
@@ -321,7 +332,8 @@ void checkSeasonConsistency(const std::vector<AudioRecurrence> &matches,
             bool durationOutlier=false;
             for(const auto &cohort:cohorts) {
                 const double typical=cohort[cohort.size()/2]->range.duration();
-                const bool shortOutlier=original && cohort.size()>=4 && cohort.size()*100>=referenceCount*65
+                const bool shortOutlier=original && cohort.size()>=size_t(finalReview?3:4)
+                    && (finalReview?cohort.size()*2>=episodeCount:cohort.size()*100>=referenceCount*65)
                     && typical-original->range.duration()>std::max(2.,typical*.1);
                 if(shortOutlier)durationChecks.append(QVariantMap{{"cohort_count",int(cohort.size())},{"reference_count",int(referenceCount)},
                     {"cohort_duration",typical},{"original_duration",original->range.duration()},{"variant_preserved",variant}});
@@ -370,8 +382,9 @@ void checkSeasonConsistency(const std::vector<AudioRecurrence> &matches,
                     bool conflicting=false;
                     for(size_t n=1;n<pieces.size();++n) {
                         tick();const auto &p=pieces[n];
-                        if(p.weight>=vote.weight*.9 && (std::abs(p.start-vote.start)>1. || std::abs(p.end-vote.end)>1.))conflicting=true;
-                        if(std::abs(p.start-vote.start)<=.5 && std::abs(p.end-vote.end)<=.5) {
+                        const double tolerance=finalReview?double(layout.contextSamples)/layout.sampleRate:1.;
+                        if(p.weight>=vote.weight*.9 && (std::abs(p.start-vote.start)>tolerance || std::abs(p.end-vote.end)>tolerance))conflicting=true;
+                        if(std::abs(p.start-vote.start)<=(finalReview?tolerance:.5) && std::abs(p.end-vote.end)<=(finalReview?tolerance:.5)) {
                             vote.fragments.insert(vote.fragments.end(),p.fragments.begin(),p.fragments.end());
                             vote.sources.append(p.sources);
                         }
@@ -452,15 +465,16 @@ void checkSeasonConsistency(const std::vector<AudioRecurrence> &matches,
                 // contribute continuously instead of requiring a 75% season.
                 const double investigationScore=weight/totalWeight*(mean/supporters.size())
                     *std::sqrt(double(cohort.size())/episodeCount)*(1.-1./supporters.size());
-                const bool investigate=confirmationCandidates && original && !variant && !coarseAgreement
-                    && scope!=scopes.end() && supporters.size()>=4 && investigationScore>=.5
+                const bool investigate=confirmationCandidates && original && !variant && (finalReview || !coarseAgreement)
+                    && scope!=scopes.end() && supporters.size()>=(finalReview?3:4) && investigationScore>=.5
                     && end-start-original->range.duration()>std::max(2.,(end-start)*.1)
-                    && covered>=context && maxGap<=gapAllowance
+                    && covered>=context && (finalReview || maxGap<=gapAllowance)
                     && (firstCovered-start<=context || end-lastCovered<=context)
                     && start<=original->range.start+1. && end>=original->range.end-1.;
                 auto evaluation=evaluations.back().toMap();
                 evaluation["investigation_score"]=investigationScore;evaluation["investigation_eligible"]=investigate;
                 evaluation["anchor_recovery_eligible"]=anchoredRecovery;evaluations.back()=evaluation;
+                if(finalReview && (!investigate || cohort.size()*2<episodeCount))continue;
                 if(!supported && !confirmable && !anchoredRecovery && !investigate)continue;
                 if(original) {
                     const double overlap=std::min(end,original->range.end)-std::max(start,original->range.start);
@@ -485,15 +499,17 @@ void checkSeasonConsistency(const std::vector<AudioRecurrence> &matches,
                     {"inferred_start_seconds",std::max(0.,measuredStart-start)},{"inferred_end_seconds",std::max(0.,end-measuredEnd)},
                     {"from_start",original?QVariant(original->range.start):QVariant()},
                     {"from_end",original?QVariant(original->range.end):QVariant()},
-                    {"anchor_recovery",(anchoredRecovery || investigate) && !confirmable},
+                    {"anchor_recovery",finalReview || ((anchoredRecovery || investigate) && !confirmable)},
+                    {"final_season_review",finalReview},
                     {"investigation_score",investigationScore},
                     {"isolated_confirmation",investigate && !anchoredRecovery && !confirmable},
                     {"source_match_ids",sourceIds}};
-                (supported?proposals:provisional).push_back({{start,end},score,supporters,evidence,int(std::floor(covered/hop)),minimum,mean/supporters.size()});
+                (supported && !finalReview?proposals:provisional).push_back({{start,end},score,supporters,evidence,int(std::floor(covered/hop)),minimum,mean/supporters.size()});
             }
             if(diagnostics)for(auto &entry:*diagnostics) {
                 auto row=entry.toMap();if(row.value("episode")!=episode || row.value("segment_type")!=segmentName(type))continue;
-                row["season_consensus_checks"]=evaluations;row["season_duration_checks"]=durationChecks;entry=row;
+                row[finalReview?"final_season_checks":"season_consensus_checks"]=evaluations;
+                row[finalReview?"final_duration_checks":"season_duration_checks"]=durationChecks;entry=row;
             }
             std::sort(proposals.begin(),proposals.end(),[](const auto &a,const auto &b) {
                 return std::make_tuple(-a.score,a.range.start,a.range.end)<std::make_tuple(-b.score,b.range.start,b.range.end);
@@ -544,6 +560,11 @@ void checkSeasonConsistency(const std::vector<AudioRecurrence> &matches,
                         && overlap>=original->range.duration()*.9)incomplete=true;
                 }
                 if(incomplete && !variant) {
+                    // Reviewing an existing credits interval must not erase it
+                    // merely because a longer hypothesis remains unconfirmed.
+                    // The exceptional quarantine is a radically short Intro.
+                    if(finalReview && existing!=selected.end() && provisional.empty()
+                        && (type==SegmentType::Credits || original->range.duration()>=typicalDuration*.25))continue;
                     if(diagnostics)for(auto &entry:*diagnostics) {
                         auto row=entry.toMap();if(row.value("episode")!=episode || row.value("segment_type")!=segmentName(type))continue;
                         row["status"]="inconsistent_duration";row["reason"]="unresolved_partial_sequence";
@@ -558,6 +579,9 @@ void checkSeasonConsistency(const std::vector<AudioRecurrence> &matches,
                             QVariantList peerIds;for(const auto &peer:candidate.peers)peerIds.append(peer);
                             AudioSegment pending{episode,type,candidate.range,candidate.peers.front(),{},candidate.frames,candidate.minimum,candidate.mean,candidate.peers,
                                 {{"season_consensus",candidate.evidence},{"requires_visual_confirmation",true}}};
+                            if(finalReview && existing!=selected.end()
+                                && (type==SegmentType::Credits || original->range.duration()>=typicalDuration*.25))
+                                pending.evidence["review_fallback"]=original->diagnostic();
                             if(candidate.evidence.value("anchor_recovery").toBool()) {
                                 QStringList required=type==SegmentType::Intro?QStringList{"start","end"}:QStringList{"start"};
                                 QVariantMap anchors;
@@ -572,7 +596,8 @@ void checkSeasonConsistency(const std::vector<AudioRecurrence> &matches,
                                 if(required.empty()) {required.append("end");anchors.remove("end");}
                                 pending.evidence["boundary_anchors"]=anchors;
                                 pending.evidence["boundary_confirmation"]=QVariantMap{{"method","season-anchor-recovery-v1"},{"required",required},
-                                    {"isolated",candidate.evidence.value("isolated_confirmation")}};
+                                    {"isolated",!finalReview && candidate.evidence.value("isolated_confirmation").toBool()},
+                                    {"season_review",finalReview && candidate.evidence.value("coarse_endpoint_agreement").toBool()}};
                             }
                             const bool anchored=candidate.evidence.value("anchor_recovery").toBool();
                             QVariantMap identity{{"method",anchored?"season-anchor-recovery-v1":"black-confirmed-sequence-v1"},{"episode",episode},

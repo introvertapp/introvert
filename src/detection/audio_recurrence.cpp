@@ -126,7 +126,8 @@ QVariantMap AudioSegment::diagnostic() const
     const bool endProtected=!required.contains("end") && (strict || preciseConsensus || refinement.value("end_resolved").toBool()
         || anchors.value("end").toMap().value("resolved").toBool());
     QVariantMap constraints;
-    if(!required.empty())for(const auto &edge:required)constraints[edge]=confirmation.value("isolated").toBool()?"isolated_consensus_transition":"consensus_transition";
+    if(!required.empty())for(const auto &edge:required)constraints[edge]=confirmation.value("season_review").toBool()?"season_transition":
+        confirmation.value("isolated").toBool()?"isolated_consensus_transition":"consensus_transition";
     else if((consensus || !evidence.value("boundary_search").toMap().empty()) && type==SegmentType::Intro && !startProtected)
         constraints["start"]="preceding_black";
     QVariantMap result{{"episode", episodeId}, {"segment_type", segmentName(type)}, {"start", range.start}, {"end", range.end},
@@ -259,6 +260,9 @@ std::vector<AudioSegment> selectAudioSegments(const std::vector<AudioRecurrence>
     const auto prior=confirmationCandidates?result:std::vector<AudioSegment>{};
     checkIntroConsistency(matches,result,cancel,work,diagnostics);
     checkSeasonConsistency(matches,result,cancel,work,diagnostics,windows,confirmationCandidates,&prior);
+    // A single final review catches fragments protected by the initial snapshot.
+    // Even audio-only callers must not finalize an unsupported gross outlier.
+    checkSeasonConsistency(matches,result,cancel,work,diagnostics,windows,confirmationCandidates,&prior,true);
     checkCancelled(cancel); return result;
 }
 std::vector<AudioRecurrence> matchAudio(const FeatureTrack &a, const FeatureTrack &b, const Cancellation &cancel,

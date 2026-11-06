@@ -63,6 +63,15 @@ PipelineServices::Lease::Lease(const PipelineServices &services,const char *oper
     if(m_id<=0)throw DetectionError("algorithm_service_failed","Invalid host resource lease.");
 }
 PipelineServices::Lease::~Lease() {try{m_services.request("release",{{"id",m_id}});}catch(...) {}}
+QVariantMap acceptedBoundarySelection(const QVariantMap &original,const QVariantMap &refined)
+{
+    if(!original.value("requires_visual_confirmation").toBool() || refined.value("confirmation_status")=="confirmed")return refined;
+    auto fallback=original.value("evidence").toMap().value("review_fallback").toMap();
+    const double start=fallback.value("start").toDouble(),end=fallback.value("end").toDouble();
+    if(fallback.empty() || fallback.value("episode")!=original.value("episode") || fallback.value("segment_type")!=original.value("segment_type")
+        || fallback.value("requires_visual_confirmation").toBool() || !std::isfinite(start) || !std::isfinite(end) || start<0 || start>=end)return {};
+    fallback["season_review_status"]="unconfirmed_fallback";return fallback;
+}
 void runAlgorithmPipeline(Algorithm &algorithm,const QVariantMap &input,const PipelineServices &services)
 {
     const auto m_parameters=input.value("parameters").toMap();
@@ -359,8 +368,8 @@ void runAlgorithmPipeline(Algorithm &algorithm,const QVariantMap &input,const Pi
             QVariantList refined;
             for(const auto &entry:visualInput) {
                 const auto segment=entry.toMap();const auto result=refinedSelections.value(segment.value("episode").toString()+'\n'+segment.value("segment_type").toString(),segment);
-                if(segment.value("requires_visual_confirmation").toBool() && result.value("confirmation_status")!="confirmed")continue;
-                refined.append(result);
+                const auto accepted=acceptedBoundarySelection(segment,result);
+                if(!accepted.empty())refined.append(accepted);
             }
             selection["selected"]=refined;selection["decisions"]=boundaryDecisions;
             visualExecution=tasks.diagnostics();visualExecution["peak_admitted"]=visualPeak.load();visualMs=visualTimer.elapsed();
