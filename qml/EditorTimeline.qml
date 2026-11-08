@@ -107,7 +107,7 @@ Item {
         for(var i=0;i<editor.segments.length;i++) if(i!==editor.selectedSegment) order.push(i)
         for(var n=0;n<order.length;n++) {
             var index=order[n], item=editor.segments[index]
-            if(item.end-item.start<5 || item.end-item.start>180 || !isFinite(item.start) || !isFinite(item.end)) continue
+            if(!editor.segmentValid(index)) continue
             var l=xAt(item.start),r=xAt(item.end)
             if(r<trackLeft || l>width-trackLeft) continue
             if(index===editor.selectedSegment) {
@@ -179,7 +179,7 @@ Item {
             var rectangles=[]
             for(j=0;j<editor.segments.length;j++) {
                 var item=editor.segments[j]
-                if(!isFinite(item.start)||!isFinite(item.end)||item.end-item.start<5||item.end-item.start>180) continue
+                if(!editor.segmentValid(j)) continue
                 var rawL=x(item.start),rawR=x(item.end)
                 if(rawR<l || rawL>width-l) continue
                 var sl=Math.max(l,rawL),sr=Math.min(width-l,rawR),sw=Math.max(1,sr-sl)

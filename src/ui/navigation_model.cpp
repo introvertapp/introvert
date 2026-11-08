@@ -10,7 +10,7 @@ QString NavigationModel::page() const { return m_page; }
 
 void NavigationModel::navigate(const QString &page)
 {
-    static const QStringList pages = {"home", "queue", "history", "settings"};
+    static const QStringList pages = {"home", "movies", "queue", "history", "settings"};
     if (pages.contains(page) && page != m_page) {
         m_page = page;
         emit pageChanged();

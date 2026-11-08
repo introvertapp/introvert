@@ -66,7 +66,9 @@ ProviderSettingsModel::~ProviderSettingsModel() { flush(); }
 
 bool ProviderSettingsModel::dirty() const
 {
-    return m_edited || m_address != m_savedAddress || m_images != m_savedImages || m_importSegments != m_savedImportSegments;
+    return m_edited || m_address != m_savedAddress || m_images != m_savedImages
+        || m_importSegments != m_savedImportSegments || m_importMode != m_savedImportMode
+        || m_importMovieSegments != m_savedImportMovieSegments;
 }
 
 void ProviderSettingsModel::refreshStatus()
@@ -80,11 +82,13 @@ void ProviderSettingsModel::select(const QString &provider)
 {
     if (provider != m_provider && dirty()) flush();
     if (provider == m_provider && dirty()) return;
-    if (!m_provider.isEmpty() && dirty()) m_drafts[m_provider] = {m_address, m_images, m_credential, m_edited, m_importSegments};
+    if (!m_provider.isEmpty() && dirty())
+        m_drafts[m_provider] = {m_address, m_images, m_credential, m_edited, m_importSegments, m_importMode, m_importMovieSegments};
     m_timer.stop();
     m_provider = provider;
     m_address.clear(); m_credential.clear(); m_message.clear();
-    m_images = m_edited = m_importSegments = false;
+    m_images = m_edited = m_importSegments = m_importMovieSegments = false;
+    m_importMode = "tv";
     m_timeout = 10;
     if (!provider.isEmpty()) {
         try {
@@ -92,6 +96,8 @@ void ProviderSettingsModel::select(const QString &provider)
             m_address = provider == "local" ? config.localRoot : config.remoteUrl;
             m_images = config.fetchImages;
             m_importSegments = config.importSegments;
+            m_importMovieSegments = config.importMovieSegments;
+            m_importMode = config.importMode;
             m_timeout = config.timeoutSeconds;
             if (provider != "local") m_credential = m_store.credential("media:" + provider).value_or(QString());
         } catch (...) {
@@ -100,10 +106,14 @@ void ProviderSettingsModel::select(const QString &provider)
     }
     refreshStatus();
     m_savedAddress = m_address; m_savedImages = m_images; m_savedImportSegments = m_importSegments;
+    m_savedImportMode = m_importMode;
+    m_savedImportMovieSegments = m_importMovieSegments;
     const auto draft = m_drafts.constFind(provider);
     if (draft != m_drafts.cend()) {
         m_address = draft->address; m_images = draft->images;
         m_credential = draft->credential; m_edited = draft->edited; m_importSegments = draft->importSegments;
+        m_importMode = draft->importMode;
+        m_importMovieSegments = draft->importMovieSegments;
     }
     emit changed();
     emit cleared();
@@ -117,6 +127,19 @@ void ProviderSettingsModel::edited()
 void ProviderSettingsModel::setAddress(const QString &value) { m_address = value; edited(); }
 void ProviderSettingsModel::setFetchImages(bool value) { m_images = value; edited(); }
 void ProviderSettingsModel::setImportSegments(bool value) { m_importSegments = value; edited(); }
+void ProviderSettingsModel::setImportMovieSegments(bool value)
+{
+    if (m_provider.isEmpty() || m_provider == "local" || value == m_importMovieSegments) return;
+    m_importMovieSegments = value;
+    edited();
+}
+void ProviderSettingsModel::setImportMode(const QString &value)
+{
+    if (m_provider.isEmpty() || m_provider == "local" || value == m_importMode
+        || (value != "tv" && value != "movies" && value != "both")) return;
+    m_importMode = value;
+    edited();
+}
 void ProviderSettingsModel::setCredentialInput(const QString &value)
 {
     m_credential = value; m_edited = true; edited();
@@ -150,12 +173,16 @@ bool ProviderSettingsModel::save(CredentialAction action, const QString &credent
     if (m_provider.isEmpty()) { m_message = QStringLiteral("Select a provider first."); emit changed(); return false; }
     try {
         m_store.saveProvider({m_provider, m_provider == "local" ? QString() : m_address,
-                             m_provider == "local" ? m_address : QString(), m_images, m_timeout, m_importSegments}, action, credential);
+                             m_provider == "local" ? m_address : QString(), m_images, m_timeout, m_importSegments, m_importMode,
+                             m_importMovieSegments},
+                             action, credential);
     } catch (const SettingsError &error) { m_message = errorText(error); emit errorOccurred(m_message); emit changed(); return false; }
     catch (...) { m_message = QStringLiteral("Save failed. Check app.db access and retry."); emit errorOccurred(m_message); emit changed(); return false; }
     m_edited = false;
     m_drafts.remove(m_provider);
     m_savedAddress = m_address; m_savedImages = m_images; m_savedImportSegments = m_importSegments;
+    m_savedImportMode = m_importMode;
+    m_savedImportMovieSegments = m_importMovieSegments;
     m_message.clear(); refreshStatus(); emit changed(); emit saved();
     return true;
 }

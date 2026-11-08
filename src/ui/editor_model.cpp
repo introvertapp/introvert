@@ -66,7 +66,7 @@ EditorModel::EditorModel(LibraryModel &library, SegmentStore store, QObject *par
     connect(&m_player, &QMediaPlayer::errorOccurred, this, [this] {
         if (m_closed) return;
         m_priming = false; m_ready = false; m_primeActive = false;
-        m_message = "Cannot decode episode media with Qt Multimedia."; emit errorOccurred(m_message); emit changed();
+        m_message = "Cannot decode video with Qt Multimedia."; emit errorOccurred(m_message); emit changed();
     });
     connect(&library, &LibraryModel::changed, this, &EditorModel::libraryChanged);
 }
@@ -97,6 +97,7 @@ QString EditorModel::episodeTitle() const
 {
     if (!m_context) return "No episode loaded";
     const auto &episode = m_context->episode;
+    if (m_context->detail.show.isMovie()) return episode.title.value_or(QString());
     return "Episode " + (episode.episodeNumber ? QString::number(*episode.episodeNumber) : QString("None"))
         + " — " + episode.title.value_or(QString());
 }
@@ -247,7 +248,8 @@ void EditorModel::save(const QVariantList &rows)
             std::optional<QPair<double, double>> value;
             if ((!start.isNull() && start.isValid()) || (!end.isNull() && end.isValid())) {
                 const auto a = number(start), b = number(end);
-                if (!a || !b) throw SegmentError("Segment timestamps must be within the video and between 5 and 180 seconds long");
+                if (!a || !b) throw SegmentError(m_context->detail.show.isMovie() ? "Invalid movie segment timestamps"
+                    : "Segment timestamps must be within the video and between 5 and 180 seconds long");
                 value = qMakePair(*a, *b);
             }
             const auto baseline = m_baseline.contains(kinds[index]) ? std::optional<QPair<double, double>>(m_baseline.value(kinds[index])) : std::nullopt;
@@ -260,8 +262,11 @@ void EditorModel::save(const QVariantList &rows)
     submit(Kind::Save, [this, context, length, changes, connection=m_library.connectionAddress()](const Cancellation &) {
         // A requested save remains atomic even if the dialog closes before its
         // worker starts. Only obsolete display results are discarded.
-        const auto edit=m_library.m_editLocks.edit({{context.detail.show,context.episode.seasonNumber.value_or(-1)}},connection);
-        if(!edit)throw SegmentError("Season timestamps cannot be edited during detection");
+        std::shared_ptr<EditLocks::Lease> edit;
+        if (!context.detail.show.isMovie()) {
+            edit = m_library.m_editLocks.edit({{context.detail.show,context.episode.seasonNumber.value_or(-1)}},connection);
+            if(!edit)throw SegmentError("Season timestamps cannot be edited during detection");
+        }
         m_store.save(context.detail.show, context.episode, changes, length);
         Result result; result.values = m_store.load(context.detail.show, context.episode);
         result.edited = m_store.isEdited(context.detail.show, context.episode); return result;
@@ -279,8 +284,11 @@ void EditorModel::refreshCatalog()
 {
     QVariantList seasons, episodes;
     if (m_context) {
-        for (const auto &group : m_context->detail.seasons) seasons.append(int(group.number.value_or(-1)));
-        episodes = m_library.episodesForSeason(m_season);
+        if (m_context->detail.show.isMovie()) episodes = m_library.movieItems();
+        else {
+            for (const auto &group : m_context->detail.seasons) seasons.append(int(group.number.value_or(-1)));
+            episodes = m_library.episodesForSeason(m_season);
+        }
     }
     // Catalog bindings do not rebuild on playback position/audio updates.
     if (m_seasons != seasons || m_episodes != episodes || m_publishedSeason != m_season) {

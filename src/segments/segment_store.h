@@ -32,7 +32,7 @@ public:
     bool isEdited(const providers::ShowSummary &show, const providers::Episode &episode) const;
     QVariantMap preferences() const;
     void setPreference(const QString &key, int value) const;
-    std::optional<qint64> durationMs(const providers::Episode &episode) const;
+    std::optional<qint64> durationMs(const providers::Episode &episode, const providers::ShowSummary *show = nullptr) const;
 private:
     QString m_path;
 };

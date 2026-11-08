@@ -72,19 +72,22 @@ void PlexProvider::context(const ProviderConfig &config, const Cancellation &can
         && m_contextUrl == config.remoteUrl && m_contextCredential == config.credential) return;
     const auto machine = detail::optionalString(request(config, "/identity", {}, cancelled).toObject()["machineIdentifier"]);
     const auto directories = request(config, "/library/sections", {}, cancelled).toObject()["Directory"].toArray();
-    QStringList sections;
+    QStringList sections, movieSections;
     for (const auto &directory : directories) {
         if (!directory.isObject()) continue;
         const auto item = directory.toObject();
-        if (detail::present(item["key"]) && item["type"] == "show") sections.append(detail::sourceString(item["key"]));
+        if (!detail::present(item["key"])) continue;
+        if (item["type"] == "show") sections.append(detail::sourceString(item["key"]));
+        else if (item["type"] == "movie") movieSections.append(detail::sourceString(item["key"]));
     }
     m_contextUrl = config.remoteUrl; m_contextCredential = config.credential;
-    m_machine = machine; m_sections = sections; m_contextAge.start();
+    m_machine = machine; m_sections = sections; m_movieSections = movieSections; m_contextAge.start();
 }
 
 void PlexProvider::invalidate()
 {
     m_contextAge.invalidate(); m_contextUrl.reset(); m_contextCredential.reset(); m_machine.reset(); m_sections.clear();
+    m_movieSections.clear();
 }
 
 QList<QJsonObject> PlexProvider::items(const ProviderConfig &config, const QString &path,
@@ -114,11 +117,12 @@ QString PlexProvider::web(const ProviderConfig &config, const QString &key) cons
     return itemWebUrl(config.remoteUrl.value_or(QString()), {ProviderId::Plex, key, m_machine});
 }
 
-ShowSummary PlexProvider::show(const ProviderConfig &config, const QJsonObject &item, bool includeImages) const
+template<typename Summary>
+Summary PlexProvider::title(const QJsonObject &item, bool includeImages) const
 {
     if (!detail::present(item["ratingKey"])) throw ProviderError(QStringLiteral("Plex returned an invalid media response."));
     const auto key = detail::sourceString(item["ratingKey"]);
-    ShowSummary result{{ProviderId::Plex, key, m_machine}, item["title"].toString()};
+    Summary result{{ProviderId::Plex, key, m_machine}, item["title"].toString()};
     result.year = detail::nonnegativeNumber(item["year"]);
     for (const auto &value : item["Guid"].toArray()) {
         const auto id = value.toObject()["id"].toString();
@@ -131,11 +135,64 @@ ShowSummary PlexProvider::show(const ProviderConfig &config, const QJsonObject &
         for (const auto &image : item["Image"].toArray()) {
             if (image.toObject()["type"] == "clearLogo") { result.logoUrl = detail::optionalString(image.toObject()["url"]); break; }
         }
+        if (!result.logoUrl || !result.logoUrl->startsWith('/')) {
+            const auto direct = detail::optionalString(item["clearLogo"]);
+            if (direct && direct->startsWith('/')) result.logoUrl = direct;
+        }
     }
-    if (m_machine && !m_machine->isEmpty()) result.itemUrl = web(config, key);
+    return result;
+}
+
+ShowSummary PlexProvider::show(const ProviderConfig &config, const QJsonObject &item, bool includeImages) const
+{
+    auto result = title<ShowSummary>(item, includeImages);
+    if (m_machine && !m_machine->isEmpty()) result.itemUrl = web(config, result.identity.itemId);
     result.seasonCount = detail::nonnegativeNumber(item["childCount"]);
     result.episodeCount = detail::nonnegativeNumber(item["leafCount"]);
     return result;
+}
+
+QList<MovieSummary> PlexProvider::listMovies(const ProviderConfig &config, bool includeImages, const Cancellation &cancelled)
+{
+    context(config, cancelled);
+    QList<MovieSummary> result;
+    QSet<QString> seen;
+    for (const auto &section : m_movieSections) {
+        for (const auto &item : items(config, "/library/sections/" + detail::quote(section) + "/all",
+                                      {{"type", 1}, {"includeGuids", 1}}, cancelled)) {
+            if (item["type"] != "movie" || !detail::present(item["ratingKey"])) continue;
+            auto movie = title<MovieSummary>(item, includeImages);
+            if (movie.identity.itemId.isEmpty() || seen.contains(movie.identity.itemId)) continue;
+            seen.insert(movie.identity.itemId);
+            movie.durationMs = detail::nonnegativeNumber(item["duration"], true);
+            result.append(std::move(movie));
+        }
+    }
+    std::stable_sort(result.begin(), result.end(), [](const auto &a, const auto &b) { return a.title.toCaseFolded() < b.title.toCaseFolded(); });
+    return result;
+}
+
+std::optional<MovieDetail> PlexProvider::getMovie(const ProviderConfig &config, const QString &id,
+                                                bool includeImages, const Cancellation &cancelled)
+{
+    context(config, cancelled);
+    const auto rows = items(config, "/library/metadata/" + detail::quote(id),
+                            {{"includeGuids", 1}, {"includeChapters", 1}}, cancelled);
+    for (const auto &item : rows) {
+        if (item["type"] != "movie" || detail::sourceString(item["ratingKey"]) != id) continue;
+        MovieDetail result{title<MovieSummary>(item, includeImages), {}};
+        result.movie.durationMs = detail::nonnegativeNumber(item["duration"], true);
+        for (const auto &value : item["Chapter"].toArray()) {
+            const auto chapter = value.toObject();
+            if (chapter["startTimeOffset"].isBool()) continue;
+            const auto start = detail::nonnegativeNumber(chapter["startTimeOffset"]);
+            if (start) result.chapters.append({chapter["tag"].toString(), *start,
+                chapter["endTimeOffset"].isBool() ? std::nullopt : detail::nonnegativeNumber(chapter["endTimeOffset"])});
+        }
+        normalizeChapters(result);
+        return result;
+    }
+    return std::nullopt;
 }
 
 QList<ShowSummary> PlexProvider::listSeries(const ProviderConfig &config, bool includeImages, const Cancellation &cancelled)

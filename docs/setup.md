@@ -3,15 +3,23 @@
 [← Documentation](../README.md#table-of-contents)
 
 Open **Settings → Media** and choose **Plex**, **Emby**, **Jellyfin**, or **Local**.
-Settings save automatically. Return to **TV Shows** to load the selected source.
+Settings save automatically. Open **TV Shows** or **Movies** to load the selected source.
 
 ## Plex, Emby, or Jellyfin
 
 1. Enter your server's **URL**, including its port when needed.
 2. Enter the server credential in **API Key**.
-3. Leave **Fetch images** enabled if you want show artwork.
-4. Optionally enable **Import server timestamps** to bring in existing markers.
-5. Return to **TV Shows** and open a show.
+3. Set **Import** to **TV shows**, **Movies**, or **Both**. Each server keeps its own choice.
+4. Optionally enable **Import TV timestamps** for existing episode markers or
+   **Import movie timestamps** for segments from named chapters.
+5. Open **TV Shows** or click the film-strip button next to it for **Movies**.
+
+Open a movie to see its runtime, logo, and title links when available. Its movie
+card has the same timestamp tools as a TV episode. With movie timestamp imports
+enabled, Intro, studio logo, opening title and credits chapters become segments
+when you open the movie.
+An explicit Intro takes priority, followed by studio logos, then opening titles
+or credits. Saved edits and deletions take precedence over chapter imports.
 
 | Server | Example URL | Credential |
 | --- | --- | --- |
@@ -21,11 +29,11 @@ Settings save automatically. Return to **TV Shows** to load the selected source.
 
 Use your server's actual address in place of `server`. Use a direct server URL
 that does not redirect to another address. Your credential must allow access to
-the TV library and original media files. Detection and playback use those files
-directly; INTROvert does not ask the server to transcode them.
+the selected library. TV detection and playback also need direct access to the
+original media files.
 
-Server timestamp imports are **off by default** and configured separately for
-each provider. Turning imports off keeps timestamps already saved in INTROvert.
+Both timestamp import switches are **off by default** and saved separately for
+each provider. Turning them off keeps timestamps already saved in INTROvert.
 Use **Rebuild Cache** to refresh the selected server's library and artwork.
 
 ## Local folders and network storage

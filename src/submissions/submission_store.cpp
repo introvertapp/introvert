@@ -54,13 +54,22 @@ QVariant nullable(const QVariant &value)
     if (value.isNull()) return {};
     return value.metaType().id() == QMetaType::QString ? QVariant(sql::text(value.toString())) : value;
 }
+QStringList canonicalKeys(const QVariantMap &record)
+{
+    const auto encoded = record.value("canonical");
+    return encoded.metaType().id() == QMetaType::QString
+        ? QJsonValue::fromJson(encoded.toString().toUtf8()).toVariant().toStringList() : encoded.toStringList();
+}
+QString movieKey(const QVariantMap &record)
+{
+    for (const auto &key : canonicalKeys(record))
+        if (key.startsWith("movie:")) return key;
+    return {};
+}
 QMap<QString, QString> identifiers(const QVariantMap &record)
 {
     QMap<QString, QString> result;
-    const auto encoded = record.value("canonical");
-    const auto canonical = encoded.metaType().id() == QMetaType::QString
-        ? QJsonValue::fromJson(encoded.toString().toUtf8()).toVariant().toStringList() : encoded.toStringList();
-    for (const auto &key : canonical) {
+    for (const auto &key : canonicalKeys(record)) {
         const auto colon = key.indexOf(':'); const auto kind = key.left(colon);
         if (QStringList{"tmdb", "tvdb", "imdb"}.contains(kind)) result[kind] = key.mid(colon + 1);
     }
@@ -70,6 +79,12 @@ QMap<QString, QString> identifiers(const QVariantMap &record)
 }
 bool compatible(const QVariantMap &left, const QVariantMap &right, bool *shared = nullptr)
 {
+    const auto leftMovie = movieKey(left), rightMovie = movieKey(right);
+    if (!leftMovie.isEmpty() || !rightMovie.isEmpty()) {
+        const bool match = leftMovie == rightMovie;
+        if (shared) *shared = match;
+        return match;
+    }
     const auto a = identifiers(left), b = identifiers(right); bool match = false;
     for (auto i = a.cbegin(); i != a.cend(); ++i) if (b.contains(i.key())) {
         if (b.value(i.key()) != i.value()) return false;
@@ -186,7 +201,7 @@ QString SubmissionStore::enqueuePlan(const QVariantMap &plan, QSqlDatabase &db) 
         const auto item = value.toMap();
         QVariantMap address;
         for (const auto &name : {"tvdb_id","tmdb_id","imdb_id","numbering_source","mapping","tvdb_episode_id",
-                                 "target_season","target_episode","episode_name","resolved_title"})
+                                 "target_season","target_episode","episode_name","resolved_title","media_type"})
             if(item.contains(name)) address[name]=item[name];
         const auto encoded=QString::fromUtf8(QJsonValue::fromVariant(address).toJson(QJsonValue::JsonFormat::Compact));
         sql::execute(db, "INSERT INTO submit_items(job_id,episode_id,title,season,number,kind,start,end,duration_ms,created,updated,status_revision,address) "
@@ -282,6 +297,8 @@ bool SubmissionStore::processOne(const SettingsStore &settings, const providers:
     for(auto i=address.begin();i!=address.end();++i) values[i.key()]=i.value();
     SubmissionCompletion completion; completion.settings = client.settings();
     try {
+        if ((item.value("season").toLongLong() == segments::movieCoordinate) != (values.value("media_type") == "movie"))
+            throw SubmissionError("Review this queued item again to verify its media type.");
         if(client.endpoint()=="theintrodb_org" && address.isEmpty()) throw SubmissionError("Review this queued item again to verify its v4 episode identity.");
         client.validate(values);
     }
@@ -295,8 +312,13 @@ bool SubmissionStore::processOne(const SettingsStore &settings, const providers:
         if(completion.status=="RATE LIMITED")completion.limit=*lookup.failure;
         finish(*selected,completion);return true;
     }
+    const bool theIntroDb = client.endpoint() == "theintrodb_org";
+    const auto durationMs = item.value("duration_ms").toLongLong();
+    const auto kind = item.value("kind").toString();
+    const auto mediaEnd = theIntroDb && values.value("media_type") == "movie" && durationMs > 0
+        && (kind == "credits" || kind == "preview") ? std::optional{durationMs / 1000.} : std::nullopt;
     completion.comparison = comparison(lookup, item.value("start").toDouble(), item.value("end").isNull()
-        ? std::nullopt : std::optional<double>(item.value("end").toDouble()), client.endpoint() == "theintrodb_org");
+        ? std::nullopt : std::optional<double>(item.value("end").toDouble()), theIntroDb, mediaEnd);
     if (*completion.comparison == "DUPLICATE") completion.status = "DUPLICATE";
     else {
         const auto result = client.submit(values, cancelled);
@@ -334,7 +356,8 @@ QVariantMap SubmissionStore::episodeStatuses(bool includeActivity, const QString
             }
             if (!visibleJobs.value(job)) continue;
         }
-        const auto key = item.value("provider").toString() + ':' + item.value("show_id").toString() + ':' + item.value("episode_id").toString();
+        const auto prefix = item.value("season").toLongLong() == segments::movieCoordinate ? QStringLiteral("movie:") : QString();
+        const auto key = prefix + item.value("provider").toString() + ':' + item.value("show_id").toString() + ':' + item.value("episode_id").toString();
         auto state = result.value(key).toMap();
         if (includeActivity) state["season"] = item.value("season");
         auto segments = state.value("segments").toMap(), badges = state.value("badges").toMap();
@@ -398,11 +421,14 @@ SubmissionSnapshot SubmissionStore::snapshot() const
         else if (status == "DUPLICATE" || status == "SKIP") text = status.left(1) + status.mid(1).toLower();
         else text = status;
         const auto tmdb = job.value("tmdb"), imdb = job.value("imdb");
+        const bool movie = item.value("season").toLongLong() == segments::movieCoordinate;
         QVariantMap row{{"type", title(item.value("kind").toString())}, {"endpoint", label(endpoint)}, {"show", job.value("title")},
-            {"episode", item.value("title")}, {"code", QString("S%1E%2").arg(item.value("season").toLongLong(), 2, 10, QChar('0')).arg(item.value("number").toLongLong(), 2, 10, QChar('0'))},
+            {"episode", movie ? QVariant(QString()) : item.value("title")}, {"code", movie ? QString("Movie")
+                : QString("S%1E%2").arg(item.value("season").toLongLong(), 2, 10, QChar('0')).arg(item.value("number").toLongLong(), 2, 10, QChar('0'))},
             {"date", timestamp(item.value("created").toDouble())}, {"status", text}, {"providerId", job.value("provider")}, {"showId", job.value("show_id")},
             {"jobId", job.value("id")}, {"error", item.value("error")}, {"canonical", !tmdb.isNull() && !tmdb.toString().isEmpty() ? tmdb
                 : !imdb.isNull() && !imdb.toString().isEmpty() ? imdb : QVariant(job.value("provider").toString() + ':' + job.value("show_id").toString())}};
+        if (movie) row["movie"] = true;
         if (!job.value("scope").toString().isEmpty()) row["scope"] = job.value("scope");
         if (job.value("status") == "complete") result.history.append(row);
         else {
@@ -433,19 +459,22 @@ SubmissionSnapshot SubmissionStore::snapshot() const
         if (left.value("queueRunning").toBool() != right.value("queueRunning").toBool()) return left.value("queueRunning").toBool();
         return left.value("queueOrder").toLongLong() < right.value("queueOrder").toLongLong();
     });
-    QSet<QString> shows; QSet<QPair<QString, QString>> episodes;
+    QSet<QString> shows, movies; QSet<QPair<QString, QString>> episodes;
     result.statistics = {{"Shows", 0}, {"Episodes", 0}, {"IntroDB", 0}, {"TheIntroDB", 0}};
     for (const auto &kind : kinds) result.statistics[title(kind)] = 0;
     for (const auto &value : result.history) {
         const auto row = value.toMap();
         const auto show = (row.value("showId").toString().isEmpty() ? row.value("show").toString() : row.value("showId").toString()).trimmed().toLower();
-        shows.insert(show); episodes.insert(qMakePair(show, row.value("code").toString()));
+        if (row.value("movie").toBool())
+            movies.insert(row.value("scope").toString() + ':' + show);
+        else { shows.insert(show); episodes.insert(qMakePair(show, row.value("code").toString())); }
         const auto type = row.value("type").toString();
         if (kinds.contains(type.toLower())) result.statistics[type] = result.statistics.value(type).toInt() + 1;
         const auto endpoint = row.value("endpoint") == "introdb.app" ? QString("IntroDB") : QString("TheIntroDB");
         result.statistics[endpoint] = result.statistics.value(endpoint).toInt() + 1;
     }
     result.statistics["Shows"] = shows.size(); result.statistics["Episodes"] = episodes.size();
+    if (!movies.isEmpty()) result.statistics["Movies"] = movies.size();
     std::reverse(result.history.begin(), result.history.end());
     return result;
 }

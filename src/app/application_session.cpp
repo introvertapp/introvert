@@ -58,6 +58,8 @@ ApplicationSession::ApplicationSession(bool preview, const std::optional<QString
         segments::SegmentStore segments(paths.database); segments.initialize();
         submissions::SubmissionStore submissions(paths.database); submissions.initialize();
         m_settings = std::make_unique<ui::SettingsModel>(settings);
+        const auto *media = qobject_cast<ui::ProviderSettingsModel *>(m_settings->mediaSettings());
+        if (media->importMode() == "movies") m_navigation->navigate("movies");
         m_updates = std::make_unique<ui::UpdateModel>(settings, nullptr, m_updateTestNetwork.get());
         m_updates->enableDetectorUpdates();
         if(dataRoot)m_updates->setRestartArguments({"--data-dir",QDir(*dataRoot).absolutePath()});

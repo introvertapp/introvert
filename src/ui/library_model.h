@@ -29,8 +29,11 @@ class LibraryModel final : public QObject {
     Q_OBJECT
     Q_PROPERTY(QObject *localMetadata READ localMetadata NOTIFY changed)
     Q_PROPERTY(QVariantList shows READ shows NOTIFY changed)
+    Q_PROPERTY(QVariantList movies READ movies NOTIFY changed)
     Q_PROPERTY(QVariantList episodes READ episodes NOTIFY changed)
     Q_PROPERTY(QVariantMap show READ show NOTIFY changed)
+    Q_PROPERTY(QVariantMap movie READ movie NOTIFY changed)
+    Q_PROPERTY(QVariantList movieItems READ movieItems NOTIFY changed)
     Q_PROPERTY(int season READ season NOTIFY changed)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
     Q_PROPERTY(bool rebuildingCache READ rebuildingCache NOTIFY changed)
@@ -47,9 +50,12 @@ public:
     ~LibraryModel() override;
     QObject *localMetadata() const;
     QVariantList shows() const { return m_shows; }
+    QVariantList movies() const { return m_movies; }
     QVariantList episodes() const { return m_episodes; }
     Q_INVOKABLE QVariantList episodesForSeason(int number) const;
     QVariantMap show() const { return m_show; }
+    QVariantMap movie() const { return m_movie; }
+    QVariantList movieItems() const;
     int season() const { return m_season; }
     bool busy() const { return m_busy; }
     bool rebuildingCache() const { return m_rebuildGeneration && *m_rebuildGeneration == m_generation; }
@@ -65,7 +71,10 @@ public:
     Q_INVOKABLE void clearImageCache();
     Q_INVOKABLE void clearLocalCache();
     Q_INVOKABLE void setBrowsing(bool active);
+    Q_INVOKABLE void setBrowsePage(const QString &page);
     Q_INVOKABLE void openShow(const QString &id);
+    Q_INVOKABLE void openMovie(const QString &id);
+    Q_INVOKABLE void openJobMovie(const QString &id, const QString &scope);
     Q_INVOKABLE void openJobShow(const QString &id, const QString &scope);
     Q_INVOKABLE void selectSeason(int number);
     Q_INVOKABLE void closeShow();
@@ -85,9 +94,10 @@ private:
     friend class SubmissionModel;
     friend class DetectionModel;
     segments::EditLocks m_editLocks;
-    enum class Kind { Library, Show, Rebuild, Images, Stats };
+    enum class Kind { Library, Show, Movie, Rebuild, Images, Stats };
+    static bool detailRequest(Kind kind) { return kind == Kind::Show || kind == Kind::Movie; }
     struct Result {
-        library::CatalogResult catalog;
+        std::optional<library::CatalogResult> catalog, movieCatalog;
         std::optional<providers::ShowDetail> detail;
         QVariantMap display;
         segments::CatalogSegments segments;
@@ -100,6 +110,11 @@ private:
     void refresh(bool force, bool clearLocal = false);
     void reloadLocalMetadata();
     void openShowScoped(const QString &id, const QString &scope);
+    void openMovieScoped(const QString &id, const QString &scope);
+    const providers::ShowDetail *activeDetail() const;
+    QVariantMap playableRow(const providers::ShowDetail &detail, const providers::Episode &episode) const;
+    quint64 beginDetail();
+    QVariantList &activeRows() { return m_browseMovies ? m_movies : m_shows; }
     QString connectionAddress() const { return m_key ? m_key->address() : QString(); }
     quint64 begin();
     void submit(Kind kind, quint64 generation, Work work);
@@ -116,15 +131,16 @@ private:
     providers::Cancellation m_cancel = std::make_shared<std::atomic_bool>(false);
     providers::Cancellation m_showCancel = std::make_shared<std::atomic_bool>(false);
     std::optional<CatalogSelection> m_key;
-    std::optional<providers::ShowDetail> m_detail;
+    std::optional<providers::ShowDetail> m_detail, m_movieDetail;
     segments::CatalogSegments m_segments;
-    QVariantList m_shows, m_episodes;
-    QVariantMap m_show;
+    QVariantList m_shows, m_movies, m_episodes;
+    QVariantMap m_show, m_movie;
     QString m_state = "ready", m_message = "Configure a media provider in Settings → Media to load your library.";
     QString m_imageSummary = "0.0 MB / 0 images";
     QString m_previousState, m_previousMessage;
     bool m_previousCached = false, m_previousPending = false;
     bool m_busy = false, m_closed = false, m_browsing = true, m_pending = false, m_cached = false;
+    bool m_browseMovies = false;
     quint64 m_generation = 0;
     quint64 m_showGeneration = 0;
     bool m_showActive = false, m_catalogLoading = false;

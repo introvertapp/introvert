@@ -49,11 +49,13 @@ CatalogSegments loadCatalogSegments(const QString &databasePath, const providers
         if(!episode.seasonNumber || !result.deferredSeasons.contains(*episode.seasonNumber))
             for (const auto &segment : episode.importedSegments)
                 row[providers::segmentName(segment.type)] = {segment.startSeconds, segment.endSeconds};
-        if (!keys.isEmpty() && episode.seasonNumber && episode.episodeNumber) {
-            const auto reset=resets.find({*episode.seasonNumber,*episode.episodeNumber});
+        const auto coordinates = segmentCoordinates(detail.show, episode);
+        if (!keys.isEmpty() && coordinates) {
+            const auto [seasonNumber, episodeNumber] = *coordinates;
+            const auto reset=resets.find({seasonNumber,episodeNumber});
             if(reset!=resets.end())result.statusRevisions[episode.identity.itemId]=reset->second;
             for (const auto &kind : {QString("recap"), QString("intro"), QString("credits"), QString("preview")}) {
-                const auto identity = std::make_tuple(*episode.seasonNumber, *episode.episodeNumber, kind);
+                const auto identity = std::make_tuple(seasonNumber, episodeNumber, kind);
                 const auto stored = latest.find(identity);
                 if (stored != latest.end()) {
                     if (stored->second.deleted) row.remove(kind);
@@ -66,7 +68,7 @@ CatalogSegments loadCatalogSegments(const QString &databasePath, const providers
                     if (std::isfinite(value.first) && std::isfinite(value.second) && 0 <= value.first && value.first < value.second) {
                         sql::execute(connection.db, "INSERT OR IGNORE INTO segments "
                             "(show_key,season,episode,kind,start,end,source,provider,provider_episode) VALUES(?,?,?,?,?,?,?,?,?)",
-                            {keys.first(), *episode.seasonNumber, *episode.episodeNumber, kind, value.first, value.second,
+                            {keys.first(), seasonNumber, episodeNumber, kind, value.first, value.second,
                              episode.identity.provider == providers::ProviderId::Local ? "embedded" : "media_server",
                              providers::providerName(episode.identity.provider), episode.identity.itemId});
                         latest.emplace(identity, Stored{value.first, value.second, false,

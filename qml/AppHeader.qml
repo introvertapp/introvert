@@ -7,6 +7,7 @@ Item {
     required property var theme
     required property var navigation
     property string query: ""
+    property string homePage: "home"
     property bool showSearch: true
     property Item backdropSource: null
     property Item glassHost: null
@@ -39,17 +40,17 @@ Item {
         width: 156; height: 44
         source: "assets/wordmark.png"
         fillMode: Image.PreserveAspectFit
-        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: header.go("home") }
+        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: header.go(header.homePage) }
     }
     AppTextField {
         objectName: "globalSearchControl"
         clearButtonEnabled: true
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.verticalCenter: parent.verticalCenter
-        width: parent.width * 0.5; height: 40
+        width: Math.min(parent.width * 0.5, parent.width - 2*(navigationButtons.width+12)); height: 40
         visible: header.showSearch && header.navigation.page !== "settings"
         text: header.query
-        placeholderText: header.navigation.page === "queue" ? "Search queue" : header.navigation.page === "history" ? "Search history" : "Search shows or episodes"
+        placeholderText: header.navigation.page === "queue" ? "Search queue" : header.navigation.page === "history" ? "Search history" : header.navigation.page === "movies" ? "Search movies" : "Search shows or episodes"
         font.pixelSize: 15; color: header.theme.text
         placeholderTextColor: header.theme.muted
         Accessible.name: placeholderText
@@ -57,9 +58,10 @@ Item {
         background: Rectangle { color: header.theme.card; radius: 8; border.width: 1; border.color: header.theme.border }
     }
     Row {
+        id: navigationButtons
         anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; spacing: 8
         Repeater {
-            model: [{page:"home", label:"TV Shows", icon:"▣"}, {page:"queue", label:"Submission Queue", icon:"☷"}, {page:"history", label:"Submission History", icon:"◴"}, {page:"settings", label:"Settings", icon:"⚙"}]
+            model: [{page:"home", label:"TV Shows", icon:"▣"}, {page:"movies", label:"Movies", icon:"▤"}, {page:"queue", label:"Submission Queue", icon:"☷"}, {page:"history", label:"Submission History", icon:"◴"}, {page:"settings", label:"Settings", icon:"⚙"}]
             AppButton {
                 id: navigationButton
                 required property var modelData

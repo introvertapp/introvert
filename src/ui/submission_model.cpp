@@ -34,20 +34,23 @@ bool SubmissionModel::Context::operator==(const Context &other) const
 
 std::optional<SubmissionModel::Context> SubmissionModel::context(bool includeIdentity) const
 {
-    if (!m_library.m_detail) return {};
-    if (!includeIdentity) return Context{m_library.m_detailRevision, m_library.selection(), m_library.season(), {}};
-    const auto &detail=*m_library.m_detail;
+    const auto *active = m_library.activeDetail();
+    if (!active) return {};
+    const auto seasonNumber = active->show.isMovie() ? int(segments::movieCoordinate) : m_library.season();
+    if (!includeIdentity) return Context{m_library.m_detailRevision, m_library.selection(), seasonNumber, {}};
+    const auto &detail=*active;
     QStringList identity{detail.show.externalIds.imdb.value_or(QString()),detail.show.externalIds.tmdb.value_or(QString()),detail.show.externalIds.tvdb.value_or(QString())};
     for(const auto &season:detail.seasons)for(const auto &episode:season.episodes)
         identity.append(episode.identity.itemId+":"+episode.numberingSource.value_or(QString())+":"+episode.episodeOrder.value_or(QString())+":"+episode.tvdbEpisodeId.value_or(QString()));
-    return Context{m_library.m_detailRevision, m_library.selection(), m_library.season(),identity.join('|')};
+    return Context{m_library.m_detailRevision, m_library.selection(), seasonNumber,identity.join('|')};
 }
 
 void SubmissionModel::libraryChanged()
 {
     if (m_closed) return;
     const auto current = context(false);
-    const auto canonical = current ? segments::showKeys(m_library.m_detail->show) : QStringList();
+    const auto *detail = m_library.activeDetail();
+    const auto canonical = current ? segments::showKeys(detail->show) : QStringList();
     if (current != m_feedbackContext || canonical != m_feedbackCanonical) {
         const bool sameShow = current && m_feedbackContext && current->revision == m_feedbackContext->revision
             && current->key == m_feedbackContext->key && canonical == m_feedbackCanonical;
@@ -55,7 +58,7 @@ void SubmissionModel::libraryChanged()
         m_feedbackContext = current;
         {
             std::lock_guard<std::mutex> lock(m_mutex);
-            m_feedbackScope = current ? providers::providerScope(m_library.m_detail->show.identity,
+            m_feedbackScope = current ? providers::providerScope(detail->show.identity,
                 current->key ? (current->key->saved.provider == "local" ? current->key->saved.localRoot : current->key->saved.remoteUrl) : QString()) : QString();
             m_feedbackCanonical = canonical;
             ++m_feedbackGeneration;
@@ -104,8 +107,10 @@ QVariantMap SubmissionModel::visibleStatuses(QVariantMap statuses, quint64 gener
 QVariantMap SubmissionModel::seasonProgress() const
 {
     QMap<QString, QPair<int, int>> counts;
-    if (!m_feedbackContext || !m_library.m_detail) return {};
-    const auto prefix = providers::providerName(m_library.m_detail->show.identity.provider) + ':' + m_library.m_detail->show.identity.itemId + ':';
+    const auto *detail = m_library.activeDetail();
+    if (!m_feedbackContext || !detail) return {};
+    const auto prefix = (detail->show.isMovie() ? QStringLiteral("movie:") : QString())
+        + providers::providerName(detail->show.identity.provider) + ':' + detail->show.identity.itemId + ':';
     for (auto episode = m_progressStatuses.begin(); episode != m_progressStatuses.end(); ++episode) {
         if (!episode.key().startsWith(prefix)) continue;
         const auto row = episode.value().toMap();
@@ -167,8 +172,10 @@ void SubmissionModel::prepareMany(const QVariantList &selection, const QVariantL
     if (m_reviewCancel) m_reviewCancel->store(true);
     m_reviewCancel = std::make_shared<std::atomic_bool>(false);
     ++m_generation; m_plan.reset(); m_review.clear(); m_message.clear();
-    if (!m_library.m_detail) {
-        m_message = "Open a TV show before submitting segments"; emit changed(); return;
+    const auto *detail = m_library.activeDetail();
+    if (!detail) {
+        m_message = m_library.m_browseMovies ? "Open a movie before submitting segments" : "Open a TV show before submitting segments";
+        emit changed(); return;
     }
     m_context = context(); m_busy = true;
     QVariantList keys;
@@ -177,7 +184,7 @@ void SubmissionModel::prepareMany(const QVariantList &selection, const QVariantL
         for (const auto &id : {QString("introdb_app"), QString("theintrodb_org")}) if (key == label(id)) key = id;
         if (!keys.contains(key)) keys.append(key);
     }
-    push({Kind::Prepare, m_generation, m_library.m_detail, selection, keys, {}, m_reviewCancel, m_feedbackScope});
+    push({Kind::Prepare, m_generation, *detail, selection, keys, {}, m_reviewCancel, m_feedbackScope});
     emit changed();
 }
 
@@ -433,6 +440,7 @@ void SubmissionModel::finished(Kind kind, quint64 generation, const QVariant &va
                 };
                 m_review = {{"show", plan.value("show")}, {"season", plan.value("season")}, {"imdb", identifier("imdb")}, {"tmdb", identifier("tmdb")}, {"tvdb", identifier("tvdb")}, {"targets", plan.value("targets")},
                     {"endpoint", plan.value("endpointLabel")}, {"episodes", episodes.size()}, {"segments", items.size()}, {"types", types}};
+                if (plan.value("movie").toBool()) m_review["movie"] = true;
                 emit prepared();
             } else { m_review.clear(); m_context.reset(); emit enqueued(); }
         }

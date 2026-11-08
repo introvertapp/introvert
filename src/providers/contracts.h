@@ -86,6 +86,9 @@ struct ShowSummary {
     ExternalIds externalIds;
     std::optional<qint64> seasonCount, episodeCount;
     std::optional<LocalShowMetadata> localMetadata;
+    // Set on the single playable row projected from a movie detail.
+    std::optional<QString> movieKey;
+    bool isMovie() const { return movieKey.has_value(); }
 };
 
 struct Episode {
@@ -109,6 +112,29 @@ struct ShowDetail {
     bool hasEpisodeAddressing = false;
 };
 
+struct MovieSummary {
+    ProviderIdentity identity;
+    QString title;
+    std::optional<qint64> year;
+    std::optional<QString> posterUrl, logoUrl;
+    ExternalIds externalIds;
+    std::optional<qint64> durationMs;
+};
+
+struct Chapter {
+    QString title;
+    qint64 startMs;
+    std::optional<qint64> endMs;
+};
+
+struct MovieDetail {
+    MovieSummary movie;
+    QList<Chapter> chapters;
+};
+
+void normalizeChapters(MovieDetail &detail);
+QList<ImportedSegment> movieChapterSegments(const MovieDetail &detail);
+
 // Synchronous domain boundary, scheduled on an owning worker by the library.
 // Instances retain only short-lived discovery state and are used serially.
 // Returned values have no canonical edit/segment persistence responsibilities.
@@ -119,6 +145,9 @@ public:
                                           const Cancellation &cancelled = {}) = 0;
     virtual std::optional<ShowDetail> getShow(const ProviderConfig &config, const QString &showId,
                                              bool includeImages = true, const Cancellation &cancelled = {}) = 0;
+    virtual QList<MovieSummary> listMovies(const ProviderConfig &, bool = true, const Cancellation & = {}) { return {}; }
+    virtual std::optional<MovieDetail> getMovie(const ProviderConfig &, const QString &, bool = true,
+                                                const Cancellation & = {}) { return {}; }
     virtual QByteArray artwork(const ProviderConfig &config, const QString &path,
                                 const Cancellation &cancelled = {}) = 0;
     // Read-only authenticated metadata access is also used by the source's

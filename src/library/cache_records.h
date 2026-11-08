@@ -11,6 +11,10 @@ QJsonValue encodeSeries(const QList<providers::ShowSummary> &shows);
 QJsonValue encodeDetail(const providers::ShowDetail &detail);
 QList<providers::ShowSummary> decodeSeries(const QJsonValue &value);
 providers::ShowDetail decodeDetail(const QJsonValue &value);
+QJsonValue encodeMovies(const QList<providers::MovieSummary> &movies);
+QJsonValue encodeMovie(const providers::MovieDetail &detail);
+QList<providers::MovieSummary> decodeMovies(const QJsonValue &value);
+providers::MovieDetail decodeMovie(const QJsonValue &value);
 QByteArray asciiJson(const QJsonValue &value);
 
 } // namespace introvert::library

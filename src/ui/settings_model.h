@@ -15,6 +15,8 @@ class ProviderSettingsModel final : public QObject {
     Q_PROPERTY(QString address READ address NOTIFY changed)
     Q_PROPERTY(bool fetchImages READ fetchImages NOTIFY changed)
     Q_PROPERTY(bool importSegments READ importSegments NOTIFY changed)
+    Q_PROPERTY(bool importMovieSegments READ importMovieSegments NOTIFY changed)
+    Q_PROPERTY(QString importMode READ importMode NOTIFY changed)
     Q_PROPERTY(bool dirty READ dirty NOTIFY changed)
     Q_PROPERTY(QString message READ message NOTIFY changed)
     Q_PROPERTY(QString credentialInput READ credentialInput NOTIFY changed)
@@ -27,6 +29,8 @@ public:
     QString address() const { return m_address; }
     bool fetchImages() const { return m_images; }
     bool importSegments() const { return m_importSegments; }
+    bool importMovieSegments() const { return m_importMovieSegments; }
+    QString importMode() const { return m_importMode; }
     bool dirty() const;
     QString message() const { return m_message; }
     QString credentialInput() const { return m_credential; }
@@ -36,6 +40,8 @@ public:
     Q_INVOKABLE void setAddress(const QString &value);
     Q_INVOKABLE void setFetchImages(bool value);
     Q_INVOKABLE void setImportSegments(bool value);
+    Q_INVOKABLE void setImportMovieSegments(bool value);
+    Q_INVOKABLE void setImportMode(const QString &value);
     Q_INVOKABLE void setCredentialInput(const QString &value);
     Q_INVOKABLE void setDirectoryUrl(const QString &value);
     Q_INVOKABLE void flush();
@@ -46,7 +52,9 @@ signals:
     void saved();
     void cleared();
 private:
-    struct Draft { QString address; bool images; QString credential; bool edited; bool importSegments; };
+    struct Draft {
+        QString address; bool images; QString credential; bool edited; bool importSegments; QString importMode; bool importMovieSegments;
+    };
     bool save(CredentialAction action, const QString &credential);
     void refreshStatus();
     void edited();
@@ -55,6 +63,8 @@ private:
     QString m_provider, m_address, m_credential, m_message, m_status, m_savedAddress;
     bool m_images = false, m_savedImages = false, m_edited = false;
     bool m_importSegments = false, m_savedImportSegments = false;
+    bool m_importMovieSegments = false, m_savedImportMovieSegments = false;
+    QString m_importMode = "tv", m_savedImportMode = "tv";
     double m_timeout = 10;
     QMap<QString, Draft> m_drafts;
 };

@@ -33,7 +33,17 @@ public:
                                  const providers::Cancellation &cancel);
     QVariantMap displayShow(const providers::ProviderConfig &config, const providers::ShowSummary &show,
                             const providers::Cancellation &cancel, bool images = true);
+    CatalogResult browseMovies(const providers::ProviderConfig &config, const QString &listing, bool force,
+                               const QVariantList &previous, const providers::Cancellation &cancel, const Progress &progress);
+    CatalogResult rebuildMovies(const providers::ProviderConfig &config, const QString &listing,
+                                const providers::Cancellation &cancel, const std::function<void(double)> &progress);
+    providers::MovieDetail movieDetail(const providers::ProviderConfig &config, const QString &listing, const QString &id,
+                                       const providers::Cancellation &cancel);
+    QVariantMap displayMovie(const providers::ProviderConfig &config, const providers::MovieSummary &movie,
+                             const providers::Cancellation &cancel, bool images);
 private:
+    QList<providers::MovieSummary> listMovies(const providers::ProviderConfig &config, bool images, bool refresh,
+                                              const providers::Cancellation &cancel);
     QString artwork(const providers::ProviderConfig &config, const std::optional<QString> &path,
                     const providers::Cancellation &cancel, bool force = false);
     SettingsStore m_store;

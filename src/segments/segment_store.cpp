@@ -14,9 +14,10 @@ struct Identity { QStringList keys; qint64 season, episode; };
 Identity identity(const providers::ShowSummary &show, const providers::Episode &episode)
 {
     const auto keys = showKeys(show);
-    if (keys.isEmpty() || !episode.seasonNumber || !episode.episodeNumber)
+    const auto coordinates = segmentCoordinates(show, episode);
+    if (keys.isEmpty() || !coordinates)
         throw SegmentError("Show identity and episode numbering are required to save segments");
-    return {keys, *episode.seasonNumber, *episode.episodeNumber};
+    return {keys, coordinates->first, coordinates->second};
 }
 
 void write(QSqlDatabase &db, const Identity &id, const providers::Episode &episode, const SegmentChanges &changes, const QString &source)
@@ -66,9 +67,16 @@ void SegmentStore::save(const providers::ShowSummary &show, const providers::Epi
             throw SegmentError("Unsupported segment type");
         if (change.value()) {
             const auto [start, end] = *change.value();
-            if (!std::isfinite(start) || !std::isfinite(end) || start < 0 || !(5 <= end - start && end - start <= 180)
+            auto maximum = 180;
+            auto length = end - start;
+            if (show.isMovie()) {
+                maximum = change.key() == "intro" ? 300 : change.key() == "recap" ? 1200 : 1800;
+                length = (std::round(end * 1000) - std::round(start * 1000)) / 1000.;
+            }
+            if (!std::isfinite(start) || !std::isfinite(end) || start < 0 || !(5 <= length && length <= maximum)
                 || (duration > 0 && end > duration))
-                throw SegmentError("Segment timestamps must be within the video and between 5 and 180 seconds long");
+                throw SegmentError(qPrintable(QStringLiteral("Segment timestamps must be within the video and between 5 and %1 seconds long")
+                    .arg(maximum)));
         }
     }
     std::optional<qint64> milliseconds;
@@ -83,7 +91,7 @@ void SegmentStore::save(const providers::ShowSummary &show, const providers::Epi
     sql::Connection connection(m_path); sql::Transaction transaction(connection.db); initializeTables(connection.db);
     write(connection.db, id, episode, changes, source);
     if (milliseconds) sql::execute(connection.db, "INSERT OR REPLACE INTO episode_media VALUES(?,?,?)",
-        {providers::providerName(episode.identity.provider), sql::text(episode.identity.itemId), *milliseconds});
+        {providers::providerName(episode.identity.provider), sql::text(show.movieKey.value_or(episode.identity.itemId)), *milliseconds});
     transaction.commit();
 }
 
@@ -105,12 +113,13 @@ qsizetype SegmentStore::deleteMany(const QList<EpisodeTarget> &episodes, qint64 
 
 bool SegmentStore::isEdited(const providers::ShowSummary &show, const providers::Episode &episode) const
 {
-    if (!episode.seasonNumber || !episode.episodeNumber) return false;
+    const auto coordinates = segmentCoordinates(show, episode);
+    if (!coordinates) return false;
     const auto keys = showKeys(show);
     if (keys.isEmpty()) return false;
     QStringList placeholders; QVariantList arguments;
     for (const auto &key : keys) { placeholders.append("?"); arguments.append(key); }
-    arguments.append(*episode.seasonNumber); arguments.append(*episode.episodeNumber);
+    arguments.append(coordinates->first); arguments.append(coordinates->second);
     sql::Connection connection(m_path);
     auto query = sql::execute(connection.db, "SELECT kind,source,deleted FROM segments WHERE show_key IN ("
         + placeholders.join(',') + ") AND season=? AND episode=? ORDER BY revision DESC", arguments);
@@ -145,13 +154,15 @@ void SegmentStore::setPreference(const QString &key, int value) const
     sql::execute(connection.db, "INSERT INTO preferences VALUES(?,?) ON CONFLICT(name) DO UPDATE SET value=excluded.value", {key, value});
 }
 
-std::optional<qint64> SegmentStore::durationMs(const providers::Episode &episode) const
+std::optional<qint64> SegmentStore::durationMs(const providers::Episode &episode, const providers::ShowSummary *show) const
 {
-    if (episode.durationMs && *episode.durationMs) return episode.durationMs;
+    const bool movie = show && show->isMovie();
+    if (!movie && episode.durationMs && *episode.durationMs) return episode.durationMs;
     sql::Connection connection(m_path);
     auto query = sql::execute(connection.db, "SELECT duration_ms FROM episode_media WHERE provider=? AND episode_id=?",
-        {providers::providerName(episode.identity.provider), sql::text(episode.identity.itemId)});
-    return query.next() ? std::optional<qint64>(query.value(0).toLongLong()) : std::nullopt;
+        {providers::providerName(episode.identity.provider), sql::text(movie ? *show->movieKey : episode.identity.itemId)});
+    if (query.next()) return query.value(0).toLongLong();
+    return movie ? episode.durationMs : std::nullopt;
 }
 
 double parseTime(const QString &text)

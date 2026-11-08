@@ -15,6 +15,7 @@ Item {
         StatCards {
             Layout.fillWidth: true; theme: page.theme
             entries: ["Shows","Episodes","Recap","Intro","Credits","Preview","IntroDB","TheIntroDB"].map(function(label,i) { return {label:label,value:page.preview ? [3,3,1,1,1,0,2,1][i] : page.statistics[label] === undefined ? 0 : page.statistics[label]} })
+                .concat(page.statistics.Movies ? [{label:"Movies",value:page.statistics.Movies}] : [])
         }
         JobsTable { unavailableMessage: ""; Layout.fillWidth: true; Layout.fillHeight: true; Layout.maximumHeight: implicitHeight; theme: page.theme; history: true; items: page.items; query: page.query; visualState: page.visualState; onShowOpened: function(record) { page.showOpened(record) } }
         Item { Layout.fillHeight: true }

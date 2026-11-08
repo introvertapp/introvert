@@ -21,6 +21,7 @@ QVariantMap prepareSubmission(const providers::ShowDetail &detail, const QVarian
     QElapsedTimer mappingClock;mappingClock.start();qint64 mappings=0;
     std::set<std::pair<QString, QString>> seen;
     QSet<qint64> seasons;
+    const bool movie = detail.show.isMovie();
     for (const auto &value : selection) {
         providers::checkCancelled(cancelled);
         if (value.metaType().id() != QMetaType::QVariantMap) throw SubmissionError("Invalid episode or segment selection");
@@ -34,13 +35,15 @@ QVariantMap prepareSubmission(const providers::ShowDetail &detail, const QVarian
             if (kind.metaType().id() != QMetaType::QString || !QStringList{"recap", "intro", "credits", "preview"}.contains(kind.toString()))
                 throw SubmissionError("Invalid episode or segment selection");
         const auto &episode = episodes[id.toString()];
+        const auto coordinates = segments::segmentCoordinates(detail.show, episode);
+        if (!coordinates) throw SubmissionError("Invalid episode selection");
         const auto current = segments.load(detail.show, episode);
         for (const auto &value : kinds.toList()) {
             const auto kind = value.toString();
             if (!seen.emplace(episode.identity.itemId, kind).second) continue;
             if (!current.contains(kind)) throw SubmissionError("Selected timestamps are no longer available. Review the selection again.");
             const auto times = current.value(kind);
-            const auto duration = segments.durationMs(episode);
+            const auto duration = segments.durationMs(episode, &detail.show);
             providers::checkCancelled(cancelled);
             QVariantMap values{{"tvdb_id", detail.show.externalIds.tvdb ? QVariant(*detail.show.externalIds.tvdb) : QVariant()},
                 {"numbering_source", episode.numberingSource.value_or(QString())}, {"mapping", episode.episodeOrder.value_or(QString())},
@@ -50,8 +53,13 @@ QVariantMap prepareSubmission(const providers::ShowDetail &detail, const QVarian
                 {"season", episode.seasonNumber ? QVariant(*episode.seasonNumber) : QVariant()},
                 {"episode", episode.episodeNumber ? QVariant(*episode.episodeNumber) : QVariant()}, {"segment_type", kind},
                 {"start_sec", times.first}, {"end_sec", times.second}, {"video_duration_ms", duration ? QVariant(*duration) : QVariant()}};
+            if (movie) {
+                values["media_type"] = "movie";
+                values["season"] = coordinates->first;
+                values["episode"] = coordinates->second;
+            }
             if (endpoint == "theintrodb_org") {
-                if (!episode.numberingSource && !episode.tvdbEpisodeId)
+                if (!movie && !episode.numberingSource && !episode.tvdbEpisodeId)
                     throw SubmissionError("Episode numbering source is unknown. Refresh metadata and confirm its episode order before submitting.");
                 if (!resolved.contains(episode.identity.itemId)) {
                     if(!episode.tvdbEpisodeId || !detail.show.externalIds.tvdb) {
@@ -70,18 +78,20 @@ QVariantMap prepareSubmission(const providers::ShowDetail &detail, const QVarian
             }
             client.validate(values);
             values["episode_id"] = episode.identity.itemId; values["title"] = episode.title.value_or(QString());
-            items.append(values); seasons.insert(*episode.seasonNumber);
+            items.append(values); seasons.insert(coordinates->first);
         }
     }
     if (seasons.size() != 1) throw SubmissionError("Select episodes from one season");
     const auto saved = settings.loadProvider(providers::providerName(detail.show.identity.provider));
     const auto sourceScope = scope.isEmpty() ? providers::providerScope(detail.show.identity,
         saved.provider == "local" ? saved.localRoot : saved.remoteUrl) : scope;
-    return {{"scope", sourceScope}, {"endpoint", endpoint}, {"provider", providers::providerName(detail.show.identity.provider)}, {"show_id", detail.show.identity.itemId},
+    QVariantMap plan{{"scope", sourceScope}, {"endpoint", endpoint}, {"provider", providers::providerName(detail.show.identity.provider)}, {"show_id", detail.show.identity.itemId},
         {"show", detail.show.title}, {"imdb", detail.show.externalIds.imdb ? QVariant(*detail.show.externalIds.imdb) : QVariant()},
         {"tmdb", detail.show.externalIds.tmdb ? QVariant(*detail.show.externalIds.tmdb) : QVariant()},
         {"tvdb", detail.show.externalIds.tvdb ? QVariant(*detail.show.externalIds.tvdb) : QVariant()},
         {"canonical", segments::showKeys(detail.show)}, {"season", items.first().toMap().value("season")}, {"items", items}};
+    if (movie) plan["movie"] = true;
+    return plan;
 }
 
 } // namespace introvert::submissions

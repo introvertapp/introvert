@@ -32,6 +32,11 @@ is especially important for specials and alternative episode orders.
 Repeat for other seasons or services as needed. Detection alone does not submit
 anything, and submissions do not update your media server's markers.
 
+For a movie, select timestamps on its movie card. Movie editing allows segments
+of at least 5 seconds, with a maximum of 5 minutes for Intro, 20 minutes for Recap
+and 30 minutes for Credits or Preview. TheIntroDB accepts those lengths.
+IntroDB accepts movie Credits up to 15 minutes from INTROvert.
+
 ## Queue and history
 
 **Queue** shows pending and active detection/submission work. New submissions

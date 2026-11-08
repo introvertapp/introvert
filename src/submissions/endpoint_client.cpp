@@ -206,21 +206,33 @@ LookupResult EndpointClient::lookup(const QVariantMap &values, const providers::
     const auto kind = values.value("segment_type").toString();
     if (!enabled() || !kinds.contains(kind)) return {};
     const bool intro = m_endpoint == "introdb_app";
+    const bool movie = values.value("media_type") == "movie";
     QVariantMap query; QString segment = kind, url;
     if (intro) {
-        if (!truthy(values.value("imdb_id"))) return {};
+        if (!truthy(values.value("imdb_id")) || (movie && kind != "credits")) return {};
         segment = kind == "credits" ? "outro" : kind;
-        query = {{"imdb_id", values.value("imdb_id")}, {"season", values.value("season")}, {"episode", values.value("episode")}, {"segment_type", segment}};
+        query = {{"imdb_id", values.value("imdb_id")}};
+        if (movie) query["is_movie"] = "true";
+        else {
+            query["season"] = values.value("season");
+            query["episode"] = values.value("episode");
+            query["segment_type"] = segment;
+        }
         url = m_settings.value("introdb_lookup_url").toString();
     } else {
-        if (!integer(values.value("season")) || !integer(values.value("episode"))) return {};
+        if (!movie && (!integer(values.value("season")) || !integer(values.value("episode")))) return {};
         try {
-            auto identity=values;identity["start_sec"]=0.;identity["end_sec"]=6.;
+            auto identity=values;identity["start_sec"]=5.;identity["end_sec"]=11.;
             const auto outgoing = payload(identity,false).body;
             for (const auto &name : {"tvdb_id", "tmdb_id", "imdb_id", "mapping", "tvdb_episode_id", "episode_name"})
                 if (outgoing.contains(name)) query[name] = outgoing[name].toVariant();
-            query["season"] = outgoing["season"].toVariant(); query["episode"] = outgoing["episode"].toVariant();
-            if (outgoing.contains("video_duration_ms")) query["duration_ms"] = outgoing["video_duration_ms"].toVariant();
+            if (!movie) {
+                query["season"] = outgoing["season"].toVariant();
+                query["episode"] = outgoing["episode"].toVariant();
+            }
+            const auto duration = values.value("video_duration_ms");
+            if (movie && integer(duration)) query["duration_ms"] = duration;
+            else if (outgoing.contains("video_duration_ms")) query["duration_ms"] = outgoing["video_duration_ms"].toVariant();
             query["details"] = "true";
         } catch (const SubmissionError &) { return {}; }
         url = base(m_settings.value("theintrodb_base_url").toString()) + "/media";
@@ -236,6 +248,13 @@ LookupResult EndpointClient::lookup(const QVariantMap &values, const providers::
         }
         if (response.status != 200 || !response.body.isObject()) return {};
         const auto body = response.body.toObject().toVariantMap();
+        if (movie && !intro && body.value("type") != "movie") {
+            LookupResult result;
+            result.failure = SubmissionResult{"FAIL", response.status, "The endpoint returned a TV title for this movie.", {}, {}};
+            return result;
+        }
+        if (movie && intro && (body.value("media_type") != "movie" || body.value("imdb_id") != values.value("imdb_id")))
+            return {};
         auto value = body.value(segment);
         if (intro && !truthy(value)) value = body.value(kind);
         if (intro && !truthy(value)) value = body.value("segment");
@@ -266,46 +285,67 @@ EndpointClient::Payload EndpointClient::payload(const QVariantMap &values, bool 
     if (requireCredential && !configured()) throw SubmissionError("Enable the endpoint and save its API key in Settings");
     const auto start = numeric(values.value("start_sec")), end = numeric(values.value("end_sec"));
     const auto kind = values.value("segment_type").toString(), imdbId = values.value("imdb_id").toString();
+    const bool movie = values.value("media_type") == "movie";
     if (!kinds.contains(kind) || !start || *start < 0 || (!null(values.value("end_sec")) && (!end || *end <= *start)))
         throw SubmissionError("Invalid segment timestamps");
     const auto season = values.value("season"), episode = values.value("episode");
-    if (!integralType(season) || !integralType(episode) || !integer(season) || !integer(episode))
+    if (!movie && (!integralType(season) || !integralType(episode) || !integer(season) || !integer(episode)))
         throw SubmissionError("Invalid season or episode number");
     if (m_endpoint == "introdb_app") {
         if (!truthy(values.value("imdb_id"))) throw SubmissionError("Missing imdbId");
-        return {m_settings.value("introdb_api_url").toString(), QJsonObject::fromVariantMap({
-            {"imdb_id", values.value("imdb_id")}, {"season", season}, {"episode", episode},
-            {"segment_type", kind == "credits" ? QString("outro") : kind}, {"start_sec", *start}, {"end_sec", end ? QVariant(*end) : QVariant()}})};
+        QVariantMap body{{"imdb_id", values.value("imdb_id")},
+            {"segment_type", kind == "credits" ? QString("outro") : kind}, {"start_sec", *start}, {"end_sec", end ? QVariant(*end) : QVariant()}};
+        if (movie) {
+            if (kind != "credits") throw SubmissionError("Select Credits to submit this movie to IntroDB.");
+            if (!imdb(imdbId)) throw SubmissionError("IntroDB needs a valid IMDb movie ID.");
+            if (!end || *end - *start < 5 || *end - *start > 900)
+                throw SubmissionError("IntroDB requires movie credits between 5 and 900 seconds long.");
+            body["is_movie"] = true;
+        } else {
+            body["season"] = season;
+            body["episode"] = episode;
+        }
+        return {m_settings.value("introdb_api_url").toString(), QJsonObject::fromVariantMap(body)};
     }
-    QVariantMap body{{"type", "tv"}, {"segment", kind},
-        {"season", values.value("target_season", season)}, {"episode", values.value("target_episode", episode)},
-        {"start_ms", (kind == "intro" || kind == "recap") && *start == 0 ? QVariant() : QVariant(rounded(*start * 1000))},
-        {"end_ms", end ? QVariant(rounded(*end * 1000)) : QVariant()}};
+    const auto startMs = rounded(*start * 1000);
+    const auto endMs = end ? std::optional{rounded(*end * 1000)} : std::nullopt;
+    QVariantMap body{{"type", movie ? "movie" : "tv"}, {"segment", kind},
+        {"start_ms", (kind == "intro" || kind == "recap") && *start == 0 ? QVariant() : QVariant(startMs)},
+        {"end_ms", endMs ? QVariant(*endMs) : QVariant()}};
     const auto tvdb = positive(values.value("tvdb_id")), tmdb = positive(values.value("tmdb_id"));
     const auto source = values.value("numbering_source").toString();
     const auto exact = positive(values.value("tvdb_episode_id"));
-    if (tvdb && *tvdb <= 100000000 && (source == "tvdb" || exact || (!tmdb && source != "imdb"))) body["tvdb_id"] = *tvdb;
-    else if (tmdb && *tmdb <= 10000000 && source != "imdb") body["tmdb_id"] = *tmdb;
+    if (tvdb && *tvdb <= 100000000 && (movie || source == "tvdb" || exact || (!tmdb && source != "imdb"))) body["tvdb_id"] = *tvdb;
+    else if (tmdb && *tmdb <= 10000000 && (movie || source != "imdb")) body["tmdb_id"] = *tmdb;
     else if (imdb(imdbId)) body["imdb_id"] = imdbId;
-    else throw SubmissionError("TheIntroDB requires a TVDB, TMDB or IMDb ID compatible with the episode numbering");
-    const auto mapping = values.value("mapping").toString();
-    if (!mapping.isEmpty()) {
-        if (!QStringList{"default","official","dvd","alternate","absolute","regional"}.contains(mapping))
-            throw SubmissionError("Unknown episode order. Choose a supported episode order before submitting.");
-        body["mapping"] = mapping;
+    else throw SubmissionError(movie ? "TheIntroDB needs a valid TVDB, TMDB or IMDb movie ID."
+        : "TheIntroDB requires a TVDB, TMDB or IMDb ID compatible with the episode numbering");
+    if (!movie) {
+        body["season"] = values.value("target_season", season);
+        body["episode"] = values.value("target_episode", episode);
+        const auto mapping = values.value("mapping").toString();
+        if (!mapping.isEmpty()) {
+            if (!QStringList{"default","official","dvd","alternate","absolute","regional"}.contains(mapping))
+                throw SubmissionError("Unknown episode order. Choose a supported episode order before submitting.");
+            body["mapping"] = mapping;
+        }
+        if (exact) { body["tvdb_episode_id"] = *exact; body.remove("mapping"); }
+        if (!values.value("episode_name").toString().isEmpty()) body["episode_name"] = values.value("episode_name");
+        if (!integer(body["season"],0,1000) || !integer(body["episode"],0,10000)) throw SubmissionError("Invalid season or episode number");
     }
-    if (exact) { body["tvdb_episode_id"] = *exact; body.remove("mapping"); }
-    if (!values.value("episode_name").toString().isEmpty()) body["episode_name"] = values.value("episode_name");
-    if (!integer(body["season"],0,1000) || !integer(body["episode"],0,10000)) throw SubmissionError("Invalid season or episode number");
     const auto duration = numeric(values.value("video_duration_ms"));
     if (duration && (*duration == 0 || (*duration >= 300000 && *duration <= 21600000)) && std::floor(*duration) == *duration)
         body["video_duration_ms"] = *duration;
     if (*start > 21600 || (end && *end > 21600) || ((kind == "intro" || kind == "recap") && !end))
         throw SubmissionError("Invalid TheIntroDB segment timestamps");
+    if (movie && kind == "credits" && startMs < 5000)
+        throw SubmissionError("TheIntroDB requires movie credits to start at or after 5 seconds.");
     if (end) {
-        const auto length = *end - *start;
+        const auto length = movie ? (*endMs - startMs) / 1000. : *end - *start;
         const auto maximum = kind == "intro" ? 300 : kind == "recap" ? 1200 : 1800;
-        if (length < 5 || length > maximum) throw SubmissionError("Segment duration is outside TheIntroDB limits");
+        if (length < 5 || length > maximum)
+            throw SubmissionError(movie ? qPrintable(QStringLiteral("TheIntroDB requires this movie segment to be between 5 and %1 seconds long.")
+                .arg(maximum)) : "Segment duration is outside TheIntroDB limits");
     }
 
     return {base(m_settings.value("theintrodb_base_url").toString()) + "/submit", QJsonObject::fromVariantMap(body)};
@@ -313,13 +353,27 @@ EndpointClient::Payload EndpointClient::payload(const QVariantMap &values, bool 
 
 QVariantMap EndpointClient::resolve(const QVariantMap &values, const providers::Cancellation &cancel) const
 {
-    if (m_endpoint != "theintrodb_org" || (positive(values.value("tvdb_episode_id")) && positive(values.value("tvdb_id")))) return values;
+    const bool movie = values.value("media_type") == "movie";
+    if (m_endpoint != "theintrodb_org" || (!movie && positive(values.value("tvdb_episode_id")) && positive(values.value("tvdb_id")))) return values;
     auto body = payload(values).body;
     for (const auto &name : {"segment","start_ms","end_ms","video_duration_ms"}) body.remove(name);
     Response response;
     try { response = request(base(m_settings.value("theintrodb_base_url").toString()) + "/map", {}, body, true, cancel); }
-    catch (const EndpointError &) { throw SubmissionError("Cannot verify the submission episode. Check network access and retry."); }
+    catch (const EndpointError &) { throw SubmissionError(movie ? "Cannot verify the movie. Check network access and retry."
+        : "Cannot verify the submission episode. Check network access and retry."); }
     const auto row = response.body.toObject();
+    if (movie) {
+        if (response.status != 200 || row["type"] != "movie" || !integer(row["tvdb_id"].toVariant(), 1, 100000000)
+            || !null(row["season"].toVariant()) || !null(row["episode"].toVariant()))
+            throw SubmissionError(response.status == 429 ? "Movie verification is rate limited. Wait before trying again."
+                : "Cannot verify the movie. Check its source IDs and the endpoint API key.");
+        if (positive(values.value("tvdb_id")) && values.value("tvdb_id").toLongLong() != row["tvdb_id"].toInteger())
+            throw SubmissionError("The resolved TVDB movie conflicts with the saved ID.");
+        auto result = values;
+        result["tvdb_id"] = row["tvdb_id"].toVariant();
+        result["resolved_title"] = row["media_title"].toString();
+        return result;
+    }
     if (response.status != 200 || !integer(row["tvdb_id"].toVariant(),1,100000000)
         || row["type"] != "tv" || !integer(row["season"].toVariant(),0,1000) || !integer(row["episode"].toVariant(),0,10000))
         throw SubmissionError(response.status == 429 ? "Episode verification is rate limited. Wait before trying again."
@@ -373,16 +427,27 @@ SubmissionResult EndpointClient::submit(const QVariantMap &values, const provide
     if (response.status == 429 || (intro && response.status >= 400 && string(body.value("error")).contains("Rate limit exceeded"))) {
         return rateLimit(response);
     }
-    const bool success = intro ? response.status == 200 : response.status >= 200 && response.status < 300 && submissionBody(response.body.toObject());
+    bool success = intro ? response.status == 200 : response.status >= 200 && response.status < 300 && submissionBody(response.body.toObject());
+    if (success && !intro && values.value("media_type") == "movie") {
+        const auto submitted = response.body.toObject()["submissions"].toArray();
+        success = !submitted.isEmpty() && std::all_of(submitted.begin(), submitted.end(), [](const QJsonValue &value) {
+            return value.toObject()["type"] == "movie";
+        });
+    }
     return {success ? "OK" : "FAIL", response.status, success ? QString() : QString("Endpoint rejected the submission or returned an invalid response"), {}, {}};
 }
 
-QString comparison(const LookupResult &lookup, double start, const std::optional<double> &end, bool millisecondPrecision)
+QString comparison(const LookupResult &lookup, double start, const std::optional<double> &end, bool millisecondPrecision,
+                   std::optional<double> mediaEnd)
 {
     const auto normalize = [millisecondPrecision](double value) { return millisecondPrecision ? rounded(value * 1000) : value; };
+    const auto normalizedEnd = [&](std::optional<double> value) -> std::optional<double> {
+        if (!value) value = mediaEnd;
+        return value ? std::optional{normalize(*value)} : std::nullopt;
+    };
     for (const auto &match : lookup.matches)
-        if (normalize(match.startSeconds) == normalize(start) && match.endSeconds.has_value() == end.has_value()
-            && (!end || normalize(*match.endSeconds) == normalize(*end))) return "DUPLICATE";
+        if (normalize(match.startSeconds) == normalize(start) && normalizedEnd(match.endSeconds) == normalizedEnd(end))
+            return "DUPLICATE";
     return lookup.found() ? QString("DIFFERENT") : QString("MISSING");
 }
 

@@ -59,6 +59,7 @@ QVariantList DetectionModel::activeSeasons() const
 }
 void DetectionModel::publish(const detection::DetectionUpdates &updates)
 {
+    if (!m_library.m_detail) return;
     // Publish the complete season in one GUI snapshot. Navigation can change
     // the view revision without changing the provider/server/show identity.
     for(auto it=updates.cbegin();it!=updates.cend();++it)if(m_library.episodeContext(it.key())) {
@@ -375,6 +376,11 @@ void DetectionModel::startLibraryScanReady(const QVariantList &values)
     try { m_scanSelection = m_library.settingsKey(); }
     catch (...) { emit errorOccurred("Cannot read the media configuration for the library scan."); return; }
     if (!m_scanSelection) { emit errorOccurred("Configure a media provider in Settings → Media before scanning the library."); return; }
+    if (!m_scanSelection->saved.importsTv()) {
+        m_scanSelection.reset();
+        emit errorOccurred("Enable TV show imports in Settings → Media before scanning the library.");
+        return;
+    }
     m_scanCancel = std::make_shared<std::atomic_bool>(false); m_scanKinds = kinds;
     m_scanShows.clear(); m_scanJobs.clear(); m_scanOwnedJobs.clear(); m_scanWaiting.clear(); m_scanFollowups.clear(); m_scanDetail.reset();
     m_scanIndex = m_scanSeasons = m_scanSeasonsDone = 0; m_scanPreparing = true;

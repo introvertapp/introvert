@@ -8,6 +8,19 @@
 
 namespace introvert::library {
 using namespace providers;
+namespace {
+
+template<typename Summary>
+QVariantMap titleRow(const Summary &title)
+{
+    const auto text = [](const std::optional<QString> &value) { return value.value_or(QString()); };
+    return {{"id", title.identity.itemId}, {"title", title.title}, {"year", title.year ? QVariant(*title.year) : QVariant("—")},
+        {"serverId", text(title.identity.serverId)}, {"provider", providerName(title.identity.provider)},
+        {"externalIds", QVariantMap{{"tvmaze", text(title.externalIds.tvmaze)}, {"imdb", text(title.externalIds.imdb)},
+                                   {"tmdb", text(title.externalIds.tmdb)}, {"tvdb", text(title.externalIds.tvdb)}}}};
+}
+
+} // namespace
 
 QString providerLabel(ProviderId id)
 {
@@ -94,15 +107,143 @@ QVariantMap CatalogService::displayShow(const ProviderConfig &config, const Show
 {
     const auto count = [](const std::optional<qint64> &value) -> QVariant { return value ? QVariant(*value) : QVariant("—"); };
     const auto text = [](const std::optional<QString> &value) { return value.value_or(QString()); };
-    return {{"id", show.identity.itemId}, {"title", show.title}, {"year", count(show.year)},
-        {"seasons", count(show.seasonCount)}, {"episodes", count(show.episodeCount)},
-        {"serverId", text(show.identity.serverId)}, {"provider", providerName(show.identity.provider)},
-        {"posterUrl", images ? artwork(config, show.posterUrl, cancel) : QString()},
-        {"logoUrl", images ? artwork(config, show.logoUrl, cancel) : QString()},
-        {"metadataStatus", show.localMetadata ? text(show.localMetadata->metadataStatus) : QString()},
-        {"metadataError", show.localMetadata ? text(show.localMetadata->metadataError) : QString()},
-        {"externalIds", QVariantMap{{"tvmaze", text(show.externalIds.tvmaze)}, {"imdb", text(show.externalIds.imdb)},
-                                   {"tmdb", text(show.externalIds.tmdb)}, {"tvdb", text(show.externalIds.tvdb)}}}};
+    auto row = titleRow(show);
+    row["seasons"] = count(show.seasonCount);
+    row["episodes"] = count(show.episodeCount);
+    row["posterUrl"] = images ? artwork(config, show.posterUrl, cancel) : QString();
+    row["logoUrl"] = images ? artwork(config, show.logoUrl, cancel) : QString();
+    row["metadataStatus"] = show.localMetadata ? text(show.localMetadata->metadataStatus) : QString();
+    row["metadataError"] = show.localMetadata ? text(show.localMetadata->metadataError) : QString();
+    return row;
+}
+
+QVariantMap CatalogService::displayMovie(const ProviderConfig &config, const MovieSummary &movie,
+                                       const Cancellation &cancel, bool images)
+{
+    auto row = titleRow(movie);
+    row["durationMs"] = movie.durationMs ? QVariant(*movie.durationMs) : QVariant();
+    row["posterUrl"] = images ? artwork(config, movie.posterUrl, cancel) : QString();
+    row["logoUrl"] = images ? artwork(config, movie.logoUrl, cancel) : QString();
+    return row;
+}
+
+QList<MovieSummary> CatalogService::listMovies(const ProviderConfig &config, bool images, bool refresh, const Cancellation &cancel)
+{
+    const std::lock_guard<std::mutex> lock(m_providerMutex);
+    checkCancelled(cancel);
+    auto &provider = *m_providers.at(config.provider);
+    if (refresh) provider.invalidate();
+    return provider.listMovies(config, images, cancel);
+}
+
+CatalogResult CatalogService::browseMovies(const ProviderConfig &config, const QString &listing, bool force,
+                                           const QVariantList &previous, const Cancellation &cancel, const Progress &progress)
+{
+    checkCancelled(cancel);
+    const auto scope = m_cache.scope(config, listing);
+    const bool images = listing != "basic";
+    auto movies = force ? std::optional<QList<MovieSummary>>() : m_cache.movies(scope);
+    CatalogResult result;
+    if (movies) {
+        result.cached = true;
+        result.message = "Using cached " + providerLabel(config.provider) + " movies.";
+    } else {
+        try {
+            movies = listMovies(config, images, force, cancel);
+        } catch (const ProviderError &error) {
+            checkCancelled(cancel);
+            movies = m_cache.movies(scope, true);
+            if (!movies) throw;
+            result.cached = true;
+            result.message = QString::fromUtf8(error.what()) + " Showing cached movies.";
+        }
+        checkCancelled(cancel);
+        if (!result.cached) {
+            m_cache.putMovies(scope, *movies);
+            if (force) m_cache.invalidateMovieDetails(scope);
+        }
+    }
+    QHash<QString, QVariant> posters;
+    if (images) for (const auto &item : previous) {
+        const auto row = item.toMap();
+        posters.insert(row.value("id").toString(), row.value("posterUrl"));
+    }
+    for (const auto &movie : *movies) {
+        checkCancelled(cancel);
+        auto row = displayMovie(config, movie, cancel, false);
+        if (images && movie.posterUrl) row["posterUrl"] = posters.value(movie.identity.itemId);
+        result.rows.append(row);
+    }
+    progress(result);
+    if (images) {
+        QElapsedTimer published;
+        published.start();
+        for (qsizetype index = 0; index < movies->size(); ++index) {
+            checkCancelled(cancel);
+            auto row = result.rows.at(index).toMap();
+            row["posterUrl"] = artwork(config, movies->at(index).posterUrl, cancel);
+            result.rows[index] = std::move(row);
+            if (published.elapsed() >= 75 || index + 1 == movies->size()) {
+                progress(result);
+                published.restart();
+            }
+        }
+    }
+    log("info", QString("%1 movie library loaded: %2 movie(s).").arg(providerLabel(config.provider)).arg(movies->size()));
+    return result;
+}
+
+MovieDetail CatalogService::movieDetail(const ProviderConfig &config, const QString &listing, const QString &id,
+                                        const Cancellation &cancel)
+{
+    checkCancelled(cancel);
+    const bool images = listing != "basic";
+    const auto scope = m_cache.scope(config, listing);
+    auto detail = m_cache.movie(scope, id);
+    if (!detail) {
+        {
+            const std::lock_guard<std::mutex> lock(m_providerMutex);
+            checkCancelled(cancel);
+            detail = m_providers.at(config.provider)->getMovie(config, id, images, cancel);
+        }
+        if (!detail) throw ProviderError("This movie is no longer available.");
+        checkCancelled(cancel);
+        m_cache.putMovie(scope, *detail);
+    }
+    return *detail;
+}
+
+CatalogResult CatalogService::rebuildMovies(const ProviderConfig &config, const QString &listing,
+                                            const Cancellation &cancel, const std::function<void(double)> &progress)
+{
+    const auto movies = listMovies(config, true, true, cancel);
+    const auto full = m_cache.scope(config, "full"), basic = m_cache.scope(config, "basic");
+    const auto total = double(movies.size() + 2);
+    progress(1 / total);
+    CatalogResult result;
+    QList<MovieSummary> plain;
+    QMap<QString, QString> images;
+    for (qsizetype index = 0; index < movies.size(); ++index) {
+        checkCancelled(cancel);
+        const auto &movie = movies.at(index);
+        const auto &path = movie.posterUrl;
+        if (path && !path->isEmpty() && !images.contains(*path)) images[*path] = artwork(config, path, cancel, true);
+        auto row = displayMovie(config, movie, cancel, false);
+        if (listing != "basic")
+            row["posterUrl"] = images.value(movie.posterUrl.value_or(QString()));
+        result.rows.append(row);
+        auto withoutImages = movie;
+        withoutImages.posterUrl.reset();
+        withoutImages.logoUrl.reset();
+        plain.append(std::move(withoutImages));
+        progress((index + 2) / total);
+    }
+    checkCancelled(cancel);
+    if (!m_cache.putMovies(full, movies) || !m_cache.putMovies(basic, plain))
+        throw ProviderError("Cannot save metadata to app.db. Check database access and available space.");
+    m_cache.invalidateMovieDetails(full);
+    m_cache.invalidateMovieDetails(basic);
+    return result;
 }
 
 CatalogResult CatalogService::browse(const ProviderConfig &config, const QString &listing, bool force, bool clearLocal,

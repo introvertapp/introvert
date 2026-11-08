@@ -11,6 +11,12 @@
 namespace introvert::providers {
 namespace {
 
+std::optional<qint64> ticksToMs(const QJsonValue &value)
+{
+    const auto ticks = value.isBool() ? std::nullopt : detail::nonnegativeNumber(value);
+    return ticks ? std::optional<qint64>(*ticks / 10000) : std::nullopt;
+}
+
 QByteArray jsonHeaderString(const QString &value)
 {
     // Match json.dumps(..., ensure_ascii=True), including UTF-16 surrogate pairs.
@@ -159,26 +165,91 @@ QString EmbyProvider::web(const ProviderConfig &config, const QString &key, cons
     return itemWebUrl(config.remoteUrl.value_or(QString()), {m_provider, key, server});
 }
 
-ShowSummary EmbyProvider::show(const ProviderConfig &config, const QJsonObject &item, bool includeImages) const
+template<typename Summary>
+Summary EmbyProvider::title(const QJsonObject &item, bool includeImages) const
 {
     if (!detail::present(item["Id"])) throw ProviderError(m_label + " returned an invalid media response.");
     const auto key = detail::sourceString(item["Id"]);
     const auto server = detail::optionalString(item["ServerId"]);
-    ShowSummary result{{m_provider, key, server}, item["Name"].toString()};
+    Summary result{{m_provider, key, server}, item["Name"].toString()};
     result.year = detail::nonnegativeNumber(item["ProductionYear"]);
     QMap<QString, QString> ids;
     const auto values = item["ProviderIds"].toObject();
     for (auto it = values.begin(); it != values.end(); ++it) if (detail::present(it.value())) ids[it.key().toLower()] = detail::sourceString(it.value());
     auto external = [&](const QString &name) -> std::optional<QString> { return ids.contains(name) ? std::optional<QString>(ids[name]) : std::nullopt; };
     result.externalIds = {external("imdb"), external("tmdb"), external("tvdb"), external("zap2it"), external("tvmaze")};
-    if (includeImages) {
+    if (includeImages)
         result.posterUrl = m_prefix + "/Items/" + detail::quote(key) + "/Images/Primary";
-        result.logoUrl = m_prefix + "/Items/" + detail::quote(key) + "/Images/Logo";
-    }
-    result.itemUrl = web(config, key, server);
+    return result;
+}
+
+ShowSummary EmbyProvider::show(const ProviderConfig &config, const QJsonObject &item, bool includeImages) const
+{
+    auto result = title<ShowSummary>(item, includeImages);
+    if (includeImages)
+        result.logoUrl = m_prefix + "/Items/" + detail::quote(result.identity.itemId) + "/Images/Logo";
+    result.itemUrl = web(config, result.identity.itemId, result.identity.serverId);
     result.seasonCount = detail::nonnegativeNumber(item["ChildCount"], m_provider == ProviderId::Emby);
     result.episodeCount = detail::nonnegativeNumber(item["RecursiveItemCount"], m_provider == ProviderId::Emby);
     return result;
+}
+
+QList<MovieSummary> EmbyProvider::listMovies(const ProviderConfig &config, bool includeImages, const Cancellation &cancelled)
+{
+    const auto selected = user(config, cancelled);
+    if (m_provider == ProviderId::Jellyfin && !selected) return {};
+    const auto path = m_prefix + (selected ? "/Users/" + detail::quote(*selected) : QString()) + "/Items";
+    QVariantMap params{{"Recursive", true}, {"IncludeItemTypes", "Movie"},
+        {"Fields", "ProviderIds"}, {"EnableImages", includeImages}};
+    if (m_provider == ProviderId::Jellyfin) params["CollapseBoxSetItems"] = false;
+    const auto rows = items(config, path, params, cancelled);
+    QList<MovieSummary> result;
+    QSet<QString> seen;
+    for (const auto &item : rows) {
+        if (item["Type"] != "Movie" || !detail::present(item["Id"])) continue;
+        auto movie = title<MovieSummary>(item, includeImages);
+        if (movie.identity.itemId.isEmpty() || seen.contains(movie.identity.itemId)) continue;
+        seen.insert(movie.identity.itemId);
+        movie.durationMs = ticksToMs(item["RunTimeTicks"]);
+        result.append(std::move(movie));
+    }
+    std::stable_sort(result.begin(), result.end(), [](const auto &a, const auto &b) { return a.title.toCaseFolded() < b.title.toCaseFolded(); });
+    return result;
+}
+
+std::optional<MovieDetail> EmbyProvider::getMovie(const ProviderConfig &config, const QString &id,
+                                                bool includeImages, const Cancellation &cancelled)
+{
+    const auto selected = user(config, cancelled);
+    if (m_provider == ProviderId::Jellyfin && !selected) return std::nullopt;
+    const auto path = m_prefix + (selected ? "/Users/" + detail::quote(*selected) : QString()) + "/Items";
+    const auto rows = items(config, path, {{"Ids", id}, {"Fields", "ProviderIds,Chapters,MediaSources"},
+        {"EnableImages", includeImages}}, cancelled);
+    for (const auto &item : rows) {
+        if (item["Type"] != "Movie" || detail::sourceString(item["Id"]) != id) continue;
+        MovieDetail result{title<MovieSummary>(item, includeImages), {}};
+        if (includeImages)
+            result.movie.logoUrl = m_prefix + "/Items/" + detail::quote(id) + "/Images/Logo";
+        result.movie.durationMs = ticksToMs(item["RunTimeTicks"]);
+        auto values = item["Chapters"].toArray();
+        const auto sources = item["MediaSources"].toArray();
+        if (values.isEmpty() && !sources.isEmpty()) {
+            const auto source = sources.first().toObject();
+            values = source["Chapters"].toArray();
+            if (const auto duration = ticksToMs(source["RunTimeTicks"]); duration && *duration > 0)
+                result.movie.durationMs = duration;
+        }
+        for (const auto &value : values) {
+            const auto chapter = value.toObject();
+            const auto marker = chapter["MarkerType"];
+            if (detail::present(marker) && marker != "Chapter" && marker != "0" && marker != 0) continue;
+            const auto start = ticksToMs(chapter["StartPositionTicks"]);
+            if (start) result.chapters.append({chapter["Name"].toString(), *start, {}});
+        }
+        normalizeChapters(result);
+        return result;
+    }
+    return std::nullopt;
 }
 
 QList<ShowSummary> EmbyProvider::listSeries(const ProviderConfig &config, bool includeImages, const Cancellation &cancelled)

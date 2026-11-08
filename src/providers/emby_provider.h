@@ -17,6 +17,10 @@ public:
                                   const Cancellation &cancelled = {}) override;
     std::optional<ShowDetail> getShow(const ProviderConfig &config, const QString &showId,
                                      bool includeImages = true, const Cancellation &cancelled = {}) override;
+    QList<MovieSummary> listMovies(const ProviderConfig &config, bool includeImages = true,
+                                  const Cancellation &cancelled = {}) override;
+    std::optional<MovieDetail> getMovie(const ProviderConfig &config, const QString &id,
+                                        bool includeImages = true, const Cancellation &cancelled = {}) override;
     QByteArray artwork(const ProviderConfig &config, const QString &path, const Cancellation &cancelled = {}) override;
     QJsonValue request(const ProviderConfig &config, const QString &path, const QVariantMap &parameters = {},
                         const Cancellation &cancelled = {}) override;
@@ -29,6 +33,7 @@ private:
     QList<QJsonObject> items(const ProviderConfig &config, const QString &path, const QVariantMap &parameters,
                              const Cancellation &cancelled);
     ShowSummary show(const ProviderConfig &config, const QJsonObject &item, bool includeImages) const;
+    template<typename Summary> Summary title(const QJsonObject &item, bool includeImages) const;
     QString web(const ProviderConfig &config, const QString &key, const std::optional<QString> &server) const;
     ProviderId m_provider;
     QString m_label, m_prefix;

@@ -2,10 +2,12 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
+import "SegmentTime.js" as SegmentTime
 Item {
     id: page
     required property var theme
     property var show: null
+    property bool movieMode: false
     property real headerInset: 0
     property alias glassHost: detailGlassHost
     property alias scrollSurface: episodeList
@@ -15,9 +17,9 @@ Item {
         var tmdb = ids.tmdb ? String(ids.tmdb).trim() : ""
         var tvdb = ids.tvdb ? String(ids.tvdb).trim() : ""
         var links = []
-        if(tmdb) links.push({id:"tmdb", label:"TMDB", href:"https://www.themoviedb.org/tv/"+encodeURIComponent(tmdb), logo:"tmdb_logo.svg"})
+        if(tmdb && tmdb !== "--") links.push({id:"tmdb", label:"TMDB", href:"https://www.themoviedb.org/"+(page.movieMode ? "movie/" : "tv/")+encodeURIComponent(tmdb), logo:"tmdb_logo.svg"})
         if(imdb) links.push({id:"imdb", label:"IMDB", href:"https://www.imdb.com/title/"+encodeURIComponent(imdb)+"/", logo:"imdb_logo.svg"})
-        if(tvdb && tvdb !== "--") links.push({id:"theintrodb-org", label:"TheIntroDB", href:"https://theintrodb.org/tv/"+encodeURIComponent(tvdb), logo:"theintrodb_org_logo.svg"})
+        if(tvdb && tvdb !== "--") links.push({id:"theintrodb-org", label:"TheIntroDB", href:"https://theintrodb.org/"+(page.movieMode ? "movie/" : "tv/")+encodeURIComponent(tvdb), logo:"theintrodb_org_logo.svg"})
         if(imdb) links.push({id:"introdb-app", label:"IntroDB", href:"https://introdb.app/shows/"+encodeURIComponent(imdb), logo:"introdb_app_logo.svg"})
         return links
     }
@@ -89,7 +91,8 @@ Item {
         return ""
     }
     function submissionStateFor(ep) {
-        var state=submissions ? submissions.episodeStatuses[(ep.providerId || (show ? show.provider : ""))+":"+(ep.showId || (show ? show.id : ""))+":"+ep.id] || {} : {}
+        var prefix = ep.movie ? "movie:" : ""
+        var state=submissions ? submissions.episodeStatuses[prefix+(ep.providerId || (show ? show.provider : ""))+":"+(ep.showId || (show ? show.id : ""))+":"+ep.id] || {} : {}
         var revision=Number(ep.statusRevision || 0)
         if(!revision)return state
         var segments={},badges={}
@@ -103,14 +106,24 @@ Item {
         return {segments:segments,badges:badges}
     }
     property var selectedEndpoints: []
-    readonly property var availableEndpoints: submissions ? submissions.endpoints : ["introdb.app", "theintrodb.org"]
+    readonly property var availableEndpoints: {
+        var endpoints = submissions ? submissions.endpoints : ["introdb.app", "theintrodb.org"]
+        if(!movieMode || preview) return endpoints
+        var ids = show && show.externalIds ? show.externalIds : {}
+        return ["theintrodb.org", "introdb.app"].filter(function(value) {
+            return endpoints.indexOf(value)>=0 && (value==="introdb.app" ? ids.imdb : (ids.tvdb || ids.tmdb || ids.imdb))
+        })
+    }
     readonly property var requestedEndpoints: selectedEndpoints.length ? selectedEndpoints.filter(function(value){return availableEndpoints.indexOf(value)>=0}) : availableEndpoints.slice(0,1)
     readonly property string endpoint: requestedEndpoints.join(", ")
     function chooseEndpoint(value, multiple) {
         selectedEndpoints = multiple ? (requestedEndpoints.indexOf(value)>=0 ? requestedEndpoints.filter(function(item){return item!==value}) : requestedEndpoints.concat([value])) : [value]
     }
     function clearSelection() { selectionByEpisode={} }
-    onShowChanged: {if(!show || show.id!==selectionShowId) { clearSelection();detectionSeasons=[];selectionShowId=show ? String(show.id || "") : "";resetScroll() }}
+    onShowChanged: {
+        var key = show ? (movieMode ? "movie:" : "tv:") + String(show.id || "") : ""
+        if(key !== selectionShowId) { clearSelection(); detectionSeasons=[]; selectionShowId=key; resetScroll() }
+    }
     property string selectionShowId: ""
     function resetScroll() {Qt.callLater(function(){
         episodeList.forceLayout();episodeList.positionViewAtBeginning()
@@ -124,10 +137,10 @@ Item {
     signal reviewRequested()
     signal submissionErrorRequested(string title, string message)
     signal unavailableRequested(string title)
-    objectName: "showDetailPage"
+    objectName: movieMode ? "movieDetailPage" : "showDetailPage"
     ListView {
         id: episodeList
-        objectName: "episodeList"
+        objectName: page.movieMode ? "movieItemList" : "episodeList"
         anchors.fill: parent; anchors.topMargin: -page.headerInset; clip: true; spacing: 10; cacheBuffer: 500
         currentIndex: -1; highlightFollowsCurrentItem: false
         onVisibleChanged: if(visible) page.resetScroll()
@@ -136,12 +149,12 @@ Item {
         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOff }
         header: Column {
             width: episodeList.width; spacing: 10; bottomPadding: 10
-            height: Math.max(page.headerInset+154,implicitHeight)
-            Item { width: parent.width; height: page.headerInset+144 }
+            height: Math.max(page.headerInset+overview.height+10,implicitHeight)
+            Item { width: parent.width; height: page.headerInset+overview.height }
 
             Column {
                 visible: page.loading; width: parent.width; spacing: 10
-                Repeater { model: page.loading ? 3 : 0; Skeleton { width: episodeList.width; height: 140; theme: page.theme } }
+                Repeater { model: page.loading ? (page.movieMode ? 1 : 3) : 0; Skeleton { width: episodeList.width; height: 140; theme: page.theme } }
             }
             Text { visible: page.errorMessage!=="" || Boolean(page.submissions && page.submissions.message); text: page.submissions && page.submissions.message ? page.submissions.message : page.errorMessage; color: page.theme.muted; width: parent.width; wrapMode: Text.WordWrap }
         }
@@ -152,7 +165,7 @@ Item {
             theme: page.theme; episode: modelData; segmentManager: page.segmentManager; preview: page.preview; timestampFormat: page.timestampFormat
             selectedKinds: page.selectionByEpisode[modelData.id] || []
             submissionState: page.submissionStateFor(modelData); scanState: page.scanStateFor(modelData)
-            onEditorRequested: page.editorRequested("S"+page.season+"・E"+modelData.number+" - "+modelData.title,modelData)
+            onEditorRequested: page.editorRequested(page.movieMode ? modelData.title : "S"+page.season+"・E"+modelData.number+" - "+modelData.title,modelData)
             onSubmissionErrorRequested: function(title,message) {page.submissionErrorRequested(title,message)}
             onSelectionChanged: {if(JSON.stringify(page.selectionByEpisode[modelData.id] || [])!==JSON.stringify(selectedKinds)) {var next=Object.assign({},page.selectionByEpisode);next[modelData.id]=selectedKinds;page.selectionByEpisode=next}}
             Connections { target: page; function onSelectionByEpisodeChanged() {episodeDelegate.selectedKinds=page.selectionByEpisode[episodeDelegate.modelData.id] || []} }
@@ -186,13 +199,21 @@ Item {
         objectName: "detailGlassHost"
         z: 1
         x: -20; y: -page.headerInset
-        width: page.width+40; height: page.headerInset+144+10
+        width: page.width+40; height: page.headerInset+overview.height+10
     }
     Item {
+        id: overview
         objectName: "fixedShowOverview"
         z: 2
-        width: parent.width; height: 144
+        width: parent.width
+        height: page.movieMode ? titleOverview.height + 10 : Math.max(144, titleOverview.height + 10 + seasonFlow.implicitHeight)
+        onHeightChanged: {
+            // A wrapping Flow settles after the first list layout. Keep the
+            // initial card below the new header without jumping a scrolled list.
+            if(page.visible && episodeList.contentY <= episodeList.originY) page.resetScroll()
+        }
         RowLayout {
+            id: titleOverview
             anchors.left: parent.left; anchors.top: parent.top; spacing: 18
             Item {
                 Layout.preferredWidth: 250; Layout.minimumWidth: 250; Layout.maximumWidth: 250; Layout.preferredHeight: 88
@@ -205,10 +226,10 @@ Item {
                     sourceSize.width: Math.ceil(250*Screen.devicePixelRatio*2)
                     sourceSize.height: Math.ceil(88*Screen.devicePixelRatio*2)
                 }
-                Text { objectName: "showTitleFallback"; visible: logo.status === Image.Null || logo.status === Image.Error; anchors.fill: parent; text: page.show ? page.show.title : ""; font.pixelSize: 32; font.bold: true; color: page.theme.text; wrapMode: Text.WordWrap; verticalAlignment: Text.AlignVCenter }
+                Text { objectName: "showTitleFallback"; visible: logo.status === Image.Null || logo.status === Image.Error; anchors.fill: parent; text: page.show ? page.show.title : ""; textFormat: Text.PlainText; font.pixelSize: 32; font.bold: true; color: page.theme.text; wrapMode: Text.WordWrap; verticalAlignment: Text.AlignVCenter }
             }
             ColumnLayout {
-                Text { text: page.show ? page.show.year + " • " + page.show.episodes + " episodes • " + page.show.seasons + " seasons" : ""; color: page.theme.muted; font.bold: true; font.pixelSize: 14 }
+                Text { text: !page.show ? "" : page.movieMode ? SegmentTime.movieInfo(page.show) : page.show.year + " • " + page.show.episodes + " episodes • " + page.show.seasons + " seasons"; color: page.theme.muted; font.bold: true; font.pixelSize: 14 }
                 Row {
                     spacing: 9
                     Repeater {
@@ -235,9 +256,11 @@ Item {
             }
         }
         Flow {
+            id: seasonFlow
+            visible: !page.movieMode
             anchors.left: parent.left; anchors.bottom: parent.bottom; width: parent.width-200; spacing: 10
             Repeater {
-                model: page.show ? page.show.seasonNumbers || Array.from({length:page.show.seasons || 0},function(_,index){return index+1}) : []
+                model: page.show && !page.movieMode ? page.show.seasonNumbers || Array.from({length:page.show.seasons || 0},function(_,index){return index+1}) : []
                 AppButton {
                     id: seasonButton
                     required property var modelData
@@ -265,6 +288,7 @@ Item {
             }
         }
         ColumnLayout {
+            visible: !page.movieMode
             anchors.right: parent.right; anchors.bottom: parent.bottom; spacing: 7
             RowLayout { visible: !page.requestedDetectionActive; SegmentSwitch { id: detectIntro; objectName: "detectIntroToggle"; compact: true; text: "Intro"; checked: true } SegmentSwitch { id: detectCredits; objectName: "detectCreditsToggle"; compact: true; text: "Credits"; checked: true } }
             AppButton {

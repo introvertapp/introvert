@@ -92,23 +92,25 @@ AppSettings loadApp(QSqlDatabase &db)
 ProviderSettings loadProviderFrom(QSqlDatabase &db, const QString &provider)
 {
     require(providers.contains(provider), "Unsupported provider identifier.");
-    auto query = execute(db, QStringLiteral("SELECT remote_url,local_root,fetch_images,timeout_seconds,import_segments "
-                                           "FROM provider_settings WHERE provider_id=?"), {provider});
+    auto query = execute(db, QStringLiteral("SELECT p.remote_url,p.local_root,p.fetch_images,p.timeout_seconds,p.import_segments,"
+                                           "COALESCE(l.import_mode,'tv'),COALESCE(l.import_movie_segments,0) FROM provider_settings p "
+                                           "LEFT JOIN provider_library_settings l ON l.provider_id=p.provider_id WHERE p.provider_id=?"), {provider});
     require(query.next(), "Provider configuration is missing or incompatible.");
     require(query.value(0).metaType().id() == QMetaType::QString
                 && query.value(1).metaType().id() == QMetaType::QString,
             "Incompatible provider settings values.");
     const auto images = query.value(2);
     const auto timeout = query.value(3);
-    const auto imports = query.value(4);
-    require((imports.metaType().id() == QMetaType::Int || imports.metaType().id() == QMetaType::LongLong)
-                && (imports.toLongLong() == 0 || imports.toLongLong() == 1), "Invalid timestamp import preference in app.db.");
+    const auto imports = query.value(4), movieImports = query.value(6);
+    for (const auto &preference : {imports, movieImports})
+        require((preference.metaType().id() == QMetaType::Int || preference.metaType().id() == QMetaType::LongLong)
+                    && (preference.toLongLong() == 0 || preference.toLongLong() == 1), "Invalid timestamp import preference in app.db.");
     require((images.metaType().id() == QMetaType::Int || images.metaType().id() == QMetaType::LongLong)
                 && (images.toLongLong() == 0 || images.toLongLong() == 1), "Invalid image preference in app.db.");
     require(timeout.metaType().id() == QMetaType::Double || timeout.metaType().id() == QMetaType::Int
                 || timeout.metaType().id() == QMetaType::LongLong, "Invalid timeout in app.db.");
     ProviderSettings result{provider, query.value(0).toString(), query.value(1).toString(),
-                            images.toBool(), timeout.toDouble(), imports.toBool()};
+                            images.toBool(), timeout.toDouble(), imports.toBool(), query.value(5).toString(), movieImports.toBool()};
     result.validate();
     return result;
 }
@@ -145,6 +147,8 @@ QVariantMap loadEndpointsFrom(QSqlDatabase &db)
 void ProviderSettings::validate() const
 {
     require(providers.contains(provider), "Unsupported provider identifier.");
+    require(importMode == "tv" || (provider != "local" && (importMode == "movies" || importMode == "both")),
+            "Unsupported media import preference.");
     require(std::isfinite(timeoutSeconds) && timeoutSeconds > 0,
             "Request timeout must be a finite positive number of seconds.");
     require(!containsControls(remoteUrl) && !containsControls(localRoot), "Address or path contains invalid characters.");
@@ -203,6 +207,12 @@ void SettingsStore::initialize() const
         execute(db, "ALTER TABLE provider_settings ADD COLUMN import_segments INTEGER NOT NULL DEFAULT 0 CHECK(import_segments IN (0,1))");
     require(columns(db, "provider_settings") == QSet<QString>{"provider_id", "remote_url", "local_root", "fetch_images", "timeout_seconds", "import_segments"},
             "Incompatible provider settings schema.");
+    execute(db, "CREATE TABLE IF NOT EXISTS provider_library_settings("
+        "provider_id TEXT PRIMARY KEY NOT NULL REFERENCES provider_settings(provider_id),"
+        "import_mode TEXT NOT NULL CHECK(import_mode IN ('tv','movies','both')),"
+        "import_movie_segments INTEGER NOT NULL DEFAULT 0 CHECK(import_movie_segments IN (0,1)))");
+    if (!columns(db, "provider_library_settings").contains("import_movie_segments"))
+        execute(db, "ALTER TABLE provider_library_settings ADD COLUMN import_movie_segments INTEGER NOT NULL DEFAULT 0 CHECK(import_movie_segments IN (0,1))");
     for (const auto &provider : providers) loadProviderFrom(db, provider);
 
     execute(db, QStringLiteral("CREATE TABLE IF NOT EXISTS credentials(account TEXT PRIMARY KEY,value TEXT)"));
@@ -406,6 +416,10 @@ void SettingsStore::saveProvider(const ProviderSettings &settings, CredentialAct
     auto query = execute(connection.db, QStringLiteral("UPDATE provider_settings SET remote_url=?,local_root=?,fetch_images=?,"
         "timeout_seconds=?,import_segments=? WHERE provider_id=?"), {text(settings.remoteUrl), text(settings.localRoot), settings.fetchImages, settings.timeoutSeconds, settings.importSegments, settings.provider});
     require(query.numRowsAffected() == 1, "Provider configuration is missing.");
+    if (settings.provider != "local")
+        execute(connection.db, "INSERT INTO provider_library_settings(provider_id,import_mode,import_movie_segments) VALUES(?,?,?) "
+            "ON CONFLICT(provider_id) DO UPDATE SET import_mode=excluded.import_mode,import_movie_segments=excluded.import_movie_segments",
+            {settings.provider, settings.importMode, settings.importMovieSegments});
     if (action != CredentialAction::Keep)
         writeCredential(connection.db, "media:" + settings.provider,
                         action == CredentialAction::Replace ? std::optional<QString>(key) : std::nullopt);

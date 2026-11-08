@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import "SegmentTime.js" as SegmentTime
 
 Item {
     id: page
@@ -8,6 +9,7 @@ Item {
     required property var appSettings
     required property var appNavigation
     property bool preview: false
+    property bool movies: false
     property var mediaLibrary: null
     property var detector: null
     property real headerInset: 0
@@ -17,9 +19,13 @@ Item {
     property string query: ""
     property string visualState: "ready"
     property string filterQuery: ""
+    onMoviesChanged: Qt.callLater(function() {
+        gallery.positionViewAtBeginning()
+        basicList.positionViewAtBeginning()
+    })
     onQueryChanged: filterDelay.restart()
     Timer { id: filterDelay; interval: 70; onTriggered: page.filterQuery=page.query.toLowerCase() }
-    readonly property var visibleItems: (visualState === "ready" || (!preview && items.length > 0 && visualState === "loading")) ? items.filter(function(s) { return (s.title + (page.preview ? " first light s01e01" : "")).toLowerCase().indexOf(filterQuery) >= 0 }) : []
+    readonly property var visibleItems: (visualState === "ready" || (!preview && items.length > 0 && visualState === "loading")) ? items.filter(function(s) { return (s.title + (page.preview && !page.movies ? " first light s01e01" : "")).toLowerCase().indexOf(filterQuery) >= 0 }) : []
     signal showOpened(var show)
     objectName: "libraryPage"
     Component {
@@ -66,7 +72,8 @@ Item {
                 detecting: Boolean(page.detector && page.detector.activeShowIds.indexOf(String(record.id)) >= 0)
                 width: gallery.posterWidth; height: width*1.5
                 theme: page.theme
-                matchText: page.preview && page.query && record.title.toLowerCase().indexOf(page.filterQuery)<0 ? "S01E01 · First Light" : ""
+                matchText: page.preview && !page.movies && page.query && record.title.toLowerCase().indexOf(page.filterQuery)<0 ? "S01E01 · First Light" : ""
+                details: page.movies ? SegmentTime.movieInfo(record) : record.seasons + " seasons · " + record.episodes + " episodes"
                 onClicked: page.showOpened(record)
             }
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOff }
@@ -78,6 +85,7 @@ Item {
             }
         }
         ListView {
+            id: basicList
             objectName: "basicLibraryList"
             visible: page.appSettings.listingType === "basic"
             anchors.fill: parent; clip: true; spacing: 10
@@ -90,7 +98,7 @@ Item {
                 contentItem: RowLayout {
                     spacing: 14
                     Text { text: modelData.title; color: page.theme.text; font.pixelSize: 16; font.bold: true; Layout.fillWidth: true; elide: Text.ElideRight }
-                    Text { text: modelData.year + "   ·   " + modelData.seasons + " seasons   ·   " + modelData.episodes + " episodes"; color: page.theme.muted; font.pixelSize: 13 }
+                    Text { text: page.movies ? SegmentTime.movieInfo(modelData) : modelData.year + "   ·   " + modelData.seasons + " seasons   ·   " + modelData.episodes + " episodes"; color: page.theme.muted; font.pixelSize: 13 }
                 }
                 padding: 14
                 onClicked: page.showOpened(modelData)
@@ -114,7 +122,9 @@ Item {
         StatCards {
             objectName: "librarySummary"
             anchors.fill: parent; gap: 24; theme: page.theme
-            entries: [{label:"Media Server",value:page.preview ? "Plex" : page.mediaLibrary ? page.mediaLibrary.status : page.appSettings.mediaProvider || "Not configured"}, {label:"Shows",value:page.preview || page.mediaLibrary ? page.items.length : 0}, {label:"Episodes",value:page.preview ? "150" : page.mediaLibrary ? page.mediaLibrary.episodeCount : 0}]
+            entries: [{label:"Media Server",value:page.preview ? "Plex" : page.mediaLibrary ? page.mediaLibrary.status : page.appSettings.mediaProvider || "Not configured"},
+                {label:page.movies ? "Movies" : "Shows",value:page.items.length}].concat(page.movies ? [] :
+                [{label:"Episodes",value:page.preview ? "150" : page.mediaLibrary ? page.mediaLibrary.episodeCount : 0}])
         }
         // Keep clicks/hover off the artwork beneath these non-interactive cards,
         // while allowing wheel events to reach the scrolling view underneath.
@@ -126,7 +136,10 @@ Item {
 
         Text {
             width: parent.width; horizontalAlignment: Text.AlignLeft; wrapMode: Text.WordWrap
-            text: page.visualState === "loading" ? "Loading TV shows…" : page.visualState === "error" ? "Unable to load library" : page.query ? "No shows found." : page.preview ? "No shows found." : page.mediaLibrary && page.appSettings.mediaProvider !== "" ? "No TV shows found." : "Connect a media library"
+            text: page.visualState === "error" ? "Unable to load library"
+                : page.query || page.preview || (page.mediaLibrary && page.appSettings.mediaProvider !== "")
+                ? (page.movies ? "No movies found." : page.query || page.preview ? "No shows found." : "No TV shows found.")
+                : "Connect a media library"
             font.pixelSize: 15; color: page.theme.muted
         }
         Text { visible: !page.preview; width: parent.width; horizontalAlignment: Text.AlignLeft; text: page.preview ? "Design preview — no provider requests are made." : page.mediaLibrary ? page.mediaLibrary.message : "Configure a media provider in Settings to browse your library."; wrapMode: Text.WordWrap; color: page.theme.muted }

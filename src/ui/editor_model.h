@@ -50,7 +50,8 @@ public:
     bool playing() const { return m_player.playbackState() == QMediaPlayer::PlayingState; }
     bool ready() const { return m_ready && !m_priming; }
     bool busy() const { return m_busy || m_priming; }
-    bool editingAllowed() const { return m_context && !m_library.m_editLocks.blocked(m_context->detail.show,m_context->episode.seasonNumber.value_or(-1),m_library.connectionAddress()); }
+    bool editingAllowed() const { return m_context && (m_context->detail.show.isMovie()
+        || !m_library.m_editLocks.blocked(m_context->detail.show,m_context->episode.seasonNumber.value_or(-1),m_library.connectionAddress())); }
     QString message() const { return m_message; }
     QString episodeTitle() const;
     QVariantMap segmentValues() const;

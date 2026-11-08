@@ -9,6 +9,7 @@ AbstractButton {
     required property var theme
     required property var record
     property string matchText: ""
+    property string details: record.seasons + " seasons · " + record.episodes + " episodes"
     property bool detecting: false
     objectName: "poster_" + record.id
     hoverEnabled: true
@@ -60,7 +61,7 @@ AbstractButton {
         Rectangle { objectName: "posterGradient"; anchors.fill: parent; gradient: Gradient { GradientStop { position: 0.45; color: "transparent" } GradientStop { position: 1; color: "#ee000000" } } }
         Column { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.margins: 10; spacing: 5
             Text { objectName: "posterOverlayTitle"; width: parent.width; text: tile.record.title; color: "white"; wrapMode: Text.WordWrap; font.pixelSize: 15; font.bold: true }
-            Text { objectName: "posterOverlayDetails"; opacity: tile.hovered || tile.activeFocus ? 1 : 0; Behavior on opacity { NumberAnimation { duration: 180 } } width: parent.width; text: tile.matchText || tile.record.seasons + " seasons · " + tile.record.episodes + " episodes"; color: tile.matchText ? "#8ab4ff" : "#b3ffffff"; font.pixelSize: 12; elide: Text.ElideRight }
+            Text { objectName: "posterOverlayDetails"; opacity: tile.hovered || tile.activeFocus ? 1 : 0; Behavior on opacity { NumberAnimation { duration: 180 } } width: parent.width; text: tile.matchText || tile.details; color: tile.matchText ? "#8ab4ff" : "#b3ffffff"; font.pixelSize: 12; elide: Text.ElideRight }
         }
         Rectangle {
             objectName: "posterDetectionIndicator"; visible: tile.detecting

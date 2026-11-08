@@ -35,6 +35,7 @@ Item {
         width: drawer.layoutWidth-16; height: Math.max(0,drawer.height-16); spacing: 8
         AppComboBox {
             objectName: "editorSeasonControl"
+            visible: !drawer.editor.movieMode
             // Keep episode text stable while allowing this control to shrink.
             Layout.alignment: Qt.AlignLeft
             Layout.preferredWidth: Math.max(0,drawer.width-16)
@@ -73,7 +74,7 @@ Item {
                     onTapped: drawer.editor.requestEpisode(episodeRow.modelData)
                 }
                 Accessible.role: Accessible.Button
-                Accessible.name: (modelData.number==null ? "Episode" : "Episode "+modelData.number)+" "+modelData.title
+                Accessible.name: modelData.movie ? modelData.title : (modelData.number==null ? "Episode" : "Episode "+modelData.number)+" "+modelData.title
                 ColumnLayout {
                     id: contents
                     x: 8; y: 8; width: Math.max(0,parent.width-16); spacing: 6

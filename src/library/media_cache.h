@@ -30,6 +30,11 @@ public:
     bool putSeries(const QString &scope, const QList<providers::ShowSummary> &shows, const QString &item = {});
     bool putDetail(const QString &scope, const providers::ShowDetail &detail, const QString &item);
     void invalidateDetails(const QString &scope);
+    std::optional<QList<providers::MovieSummary>> movies(const QString &scope, bool stale = false);
+    std::optional<providers::MovieDetail> movie(const QString &scope, const QString &item, bool stale = false);
+    bool putMovies(const QString &scope, const QList<providers::MovieSummary> &movies);
+    bool putMovie(const QString &scope, const providers::MovieDetail &detail);
+    void invalidateMovieDetails(const QString &scope);
     static QString imageKey(const QString &scope, const QString &path);
     std::optional<QString> image(const QString &scope, const QString &path, bool stale = false);
     std::optional<QString> putImage(const QString &scope, const QString &path, const QByteArray &bytes);
@@ -38,9 +43,11 @@ public:
     QString stats();
 private:
     std::unique_ptr<sql::Connection> connect();
-    using CachedRecords = std::variant<QList<providers::ShowSummary>, providers::ShowDetail>;
+    using CachedRecords = std::variant<QList<providers::ShowSummary>, providers::ShowDetail,
+                                       QList<providers::MovieSummary>, providers::MovieDetail>;
     std::optional<CachedRecords> get(const QString &scope, const QString &kind, const QString &item, double ttl, bool stale);
     bool put(const QString &scope, const QString &kind, const QString &item, const QJsonValue &value);
+    void invalidate(const QString &scope, const QString &kind);
     std::optional<QString> imageFile(const QString &name) const;
     QString m_root, m_path;
     CacheLimits m_limits;

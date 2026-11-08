@@ -97,7 +97,12 @@ std::optional<MediaCache::CachedRecords> MediaCache::get(const QString &scope, c
         QJsonParseError error;
         const auto result = QJsonValue::fromJson(query.value(0).toString().toUtf8(), &error);
         if (error.error != QJsonParseError::NoError) return std::nullopt;
-        CachedRecords records = kind == "series" ? CachedRecords(decodeSeries(result)) : CachedRecords(decodeDetail(result));
+        CachedRecords records;
+        if (kind == "series") records = decodeSeries(result);
+        else if (kind == "detail") records = decodeDetail(result);
+        else if (kind == "movies") records = decodeMovies(result);
+        else if (kind == "movie") records = decodeMovie(result);
+        else return std::nullopt;
         query.finish();
         sql::execute(db, "UPDATE media_cache_metadata SET accessed=? WHERE scope=? AND kind=? AND item=?",
                      {now(), scope, kind, sql::text(item)});
@@ -150,8 +155,42 @@ bool MediaCache::putDetail(const QString &scope, const providers::ShowDetail &de
 }
 void MediaCache::invalidateDetails(const QString &scope)
 {
+    invalidate(scope, "detail");
+}
+
+std::optional<QList<providers::MovieSummary>> MediaCache::movies(const QString &scope, bool stale)
+{
+    auto value = get(scope, "movies", {}, seriesTtl, stale);
+    if (value) return std::get<QList<providers::MovieSummary>>(std::move(*value));
+    return std::nullopt;
+}
+
+std::optional<providers::MovieDetail> MediaCache::movie(const QString &scope, const QString &item, bool stale)
+{
+    auto value = get(scope, "movie", item, detailTtl, stale);
+    if (value) return std::get<providers::MovieDetail>(std::move(*value));
+    return std::nullopt;
+}
+
+bool MediaCache::putMovies(const QString &scope, const QList<providers::MovieSummary> &movies)
+{
+    try { return put(scope, "movies", {}, encodeMovies(movies)); } catch (const std::exception &) { return false; }
+}
+
+bool MediaCache::putMovie(const QString &scope, const providers::MovieDetail &detail)
+{
+    try { return put(scope, "movie", detail.movie.identity.itemId, encodeMovie(detail)); } catch (const std::exception &) { return false; }
+}
+
+void MediaCache::invalidateMovieDetails(const QString &scope)
+{
+    invalidate(scope, "movie");
+}
+
+void MediaCache::invalidate(const QString &scope, const QString &kind)
+{
     const std::lock_guard<std::mutex> lock(m_mutex);
-    try { auto connection = connect(); sql::execute(connection->db, "DELETE FROM media_cache_metadata WHERE scope=? AND kind='detail'", {scope}); }
+    try { auto connection = connect(); sql::execute(connection->db, "DELETE FROM media_cache_metadata WHERE scope=? AND kind=?", {scope, kind}); }
     catch (const DatabaseError &) {}
 }
 

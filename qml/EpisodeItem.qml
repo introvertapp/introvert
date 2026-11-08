@@ -74,7 +74,8 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true; spacing: 8; Layout.preferredHeight: 24
             Text {
-                text: row.episode.number + ". " + row.episode.title
+                text: row.episode.movie ? row.episode.title : row.episode.number + ". " + row.episode.title
+                textFormat: Text.PlainText
                 enabled: !row.preview && Boolean(row.episode.itemUrl)
                 color: row.theme.text; font.pixelSize: 17; font.weight: Font.Bold
                 elide: Text.ElideRight; Layout.maximumWidth: row.width-160

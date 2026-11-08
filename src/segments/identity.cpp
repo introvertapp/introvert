@@ -7,6 +7,7 @@ namespace introvert::segments {
 
 QStringList showKeys(const providers::ShowSummary &show)
 {
+    if (show.movieKey) return {*show.movieKey};
     QStringList result;
     const auto &ids = show.externalIds;
     for (const auto &entry : {qMakePair(QStringLiteral("tmdb"), ids.tmdb), qMakePair(QStringLiteral("tvdb"), ids.tvdb),
@@ -24,6 +25,13 @@ QStringList showKeys(const providers::ShowSummary &show)
     while (title.endsWith('-')) title.chop(1);
     if (!title.isEmpty()) result.append("title:" + title + (show.year && *show.year ? ':' + QString::number(*show.year) : QString()));
     return result;
+}
+
+std::optional<QPair<qint64, qint64>> segmentCoordinates(const providers::ShowSummary &show, const providers::Episode &episode)
+{
+    if (show.isMovie()) return qMakePair(movieCoordinate, movieCoordinate);
+    if (!episode.seasonNumber || !episode.episodeNumber) return std::nullopt;
+    return qMakePair(*episode.seasonNumber, *episode.episodeNumber);
 }
 
 void initializeTables(QSqlDatabase &db)

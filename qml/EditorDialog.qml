@@ -49,6 +49,7 @@ Dialog {
     }
     property string showTitle: "Video segment editor"
     property string episodeTitle: "No episode loaded"
+    property bool movieMode: false
     property string timestampFormat: "both"
     property real durationSeconds: preview ? 2640 : 0
     property real frameRate: 25
@@ -115,7 +116,7 @@ Dialog {
         if((backend && !preview && backend.episodeId===record.id) || (preview && previewEpisodeId===record.id))return
         requestNavigation(function(){
             if(backend && !preview)backend.openEpisode(record.id)
-            else { episodeTitle="S"+previewSeason+"・E"+record.number+" - "+record.title;loadEpisode(record) }
+            else { episodeTitle=movieMode ? record.title : "S"+previewSeason+"・E"+record.number+" - "+record.title;loadEpisode(record) }
         })
     }
     function navigateEpisode(direction) { if(backend && !backend.busy)requestNavigation(function(){backend.navigate(direction)}) }
@@ -177,7 +178,15 @@ Dialog {
     }
     function segmentValid(index) {
         var item=segments[index]
-        return Boolean(item && isFinite(item.start) && isFinite(item.end) && item.end-item.start>=5 && item.end-item.start<=180)
+        if (!item || !isFinite(item.start) || !isFinite(item.end)) return false
+        var length = movieMode ? (Math.round(item.end * 1000) - Math.round(item.start * 1000)) / 1000 : item.end - item.start
+        return length >= 5 && length <= maxSegmentLength(item)
+    }
+    function maxSegmentLength(item) {
+        if (!movieMode) return 180
+        if (item.label === "Intro") return 300
+        if (item.label === "Recap") return 1200
+        return 1800
     }
     function moveSegment(index, delta) {
         if(!editable)return
@@ -194,7 +203,8 @@ Dialog {
     function resizeSegment(index, edge, time) {
         if(!editable)return
         var values=segments.slice(); var item=values[index]
-        values[index]={label:item.label,start:edge==="start"?Math.max(0,item.end-180,Math.min(time,item.end-5)):item.start,end:edge==="end"?Math.min(durationSeconds,item.start+180,Math.max(time,item.start+5)):item.end,color:item.color}
+        var maximum = maxSegmentLength(item)
+        values[index]={label:item.label,start:edge==="start"?Math.max(0,item.end-maximum,Math.min(time,item.end-5)):item.start,end:edge==="end"?Math.min(durationSeconds,item.start+maximum,Math.max(time,item.start+5)):item.end,color:item.color}
         clearTextFor(index);segments=values; draftChanged=hasDraftChanges()
     }
     function editTime(seconds) {
@@ -248,7 +258,7 @@ Dialog {
     }
     function selectAllDrafts() {
         var selected=[]
-        for(var n=0;n<segments.length;n++) if(isFinite(segments[n].start) && isFinite(segments[n].end) && segments[n].end-segments[n].start>=5 && segments[n].end-segments[n].start<=180)selected.push(n)
+        for(var n=0;n<segments.length;n++) if(segmentValid(n))selected.push(n)
         selectedIndices=selected;selectedSegment=selected.length?selected[0]:-1
     }
     function deleteDrafts() {
@@ -364,10 +374,10 @@ Dialog {
                 anchors.fill: parent; spacing: 0
                 RowLayout {
                     Layout.alignment: Qt.AlignHCenter; Layout.preferredHeight: 38; spacing: 14
-                    AppButton { iconName: "chevron-left"; glyphOnly: true; hint: "Previous episode (J)"; implicitWidth: 24; implicitHeight: 26; enabled: Boolean(editor.backend && editor.backend.hasPrevious && !editor.backend.busy); theme: editor.theme; onClicked: editor.navigateEpisode(-1) }
+                    AppButton { visible: !editor.movieMode; iconName: "chevron-left"; glyphOnly: true; hint: "Previous episode (J)"; implicitWidth: 24; implicitHeight: 26; enabled: Boolean(editor.backend && editor.backend.hasPrevious && !editor.backend.busy); theme: editor.theme; onClicked: editor.navigateEpisode(-1) }
                     Text { text: editor.episodeTitle; color: editor.theme.muted; font.pixelSize: 15; font.bold: true; elide: Text.ElideRight; Layout.maximumWidth: editor.width*0.65 }
                     Text { text: editor.headerTime(editor.durationSeconds); color: editor.theme.muted; font.pixelSize: 15 }
-                    AppButton { iconName: "chevron-right"; glyphOnly: true; hint: "Next episode (L)"; implicitWidth: 24; implicitHeight: 26; enabled: Boolean(editor.backend && editor.backend.hasNext && !editor.backend.busy); theme: editor.theme; onClicked: editor.navigateEpisode(1) }
+                    AppButton { visible: !editor.movieMode; iconName: "chevron-right"; glyphOnly: true; hint: "Next episode (L)"; implicitWidth: 24; implicitHeight: 26; enabled: Boolean(editor.backend && editor.backend.hasNext && !editor.backend.busy); theme: editor.theme; onClicked: editor.navigateEpisode(1) }
                 }
                 Rectangle { Layout.fillWidth: true; height: 1; color: editor.theme.border }
                 Item {

@@ -26,6 +26,10 @@ struct ProviderSettings {
     bool fetchImages = false;
     double timeoutSeconds = 10;
     bool importSegments = false;
+    QString importMode = QStringLiteral("tv");
+    bool importMovieSegments = false;
+    bool importsTv() const { return importMode != "movies"; }
+    bool importsMovies() const { return provider != "local" && importMode != "tv"; }
     void validate() const;
 };
 

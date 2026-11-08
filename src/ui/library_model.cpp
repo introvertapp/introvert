@@ -6,12 +6,24 @@
 
 namespace introvert::ui {
 using namespace providers;
+namespace {
+
+QString disabledCatalogMessage(const ProviderSettings &saved, bool movies)
+{
+    if (movies)
+        return saved.provider == "local" ? QStringLiteral("Movies can be imported from Plex, Emby or Jellyfin.")
+            : QStringLiteral("Choose Movies or Both under Import in Settings → Media.");
+    return QStringLiteral("Choose TV shows or Both under Import in Settings → Media.");
+}
+
+} // namespace
 
 bool CatalogSelection::operator==(const CatalogSelection &other) const
 {
     return listing == other.listing && saved.provider == other.saved.provider && saved.remoteUrl == other.saved.remoteUrl
         && saved.localRoot == other.saved.localRoot && saved.fetchImages == other.saved.fetchImages
-        && saved.timeoutSeconds == other.saved.timeoutSeconds && saved.importSegments == other.saved.importSegments;
+        && saved.timeoutSeconds == other.saved.timeoutSeconds && saved.importSegments == other.saved.importSegments
+        && saved.importMode == other.saved.importMode && saved.importMovieSegments == other.saved.importMovieSegments;
 }
 
 LibraryModel::LibraryModel(SettingsModel &settings, SettingsStore store, QString artworkRoot,
@@ -63,6 +75,7 @@ void LibraryModel::settingsChanged(bool configuration)
     try {
         const auto key = settingsKey();
         if (configuration || key != m_key) {
+            if (configuration) m_movies.clear();
             if (m_browsing) load();
             else defer(key);
         }
@@ -76,8 +89,9 @@ void LibraryModel::defer(const std::optional<CatalogSelection> &key)
     m_rebuildGeneration.reset();
     m_pending = true; m_cached = false; m_busy = false; m_state = "ready"; m_message.clear();
     if (key != m_key) {
-        m_shows.clear(); m_episodes.clear(); m_show.clear(); m_detail.reset(); m_segments = {};
+        m_shows.clear(); m_movies.clear(); m_episodes.clear(); m_show.clear(); m_movie.clear(); m_detail.reset(); m_segments = {};
     }
+    m_movieDetail.reset(); m_movie.clear();
     m_key = key;
     emit changed();
 }
@@ -87,6 +101,29 @@ void LibraryModel::setBrowsing(bool active)
     if (m_closed) return;
     m_browsing = active;
     if (active && m_pending) { m_pending = false; load(); }
+}
+
+void LibraryModel::setBrowsePage(const QString &page)
+{
+    if (m_closed) return;
+    if (page != "home" && page != "movies") {
+        setBrowsing(false);
+        return;
+    }
+    if (!m_browsing)
+        qobject_cast<ProviderSettingsModel *>(m_settings.mediaSettings())->flush();
+    const bool movies = page == "movies";
+    if (m_browseMovies == movies) {
+        setBrowsing(true);
+        return;
+    }
+    closeShow();
+    m_browseMovies = movies;
+    m_browsing = true;
+    if (rebuildingCache()) { emit changed(); return; }
+    m_pending = false;
+    m_catalogLoading = false;
+    load();
 }
 
 quint64 LibraryModel::begin()
@@ -99,7 +136,7 @@ quint64 LibraryModel::begin()
 
 void LibraryModel::submit(Kind kind, quint64 generation, Work work)
 {
-    const auto cancel = kind == Kind::Show ? m_showCancel : m_cancel;
+    const auto cancel = detailRequest(kind) ? m_showCancel : m_cancel;
     const auto summary = m_imageSummary;
     m_pool.start(QRunnable::create([this, kind, generation, work = std::move(work), cancel, summary] {
         std::optional<Result> result;
@@ -107,7 +144,7 @@ void LibraryModel::submit(Kind kind, quint64 generation, Work work)
         try {
             checkCancelled(cancel);
             result = work(cancel, generation);
-            result->stats = kind == Kind::Show ? summary : m_cache.stats();
+            result->stats = detailRequest(kind) ? summary : m_cache.stats();
         } catch (const Cancelled &) { result.reset(); }
         catch (const ProviderError &failure) { result.reset(); error = QString::fromUtf8(failure.what()); }
         catch (const DatabaseError &failure) { result.reset(); error = QString::fromUtf8(failure.what()); }
@@ -115,14 +152,14 @@ void LibraryModel::submit(Kind kind, quint64 generation, Work work)
         QMetaObject::invokeMethod(this, [this, kind, generation, result = std::move(result), error] {
             finished(kind, generation, result, error);
         }, Qt::QueuedConnection);
-    }), kind == Kind::Show ? 1 : 0);
+    }), detailRequest(kind) ? 1 : 0);
 }
 
 void LibraryModel::publish(quint64 generation, const library::CatalogResult &catalog)
 {
     QMetaObject::invokeMethod(this, [this, generation, catalog] {
         if (m_closed || generation != m_generation) return;
-        m_shows = catalog.rows; m_cached = catalog.cached;
+        activeRows() = catalog.rows; m_cached = catalog.cached;
         if (!m_showActive) { m_message = catalog.message; m_busy = false; m_state = "ready"; }
         emit changed();
     }, Qt::QueuedConnection);
@@ -145,9 +182,9 @@ void LibraryModel::refresh(bool force, bool clearLocal)
     const auto previous = m_key;
     try { m_key = settingsKey(); }
     catch (...) {
-        m_cancel->store(true); ++m_generation; m_key.reset(); m_detail.reset(); m_show.clear();
+        m_cancel->store(true); ++m_generation; m_key.reset(); m_detail.reset(); m_movieDetail.reset(); m_show.clear(); m_movie.clear();
         m_showCancel->store(true); ++m_showGeneration; m_showActive = false; m_catalogLoading = false;
-        m_shows.clear(); m_episodes.clear(); m_busy = false; m_state = "error";
+        m_shows.clear(); m_movies.clear(); m_episodes.clear(); m_busy = false; m_state = "error";
         m_message = "Cannot load saved media configuration. Check application database access and retry.";
         emit errorOccurred(m_message);
         emit changed(); return;
@@ -156,21 +193,32 @@ void LibraryModel::refresh(bool force, bool clearLocal)
     m_showCancel->store(true); ++m_showGeneration; m_showActive = false;
     const auto generation = begin();
     m_catalogLoading = m_key.has_value();
-    m_cached = false; m_detail.reset(); m_show.clear(); m_episodes.clear();
-    if (m_key != previous) m_shows.clear();
+    m_cached = false; m_detail.reset(); m_movieDetail.reset(); m_show.clear(); m_movie.clear(); m_episodes.clear();
+    if (m_key != previous) { m_shows.clear(); m_movies.clear(); }
     if (!m_key) {
-        m_shows.clear(); m_busy = false; m_state = "ready";
+        activeRows().clear(); m_busy = false; m_state = "ready";
         m_message = m_settings.mediaProvider().isEmpty()
             ? "Configure a media provider in Settings → Media to load your library." : "Select a media provider in Media settings.";
         submit(Kind::Stats, generation, [](const Cancellation &, quint64) { return Result{}; });
+    } else if (!clearLocal && (m_browseMovies ? !m_key->saved.importsMovies() : !m_key->saved.importsTv())) {
+        activeRows().clear();
+        m_catalogLoading = false; m_busy = false; m_state = "ready";
+        m_message = disabledCatalogMessage(m_key->saved, m_browseMovies);
     } else {
         const auto key = *m_key;
-        const auto oldRows = m_key == previous ? m_shows : QVariantList();
-        submit(Kind::Library, generation, [this, key, force, clearLocal, oldRows](const Cancellation &cancel, quint64 gen) {
+        const bool movies = m_browseMovies && !clearLocal;
+        const bool showDisabledMovies = m_browseMovies && clearLocal;
+        const auto oldRows = movies ? m_movies : m_shows;
+        submit(Kind::Library, generation, [this, key, force, clearLocal, oldRows, movies, showDisabledMovies](const Cancellation &cancel, quint64 gen) {
             Result result;
             const auto config = m_catalog.config(key.saved, cancel);
-            result.catalog = m_catalog.browse(config, key.listing, force, clearLocal, oldRows, cancel,
-                [this, gen](const library::CatalogResult &value) { publish(gen, value); });
+            const auto progress = [this, gen, showDisabledMovies](const library::CatalogResult &value) {
+                if (!showDisabledMovies) publish(gen, value);
+            };
+            if (movies) result.movieCatalog = m_catalog.browseMovies(config, key.listing, force, oldRows, cancel, progress);
+            else result.catalog = m_catalog.browse(config, key.listing, force, clearLocal, oldRows, cancel, progress);
+            if (showDisabledMovies)
+                result.movieCatalog = library::CatalogResult{{}, disabledCatalogMessage(key.saved, true)};
             return result;
         });
     }
@@ -194,8 +242,16 @@ void LibraryModel::rebuildCache()
     m_rebuildGeneration = generation; m_rebuildProgress = 0; m_pending = false;
     submit(Kind::Rebuild, generation, [this, key](const Cancellation &cancel, quint64 gen) {
         Result result;
-        result.catalog = m_catalog.rebuild(m_catalog.config(key.saved, cancel), key.listing, cancel,
-            [this, gen](double value) { progress(gen, value); });
+        const auto config = m_catalog.config(key.saved, cancel);
+        const bool tv = key.saved.importsTv(), movies = key.saved.importsMovies();
+        if (tv)
+            result.catalog = m_catalog.rebuild(config, key.listing, cancel,
+                [this, gen, movies](double value) { progress(gen, movies ? value * .5 : value); });
+        else result.catalog = library::CatalogResult{{}, disabledCatalogMessage(key.saved, false)};
+        if (movies)
+            result.movieCatalog = m_catalog.rebuildMovies(config, key.listing, cancel,
+                [this, gen, tv](double value) { progress(gen, tv ? .5 + value * .5 : value); });
+        else result.movieCatalog = library::CatalogResult{{}, disabledCatalogMessage(key.saved, true)};
         return result;
     });
     emit changed();
@@ -203,7 +259,7 @@ void LibraryModel::rebuildCache()
 
 void LibraryModel::reloadLocalMetadata()
 {
-    if(m_closed || !m_key || m_key->saved.provider!="local")return;
+    if(m_closed || m_browseMovies || !m_key || m_key->saved.provider!="local")return;
     const auto key=*m_key;const auto generation=m_generation;const auto detailRevision=m_detailRevision;
     const auto showId=m_show.value("id").toString();const auto cancel=m_cancel;const auto before=m_segments;
     m_pool.start(QRunnable::create([this,key,generation,detailRevision,showId,cancel,before] {
@@ -248,14 +304,19 @@ void LibraryModel::clearLocalCache()
 void LibraryModel::openShow(const QString &id) { openShowScoped(id, {}); }
 void LibraryModel::openJobShow(const QString &id, const QString &scope) { openShowScoped(id, scope); }
 
+quint64 LibraryModel::beginDetail()
+{
+    m_showCancel->store(true); m_showCancel = std::make_shared<std::atomic_bool>(false);
+    m_showActive = true; m_busy = true; m_state = "loading"; m_message.clear();
+    m_detail.reset(); m_movieDetail.reset(); m_episodes.clear(); m_show.clear(); m_movie.clear();
+    return ++m_showGeneration;
+}
+
 void LibraryModel::openShowScoped(const QString &id, const QString &scope)
 {
-    if (m_closed || !m_key) return;
+    if (m_closed || !m_key || m_browseMovies || !m_key->saved.importsTv()) return;
     const auto key = *m_key;
-    m_showCancel->store(true); m_showCancel = std::make_shared<std::atomic_bool>(false);
-    const auto generation = ++m_showGeneration;
-    m_showActive = true; m_busy = true; m_state = "loading"; m_message.clear();
-    m_detail.reset(); m_episodes.clear(); m_show.clear();
+    const auto generation = beginDetail();
     for (const auto &row : m_shows) if (row.toMap().value("id").toString() == id) { m_show = row.toMap(); break; }
     submit(Kind::Show, generation, [this, key, id, scope](const Cancellation &cancel, quint64) {
         Result result;
@@ -275,14 +336,55 @@ void LibraryModel::openShowScoped(const QString &id, const QString &scope)
     emit changed();
 }
 
+void LibraryModel::openMovie(const QString &id) { openMovieScoped(id, {}); }
+void LibraryModel::openJobMovie(const QString &id, const QString &scope) { openMovieScoped(id, scope); }
+
+void LibraryModel::openMovieScoped(const QString &id, const QString &scope)
+{
+    if (m_closed || !m_key || !m_browseMovies || !m_key->saved.importsMovies()) return;
+    const auto item = std::find_if(m_movies.cbegin(), m_movies.cend(), [&id](const QVariant &value) {
+        return value.toMap().value("id").toString() == id;
+    });
+    if (item == m_movies.cend() && scope.isEmpty()) return;
+    const auto key = *m_key;
+    const auto generation = beginDetail();
+    m_movie = item == m_movies.cend() ? QVariantMap{{"id", id}} : item->toMap();
+    submit(Kind::Movie, generation, [this, key, id, scope](const Cancellation &cancel, quint64) {
+        Result result;
+        const auto config = m_catalog.config(key.saved, cancel);
+        const auto detail = m_catalog.movieDetail(config, key.listing, id, cancel);
+        const auto &movie = detail.movie;
+        const auto source = providerScope(movie.identity, key.address());
+        if (!scope.isEmpty() && scope != source)
+            throw ProviderError("This job belongs to another media server. Select its connection in Settings → Media.");
+        result.display = m_catalog.displayMovie(config, movie, cancel, key.listing != "basic");
+        ShowSummary title{movie.identity, movie.title};
+        title.year = movie.year;
+        title.externalIds = movie.externalIds;
+        title.movieKey = "movie:" + source + ':' + movie.identity.itemId;
+        Episode playable{movie.identity, movie.title};
+        playable.durationMs = movie.durationMs;
+        if (key.saved.importMovieSegments) playable.importedSegments = movieChapterSegments(detail);
+        result.detail = ShowDetail{title, {{std::nullopt, {playable}}}};
+        checkCancelled(cancel);
+        result.segments = segments::loadCatalogSegments(m_store.databasePath(), *result.detail, key.address());
+        return result;
+    });
+    emit changed();
+}
+
 void LibraryModel::finished(Kind kind, quint64 generation, const std::optional<Result> &result, const QString &error)
 {
-    if (m_closed || generation != (kind == Kind::Show ? m_showGeneration : m_generation)) return;
+    if (m_closed || generation != (detailRequest(kind) ? m_showGeneration : m_generation)) return;
     if (!error.isEmpty() && kind != Kind::Rebuild) emit errorOccurred(error);
     if (kind == Kind::Library || kind == Kind::Rebuild) {
         m_catalogLoading = false;
         if (result) {
-            m_shows = result->catalog.rows; m_cached = result->catalog.cached; m_imageSummary = result->stats;
+            if (result->catalog) m_shows = result->catalog->rows;
+            if (result->movieCatalog) m_movies = result->movieCatalog->rows;
+            const auto &catalog = m_browseMovies ? result->movieCatalog : result->catalog;
+            if (catalog) m_cached = catalog->cached;
+            m_imageSummary = result->stats;
         }
         // Background completion must not change a show request's loading/error
         // state or its episode context.
@@ -317,13 +419,19 @@ void LibraryModel::finished(Kind kind, quint64 generation, const std::optional<R
     }
     m_state = error.isEmpty() ? "ready" : "error"; m_message = error;
     if (result) {
-        if (kind != Kind::Show) m_imageSummary = result->stats;
+        if (!detailRequest(kind)) m_imageSummary = result->stats;
         if (kind == Kind::Library || kind == Kind::Rebuild) {
-            m_shows = result->catalog.rows; m_message = result->catalog.message; m_cached = result->catalog.cached;
+            const auto &catalog = m_browseMovies ? result->movieCatalog : result->catalog;
+            if (catalog) m_message = catalog->message;
         } else if (kind == Kind::Show) {
             m_show = result->display; m_detail = result->detail; m_segments = result->segments; ++m_detailRevision;
             if(!m_segments.deferredSeasons.isEmpty())emit diagnosticMessage("info","Timestamp import deferred for a season reserved by detection. Refresh after detection finishes to retry.");
             selectSeason(m_detail->seasons.isEmpty() ? 1 : int(m_detail->seasons.first().number.value_or(0)));
+        } else if (kind == Kind::Movie) {
+            m_movie = result->display;
+            m_movieDetail = result->detail;
+            m_segments = result->segments;
+            ++m_detailRevision;
         }
     }
     emit changed();
@@ -357,54 +465,73 @@ QVariantList LibraryModel::episodesForSeason(int number) const
     QVariantList rows;
     if (m_closed) return rows;
     if (m_detail) for (const auto &season : m_detail->seasons) if (season.number.value_or(-1) == number) {
-        for (const auto &episode : season.episodes) {
-            QVariantMap values;
-            auto segments = m_segments.values.value(episode.identity.itemId);
-            if (!m_segments.values.contains(episode.identity.itemId))
-                for (const auto &item : episode.importedSegments) segments[segmentName(item.type)] = {item.startSeconds, item.endSeconds};
-            QVariantMap row{{"id", episode.identity.itemId}, {"providerId", providerName(episode.identity.provider)},
-                {"showId", m_detail->show.identity.itemId}, {"title", episode.title.value_or(QString())},
-                {"itemUrl", m_key ? itemWebUrl(m_key->saved.remoteUrl, episode.identity) : QString()},
-                {"number", episode.episodeNumber ? QVariant(*episode.episodeNumber) : QVariant()},
-                {"season", episode.seasonNumber ? QVariant(*episode.seasonNumber) : QVariant()},
-                {"status", m_segments.edited.contains(episode.identity.itemId) ? QString("Edited")
-                    : segments.isEmpty() || episode.importedSegments.isEmpty() ? QString() : library::providerLabel(episode.identity.provider)},
-                {"recap", "—"}, {"intro", "—"}, {"credits", "—"}, {"preview", "—"}};
-            for (auto it = segments.cbegin(); it != segments.cend(); ++it) {
-                values[it.key()] = QVariantList{it.value().first, it.value().second};
-                row[it.key()] = timestamp(it.value().first) + " – " + timestamp(it.value().second);
-            }
-            if(m_segments.statusRevisions.contains(episode.identity.itemId))row["statusRevision"]=m_segments.statusRevisions.value(episode.identity.itemId);
-            row["segmentValues"] = values; rows.append(row);
-        }
+        for (const auto &episode : season.episodes) rows.append(playableRow(*m_detail, episode));
         break;
     }
     return rows;
+}
+
+QVariantList LibraryModel::movieItems() const
+{
+    if (!m_movieDetail || m_closed) return {};
+    return {playableRow(*m_movieDetail, m_movieDetail->seasons.first().episodes.first())};
+}
+
+QVariantMap LibraryModel::playableRow(const ShowDetail &detail, const Episode &episode) const
+{
+    QVariantMap values;
+    auto segments = m_segments.values.value(episode.identity.itemId);
+    if (!m_segments.values.contains(episode.identity.itemId))
+        for (const auto &item : episode.importedSegments) segments[segmentName(item.type)] = {item.startSeconds, item.endSeconds};
+    QVariantMap row{{"id", episode.identity.itemId}, {"providerId", providerName(episode.identity.provider)},
+        {"showId", detail.show.identity.itemId}, {"title", episode.title.value_or(QString())},
+        {"itemUrl", m_key ? itemWebUrl(m_key->saved.remoteUrl, episode.identity) : QString()},
+        {"number", episode.episodeNumber ? QVariant(*episode.episodeNumber) : QVariant()},
+        {"season", episode.seasonNumber ? QVariant(*episode.seasonNumber) : QVariant()},
+        {"status", m_segments.edited.contains(episode.identity.itemId) ? QString("Edited")
+            : segments.isEmpty() || episode.importedSegments.isEmpty() ? QString() : library::providerLabel(episode.identity.provider)},
+        {"recap", "—"}, {"intro", "—"}, {"credits", "—"}, {"preview", "—"}};
+    if (detail.show.isMovie()) row["movie"] = true;
+    for (auto it = segments.cbegin(); it != segments.cend(); ++it) {
+        values[it.key()] = QVariantList{it.value().first, it.value().second};
+        row[it.key()] = timestamp(it.value().first) + " – " + timestamp(it.value().second);
+    }
+    if (m_segments.statusRevisions.contains(episode.identity.itemId))
+        row["statusRevision"] = m_segments.statusRevisions.value(episode.identity.itemId);
+    row["segmentValues"] = values;
+    return row;
 }
 
 void LibraryModel::closeShow()
 {
     if (m_closed || !m_showActive) return;
     m_showCancel->store(true); ++m_showGeneration; m_showActive = false;
-    m_busy = m_catalogLoading && m_shows.isEmpty(); m_state = m_busy ? "loading" : "ready"; m_message.clear();
-    m_detail.reset(); m_show.clear(); m_episodes.clear(); emit changed();
+    m_busy = m_catalogLoading && activeRows().isEmpty(); m_state = m_busy ? "loading" : "ready"; m_message.clear();
+    m_detail.reset(); m_movieDetail.reset(); m_show.clear(); m_movie.clear(); m_episodes.clear(); emit changed();
+}
+
+const ShowDetail *LibraryModel::activeDetail() const
+{
+    return m_movieDetail ? &*m_movieDetail : m_detail ? &*m_detail : nullptr;
 }
 
 std::optional<EpisodeContext> LibraryModel::episodeContext(const QString &id) const
 {
-    if (m_closed || !m_detail) return {};
-    for (const auto &season : m_detail->seasons) for (const auto &episode : season.episodes)
-        if (episode.identity.itemId == id) return EpisodeContext{*m_detail, episode, m_detailRevision};
+    const auto *detail = activeDetail();
+    if (m_closed || !detail) return {};
+    for (const auto &season : detail->seasons) for (const auto &episode : season.episodes)
+        if (episode.identity.itemId == id) return EpisodeContext{*detail, episode, m_detailRevision};
     return {};
 }
 
 void LibraryModel::updateSegments(quint64 revision, const QString &id, const segments::SegmentValues &values, bool edited)
 {
-    if (m_closed || !m_detail || revision != m_detailRevision) return;
+    if (m_closed || !activeDetail() || revision != m_detailRevision) return;
     m_segments.values[id] = values;
     if (edited) m_segments.edited.insert(id);
     else m_segments.edited.remove(id);
-    selectSeason(m_season);
+    if (m_movieDetail) emit changed();
+    else selectSeason(m_season);
 }
 
 void LibraryModel::close()

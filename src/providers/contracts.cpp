@@ -4,8 +4,82 @@
 #include <QCryptographicHash>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QRegularExpression>
+#include <algorithm>
 
 namespace introvert::providers {
+
+void normalizeChapters(MovieDetail &detail)
+{
+    const auto duration = detail.movie.durationMs.value_or(0);
+    auto &chapters = detail.chapters;
+    chapters.removeIf([duration](const Chapter &chapter) {
+        return chapter.startMs < 0 || (duration > 0 && chapter.startMs >= duration);
+    });
+    std::stable_sort(chapters.begin(), chapters.end(), [](const Chapter &a, const Chapter &b) {
+        return a.startMs < b.startMs;
+    });
+    chapters.erase(std::unique(chapters.begin(), chapters.end(), [](const Chapter &a, const Chapter &b) {
+        return a.startMs == b.startMs;
+    }), chapters.end());
+    for (auto &chapter : chapters) {
+        chapter.title = chapter.title.trimmed();
+        if (chapter.endMs && (*chapter.endMs <= chapter.startMs || (duration > 0 && *chapter.endMs > duration)))
+            chapter.endMs.reset();
+    }
+}
+
+QList<ImportedSegment> movieChapterSegments(const MovieDetail &detail)
+{
+    static const QRegularExpression separators("[\\s_-]+");
+    static const QStringList logoNames{"studiologo", "studiologos", "productionlogo", "productionlogos",
+        "distributorlogo", "distributorlogos"};
+    static const QStringList titleNames{"maintitle", "maintitles", "openingtitle", "openingtitles", "openingcredits",
+        "titlesequence", "openingtitlesequence", "maintitle&credits", "maintitleandcredits"};
+    const auto &chapters = detail.chapters;
+    const auto duration = detail.movie.durationMs.value_or(0);
+    QStringList names;
+    names.reserve(chapters.size());
+    for (const auto &chapter : chapters)
+        names.append(chapter.title.toLower().remove(separators));
+
+    QList<ImportedSegment> segments;
+    for (const auto type : {SegmentType::Intro, SegmentType::Credits}) {
+        const auto kind = segmentName(type);
+        const auto startName = kind + "start", endName = kind + "end";
+        std::optional<ImportedSegment> preferred;
+        int preferredPriority = 3;
+        for (qsizetype index = 0; index < chapters.size(); ++index) {
+            const auto &name = names[index];
+            const auto &chapter = chapters[index];
+            // Keep an explicit Intro ahead of aliases. A logo and a title
+            // sequence can be separated by story footage.
+            int priority = 0;
+            if (name != kind && name != startName) {
+                if (type == SegmentType::Intro && logoNames.contains(name)) priority = 1;
+                else if (type == SegmentType::Intro && titleNames.contains(name)) priority = 2;
+                else if (type != SegmentType::Credits || (name != "endcredits" && name != "closingcredits")) continue;
+            }
+            if (priority >= preferredPriority) continue;
+            std::optional<qint64> end;
+            if (name == startName) {
+                for (qsizetype next = index + 1; next < chapters.size(); ++next) {
+                    if (names[next] == startName) break;
+                    if (names[next] == endName) { end = chapters[next].startMs; break; }
+                }
+            } else {
+                end = chapter.endMs;
+                if (!end) end = index + 1 < chapters.size() ? std::optional{chapters[index + 1].startMs} : detail.movie.durationMs;
+            }
+            if (!end || chapter.startMs < 0 || *end <= chapter.startMs || (duration > 0 && *end > duration)) continue;
+            preferred = ImportedSegment{type, chapter.startMs / 1000., *end / 1000.};
+            preferredPriority = priority;
+            if (priority == 0) break;
+        }
+        if (preferred) segments.append(*preferred);
+    }
+    return segments;
+}
 
 QString providerScope(const ProviderIdentity &identity, const QString &connection)
 {

@@ -11,7 +11,7 @@ type a show's starting letters to jump to it. Pause briefly to start a new prefi
 
 ## Display and cache
 
-In **Settings → Application**, choose your **Timestamp format** and **TV Show
+In **Settings → Application**, choose your **Timestamp format** and **Library
 listing type**. **Basic (no images)** uses a text list instead of posters.
 
 **Image cache → Clear cache** removes downloaded artwork. **Settings → Media →

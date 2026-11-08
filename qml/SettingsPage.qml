@@ -227,7 +227,7 @@ Item {
                             }
                             RowLayout {
                                 width: parent.width
-                                Text { Layout.fillWidth: true; text: "TV Show listing type"; color: page.theme.text }
+                                Text { Layout.fillWidth: true; text: "Library listing type"; color: page.theme.text }
                                 AppComboBox { objectName: "listingTypeControl"; Layout.preferredWidth: 150; model: ["Full (with images)", "Basic (no images)"]; implicitHeight: 40; currentIndex: page.appSettings.listingType === "basic" ? 1 : 0; onActivated: function(index) { page.appSettings.setListingType(index === 1 ? "basic" : "full") } }
                             }
                             LibrarySettings { width: parent.width; theme: page.theme; section: "application"; mediaLibrary: page.mediaLibrary }
@@ -424,7 +424,7 @@ Item {
                                     AppButton {
                                         objectName: "libraryScanControl"; theme: page.theme
                                         text: page.detector && page.detector.libraryScanActive ? "Stop Scan" : "Scan Library"
-                                        enabled: !page.preview && Boolean(page.detector) && (page.detector.libraryScanActive || (page.appSettings.mediaProvider !== "" && (libraryIntro.checked || libraryCredits.checked)))
+                                        enabled: !page.preview && Boolean(page.detector) && (page.detector.libraryScanActive || (page.appSettings.mediaProvider !== "" && page.appSettings.mediaSettings.importMode !== "movies" && (libraryIntro.checked || libraryCredits.checked)))
                                         onClicked: {
                                             if(page.detector.libraryScanActive) page.detector.stopLibraryScan()
                                             else page.detector.startLibraryScan((libraryIntro.checked ? ["intro"] : []).concat(libraryCredits.checked ? ["credits"] : []))
@@ -499,6 +499,20 @@ Item {
                                 Column {
                                     width: parent.width; spacing: 6
                                     visible: page.appSettings.mediaProvider !== "local"
+                                    Text { text: "Import"; color: page.theme.text; font.pixelSize: 15; font.bold: true }
+                                    AppComboBox {
+                                        objectName: "mediaImportModeControl"
+                                        Accessible.name: "Media to import"
+                                        width: parent.width; implicitHeight: 40
+                                        readonly property var modes: ["tv", "movies", "both"]
+                                        model: ["TV shows", "Movies", "Both"]
+                                        currentIndex: Math.max(0, modes.indexOf(page.appSettings.mediaSettings.importMode))
+                                        onActivated: function(index) { page.appSettings.mediaSettings.setImportMode(modes[index]) }
+                                    }
+                                }
+                                Column {
+                                    width: parent.width; spacing: 6
+                                    visible: page.appSettings.mediaProvider !== "local"
                                     Text { text: "API Key"; color: page.theme.text; font.pixelSize: 15; font.bold: true }
                                     Row {
                                         width: parent.width; spacing: 8
@@ -540,19 +554,39 @@ Item {
                                 Column {
                                     width: parent.width; spacing: 6
                                     visible: ["plex", "emby", "jellyfin"].indexOf(page.appSettings.mediaProvider) >= 0
+                                        && page.appSettings.mediaSettings.importMode !== "movies"
                                     RowLayout {
                                         width: parent.width; height: 34
-                                        Text { Layout.fillWidth: true; text: "Import server timestamps"; color: page.theme.text }
+                                        Text { Layout.fillWidth: true; text: "Import TV timestamps"; color: page.theme.text }
                                         SegmentSwitch {
                                             objectName: "mediaImportSegmentsControl"
-                                            Accessible.name: "Import existing segment timestamps from this server"
+                                            Accessible.name: "Import TV timestamps"
                                             checked: page.appSettings.mediaSettings.importSegments
                                             onToggled: page.appSettings.mediaSettings.setImportSegments(checked)
                                         }
                                     }
                                     Text {
                                         width: parent.width; wrapMode: Text.WordWrap; font.pixelSize: 13; color: page.theme.muted
-                                        text: "Import existing segment timestamps when loading or refreshing this server. Off by default. Timestamps already saved in Introvert are kept."
+                                        text: "Import existing TV episode timestamps when loading or refreshing this server. Saved timestamps are kept."
+                                    }
+                                }
+                                Column {
+                                    width: parent.width; spacing: 6
+                                    visible: ["plex", "emby", "jellyfin"].indexOf(page.appSettings.mediaProvider) >= 0
+                                        && page.appSettings.mediaSettings.importMode !== "tv"
+                                    RowLayout {
+                                        width: parent.width; height: 34
+                                        Text { Layout.fillWidth: true; text: "Import movie timestamps"; color: page.theme.text }
+                                        SegmentSwitch {
+                                            objectName: "mediaImportMovieSegmentsControl"
+                                            Accessible.name: "Import movie timestamps"
+                                            checked: page.appSettings.mediaSettings.importMovieSegments
+                                            onToggled: page.appSettings.mediaSettings.setImportMovieSegments(checked)
+                                        }
+                                    }
+                                    Text {
+                                        width: parent.width; wrapMode: Text.WordWrap; font.pixelSize: 13; color: page.theme.muted
+                                        text: "Import Intro and Credits from named chapters when opening a movie. Saved timestamps are kept."
                                     }
                                 }
                                 Rectangle { width: parent.width; height: 1; color: page.theme.border }

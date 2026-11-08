@@ -26,13 +26,28 @@ QJsonObject identity(const ProviderIdentity &value)
 {
     return {{"provider_id", providerName(value.provider)}, {"item_id", value.itemId}, {"server_id", json(value.serverId)}};
 }
-QJsonObject show(const ShowSummary &value)
+template<typename Summary>
+QJsonObject title(const Summary &value)
 {
     return {{"identity", identity(value.identity)}, {"title", value.title}, {"year", json(value.year)},
-        {"poster_url", artwork(value.posterUrl)}, {"logo_url", artwork(value.logoUrl)},
+        {"poster_url", artwork(value.posterUrl)},
         {"external_ids", QJsonObject{{"imdb", json(value.externalIds.imdb)}, {"tmdb", json(value.externalIds.tmdb)},
-            {"tvdb", json(value.externalIds.tvdb)}, {"zap2it", json(value.externalIds.zap2it)}, {"tvmaze", json(value.externalIds.tvmaze)}}},
-        {"season_count", json(value.seasonCount)}, {"episode_count", json(value.episodeCount)}};
+            {"tvdb", json(value.externalIds.tvdb)}, {"zap2it", json(value.externalIds.zap2it)}, {"tvmaze", json(value.externalIds.tvmaze)}}}};
+}
+QJsonObject show(const ShowSummary &value)
+{
+    auto row = title(value);
+    row["logo_url"] = artwork(value.logoUrl);
+    row["season_count"] = json(value.seasonCount);
+    row["episode_count"] = json(value.episodeCount);
+    return row;
+}
+QJsonObject movie(const MovieSummary &value)
+{
+    auto row = title(value);
+    row["logo_url"] = artwork(value.logoUrl);
+    row["duration_ms"] = json(value.durationMs);
+    return row;
 }
 QJsonObject object(const QJsonValue &value) { require(value.isObject()); return value.toObject(); }
 QJsonArray array(const QJsonValue &value) { require(value.isArray()); return value.toArray(); }
@@ -55,16 +70,34 @@ ProviderIdentity readIdentity(const QJsonValue &value)
     const auto row = object(value);
     return {providerId(string(row["provider_id"])), string(row["item_id"]), optionalString(row["server_id"])};
 }
-ShowSummary readShow(const QJsonValue &value)
+template<typename Summary>
+Summary readTitle(const QJsonObject &row)
 {
-    const auto row = object(value);
-    ShowSummary result{readIdentity(row["identity"]), string(row["title"])};
-    result.year = integer(row["year"]); result.seasonCount = integer(row["season_count"]); result.episodeCount = integer(row["episode_count"]);
+    Summary result{readIdentity(row["identity"]), string(row["title"])};
+    result.year = integer(row["year"]);
     result.posterUrl = optionalString(artwork(optionalString(row["poster_url"])));
-    result.logoUrl = optionalString(artwork(optionalString(row["logo_url"])));
     const auto ids = object(row["external_ids"]);
     result.externalIds = {optionalString(ids["imdb"]), optionalString(ids["tmdb"]), optionalString(ids["tvdb"]),
                           optionalString(ids["zap2it"]), optionalString(ids["tvmaze"])};
+    return result;
+}
+ShowSummary readShow(const QJsonValue &value)
+{
+    const auto row = object(value);
+    auto result = readTitle<ShowSummary>(row);
+    result.logoUrl = optionalString(artwork(optionalString(row["logo_url"])));
+    result.seasonCount = integer(row["season_count"]);
+    result.episodeCount = integer(row["episode_count"]);
+    return result;
+}
+MovieSummary readMovie(const QJsonValue &value, bool detail = false)
+{
+    const auto row = object(value);
+    auto result = readTitle<MovieSummary>(row);
+    if (detail || row.contains("logo_url"))
+        result.logoUrl = optionalString(artwork(optionalString(row["logo_url"])));
+    result.durationMs = integer(row["duration_ms"]);
+    require(!result.durationMs || *result.durationMs >= 0);
     return result;
 }
 }
@@ -128,6 +161,42 @@ ShowDetail decodeDetail(const QJsonValue &value)
         }
         result.seasons.append(season);
     }
+    return result;
+}
+
+QJsonValue encodeMovies(const QList<MovieSummary> &movies)
+{
+    QJsonArray rows;
+    for (const auto &value : movies) rows.append(movie(value));
+    return rows;
+}
+
+QJsonValue encodeMovie(const MovieDetail &detail)
+{
+    QJsonArray chapters;
+    for (const auto &chapter : detail.chapters)
+        chapters.append(QJsonObject{{"title", chapter.title}, {"start_ms", chapter.startMs}, {"end_ms", json(chapter.endMs)}});
+    return QJsonObject{{"movie", movie(detail.movie)}, {"chapters", chapters}};
+}
+
+QList<MovieSummary> decodeMovies(const QJsonValue &value)
+{
+    QList<MovieSummary> movies;
+    for (const auto &row : array(value)) movies.append(readMovie(row));
+    return movies;
+}
+
+MovieDetail decodeMovie(const QJsonValue &value)
+{
+    const auto root = object(value);
+    MovieDetail result{readMovie(root["movie"], true), {}};
+    for (const auto &value : array(root["chapters"])) {
+        const auto row = object(value);
+        const auto start = integer(row["start_ms"]);
+        require(start.has_value());
+        result.chapters.append({string(row["title"]), *start, integer(row["end_ms"])});
+    }
+    normalizeChapters(result);
     return result;
 }
 

@@ -6,6 +6,7 @@ Dialog {
     required property var theme
     property string showTitle: ""
     property bool preview: false
+    property bool movieMode: false
     property var backend: null
     onRejected: { if(backend) backend.cancelReview() }
     property int selectedEpisodes: 0
@@ -23,7 +24,13 @@ Dialog {
     header: Text { text: review.title; padding: 20; bottomPadding: 8; color: review.theme.text; font.pixelSize: 18; font.bold: true }
     contentItem: ColumnLayout {
         spacing: 10
-        Repeater { model: [{label:"Show",value:review.backend ? (review.backend.review.show || "—") : review.showTitle},{label:"Season",value:review.backend ? String(review.backend.review.season) : String(review.activeSeason)},{label:"Episodes",value:String(review.backend ? review.backend.review.episodes : review.selectedEpisodes)},{label:"IMDb",value:review.backend ? review.backend.review.imdb || "—" : "—"},{label:"TMDB",value:review.backend ? review.backend.review.tmdb || "—" : "—"},{label:"Submitting",value:Object.keys(review.selectedTypes).join(" / ")},{label:"Segments",value:String(review.backend ? review.backend.review.segments : review.selectedSegments)},{label:"Types",value:Object.keys(review.selectedTypes).map(function(kind){return kind+" "+review.selectedTypes[kind]}).join(" / ")},{label:"Endpoint",value:review.endpointLabel}]
+        Repeater {
+            model: [{label:review.movieMode ? "Movie" : "Show",value:review.backend ? (review.backend.review.show || "—") : review.showTitle}]
+                .concat(review.movieMode ? [] : [{label:"Season",value:review.backend ? String(review.backend.review.season) : String(review.activeSeason)},
+                    {label:"Episodes",value:String(review.backend ? review.backend.review.episodes : review.selectedEpisodes)}])
+                .concat([{label:"IMDb",value:review.backend ? review.backend.review.imdb || "—" : "—"},{label:"TMDB",value:review.backend ? review.backend.review.tmdb || "—" : "—"}])
+                .concat(review.movieMode ? [{label:"TVDB",value:review.backend ? review.backend.review.tvdb || "—" : "—"}] : [])
+                .concat([{label:"Submitting",value:Object.keys(review.selectedTypes).join(" / ")},{label:"Segments",value:String(review.backend ? review.backend.review.segments : review.selectedSegments)},{label:"Types",value:Object.keys(review.selectedTypes).map(function(kind){return kind+" "+review.selectedTypes[kind]}).join(" / ")},{label:"Endpoint",value:review.endpointLabel}])
             RowLayout { required property var modelData; Text { text: modelData.label + ":"; color: review.theme.muted; font.pixelSize: 15 } Text { text: modelData.value; color: review.theme.text; font.pixelSize: 15; font.bold: true; elide: Text.ElideRight } Item { Layout.fillWidth: true } }
         }
         Text { Layout.fillWidth: true; font.pixelSize: 12; color: review.theme.muted; text: review.backend ? review.backend.message : "No submission is ready to send."; visible: text !== "" }
@@ -40,7 +47,9 @@ Dialog {
                 review.backend.review.targets.forEach(function(item) {
                     if(seen[item.episode_id]) return
                     seen[item.episode_id]=true
-                    rows.push("S"+item.season+" E"+item.episode+" → TVDB "+item.tvdb_id+", S"+(item.target_season===undefined?item.season:item.target_season)+" E"+(item.target_episode===undefined?item.episode:item.target_episode)+(item.resolved_title ? " · "+item.resolved_title : ""))
+                    var title = item.resolved_title ? " · "+item.resolved_title : ""
+                    if(item.media_type==="movie") rows.push("TVDB "+item.tvdb_id+title)
+                    else rows.push("S"+item.season+" E"+item.episode+" → TVDB "+item.tvdb_id+", S"+(item.target_season===undefined?item.season:item.target_season)+" E"+(item.target_episode===undefined?item.episode:item.target_episode)+title)
                 })
                 return rows.join("\n")
             }

@@ -15,3 +15,12 @@ function lines(start,end,format) {
     if(format!=="MM:SS") rows.push(seconds(start)+"s → "+seconds(end)+"s ("+duration+")")
     return rows.join("\n")
 }
+function movieInfo(movie) {
+    var values = []
+    if (Number(movie.year) > 0) values.push(movie.year)
+    if (movie.durationMs > 0) {
+        var minutes = Math.max(1, Math.round(movie.durationMs / 60000))
+        values.push(minutes >= 60 ? Math.floor(minutes / 60) + "h " + minutes % 60 + "m" : minutes + "m")
+    }
+    return values.join(" · ")
+}
