@@ -2,9 +2,11 @@
 
 [← Documentation](../README.md#table-of-contents)
 
-Detection finds **Intro** and **Credits** by comparing recurring audio within
+TV detection finds **Intro** and **Credits** by comparing recurring audio within
 a season. Each season needs at least two readable episodes with usable audio.
-Recap and Preview can be [imported or edited manually](editor.md).
+Recap and Preview can be imported or edited manually. For movies, use
+[named chapter imports](setup.md#movie-details-and-chapter-imports) or
+[enter timestamps manually](editor.md).
 
 Before your first scan, [install the detector separately](installation.md#install-the-detector).
 It is not bundled with the app. Open **Settings → Application**, click **Check

@@ -1,9 +1,9 @@
 # INTROvert
 
-INTROvert is a desktop application for detecting, reviewing, and editing TV
-episode segment timestamps. It combines automated intro and credits detection
-with a video editor for manually matching segment boundaries to the exact frames
-of an episode.
+INTROvert is a desktop application for reviewing, editing, and sharing segment
+timestamps for TV episodes and movies. It detects recurring intros and credits
+in TV seasons, imports Intro and Credits from named movie chapters when enabled,
+and provides a video editor for precise frame-by-frame adjustments.
 
 <p align="center">
   <a href="assets/screenshots/tv_shows.png"><img src="assets/screenshots/tv_shows.png" alt="INTROvert TV show library" width="32%"></a>
@@ -19,23 +19,21 @@ before sharing.
 The video editor supports frame-by-frame navigation, a zoomable timeline, audio
 levels, and precise timestamp entry. These controls make it possible to check
 exactly where a segment starts and ends, correct a detection result, or create
-timestamps entirely by hand. Recap, Intro, Credits, and Preview segments can all
-be edited, with keyboard shortcuts and episode navigation keeping the review
-workflow close to the video.
+timestamps entirely by hand. You can edit Recap, Intro, Credits, and Preview
+segments for movies and TV episodes. Keyboard shortcuts work in both, and the
+episode drawer lets you switch episodes while reviewing a show.
 
-INTROvert also brings the surrounding timestamp workflow into one application:
-
-- **Media libraries:** Browse episodes from Plex, Emby, Jellyfin, or local media
-  folders, including network storage.
-- **Existing markers:** Import supported server markers and embedded chapter
-  timestamps as a starting point for review.
-- **Metadata and artwork:** Identify local shows and fetch their metadata and
-  images from selectable providers in the background.
-- **Community submissions:** Review and share selected timestamps with
-  [IntroDB](https://introdb.app) and [TheIntroDB](https://theintrodb.org), with
-  duplicate checks, queued processing, and submission history.
-- **Timestamp management:** Organize and remove segments by show, season, or
-  episode, and retain saved edits independently of later marker imports.
+- Browse and search **TV shows and movies** from Plex, Emby, or Jellyfin.
+  Local folders and network storage support TV libraries.
+- Enable separate imports for **TV episode markers** and **named movie chapters**.
+  Local TV libraries can import supported embedded chapters during discovery.
+- View movie posters, logos, runtime, and title links when available. Identify
+  local TV shows and fetch metadata and artwork from selectable providers.
+- Review and share selected timestamps with [IntroDB](https://introdb.app) and
+  [TheIntroDB](https://theintrodb.org), with duplicate checks, queued processing,
+  and submission history.
+- Edit or remove ranges on a movie or episode card. For TV, bulk delete by
+  show, season, or episode. Saved edits take precedence over later imports.
 
 Timestamps and edits are stored locally. Reviewing and editing segments does not
 rewrite the media files or change the markers on a connected media server.
@@ -45,6 +43,7 @@ rewrite the media files or change the markers on a connected media server.
 - [Quick start](#quick-start)
 - [Installation](docs/installation.md): [macOS](docs/installation.md#macos), [Windows](docs/installation.md#windows), [Linux](docs/installation.md#linux)
 - [Connect your media and configure metadata](docs/setup.md)
+- [Import movie chapter timestamps](docs/setup.md#movie-details-and-chapter-imports)
 - [Run detection](docs/detection.md): [one season](docs/detection.md#one-season), [multiple seasons](docs/detection.md#multiple-seasons), [entire library](docs/detection.md#entire-library)
 - [Review and edit timestamps](docs/editor.md)
 - [Share timestamps, queue, and history](docs/sharing.md)
@@ -54,18 +53,28 @@ rewrite the media files or change the markers on a connected media server.
 
 ## Quick start
 
-The detector is not bundled with the app. Install it separately before running
-automated detection. Browsing, playback, and timestamp editing work without it.
-
 1. [Install INTROvert](docs/installation.md) for your operating system.
-2. [Install the detector](docs/installation.md#install-the-detector): open
-   **Settings → Application**, click **Check for Updates**, then click the green
-   **Latest** version badge in the **Detector** row.
-3. Open **Settings → Media** and [connect a server or local folder](docs/setup.md).
-4. Return to **TV Shows**, open a show, and choose a season with at least two episodes.
-5. Choose **Intro**, **Credits**, or both, then click **Detect Segments**.
-6. Open an episode's video editor to [check and save any corrections](docs/editor.md).
-7. Optionally, [submit selected timestamps](docs/sharing.md) to a community database.
+2. Open **Settings → Media** and [connect a server or local folder](docs/setup.md).
+
+### Movies
+
+1. For Plex, Emby, or Jellyfin, set **Import** to **Movies** or **Both**.
+2. Optionally turn on **Import movie timestamps** to bring in Intro and Credits
+   from named chapters. The switch defaults to Off.
+3. Click the film-strip button beside **TV Shows**, then open a movie.
+4. [Review or edit timestamps](docs/editor.md) on the movie card or in the video
+   editor. You can then [submit selected timestamps](docs/sharing.md).
+
+### TV episodes
+
+1. Open **TV Shows**, choose a show, and select a season.
+2. To run automated detection, [install the detector](docs/installation.md#install-the-detector).
+   Open **Settings → Application**, click **Check for Updates**, then click the
+   green **Latest** version badge in the **Detector** row.
+3. In a season with at least two episodes, choose **Intro**, **Credits**, or
+   both, then click **Detect Segments**.
+4. Open an episode's video editor to [check and save any corrections](docs/editor.md).
+5. Optionally, [submit selected timestamps](docs/sharing.md) to a community database.
 
 ## Detection performance
 

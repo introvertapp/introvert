@@ -2,22 +2,28 @@
 
 [← Documentation](../README.md#table-of-contents)
 
-INTROvert supports **Recap**, **Intro**, **Credits**, and **Preview** ranges.
-Edits are saved locally; they do not rewrite videos or server markers.
+INTROvert supports **Recap**, **Intro**, **Credits**, and **Preview** ranges for
+TV episodes and movies. Edits are saved locally, separate from your videos and
+server markers.
 
 ## Edit without opening video
 
-1. Open a show and season.
+1. Open a movie in **Movies**, or open a show and season in **TV Shows**.
 2. Click an existing timestamp, or **No intro**, **No credits**, etc. to add one.
 3. Enter **Start** and **End**, then click **Save**.
 
 You can enter seconds (`83.5`), minutes and seconds (`01:23.5`), or hours,
 minutes, and seconds (`00:01:23.5`). The start must come before the end, and
-the range must fit within the episode. Click **Delete** to remove an existing range.
+the range must fit within the video. Click **Delete** to remove an existing range
+from the movie or episode card.
+
+TV episode ranges can be 5 seconds to 3 minutes long. Movie ranges have the same
+5-second minimum and can be up to 5 minutes for Intro, 20 minutes for Recap, or
+30 minutes for Credits and Preview.
 
 ## Use the video editor
 
-1. Click the episode's **clapperboard icon** to open the video editor.
+1. Click the **clapperboard icon** on the movie or episode card.
 2. Play or seek to the sequence you want to check.
 3. Drag a segment's edges on the timeline, or type its **Start** and **End**
    in the segment drawer. Drag the body of a segment to move the whole range.
@@ -30,9 +36,10 @@ when zoomed in. Audio levels can help locate transitions. The playback controls
 also offer frame-step size, playback speed, mute, auto-play, and embedded
 subtitles when available. Hover over an icon to see its action.
 
-Use the episode drawer or **J / L** to switch episodes. INTROvert asks you to
-save or discard unsaved changes before leaving. The **Reset icon** restores
-the saved timeline and resets zoom.
+When editing TV, use the episode drawer or **J / L** to switch episodes. The
+drawer shows the current movie's ranges when editing a movie. INTROvert asks
+you to save or discard unsaved changes before leaving. The **Reset icon**
+restores the saved timeline and resets zoom.
 
 ## Useful shortcuts
 
@@ -54,7 +61,7 @@ keyboard icon for the full shortcut list.
 
 ## Delete timestamps in bulk
 
-1. Open **Settings → Segments**.
+1. For TV episodes, open **Settings → Segments**.
 2. Select shows, or open a show and select seasons or episodes.
 3. Use **Cmd/Ctrl-click** for individual selections or **Shift-click** for a range.
 4. Click **Delete segment timestamps** and confirm the selection.
@@ -63,4 +70,4 @@ This removes all segment types for the selected items and cannot be undone.
 Media files remain unchanged. Deletions are remembered so later imports or
 detection do not restore them. To replace a deleted range, enter and save it manually.
 
-Next: [Share selected timestamps](sharing.md).
+[Share selected timestamps](sharing.md).

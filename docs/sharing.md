@@ -2,8 +2,8 @@
 
 [← Documentation](../README.md#table-of-contents)
 
-Sharing is optional. Review timestamps against your copy of an episode before
-sending them to [IntroDB](https://introdb.app) or [TheIntroDB](https://theintrodb.org).
+Sharing is optional. Review timestamps against your copy of the movie or episode
+before sending them to [IntroDB](https://introdb.app) or [TheIntroDB](https://theintrodb.org).
 These are separate community services with separate API keys.
 
 ## Configure a service
@@ -13,43 +13,47 @@ These are separate community services with separate API keys.
 3. Enable that service and enter its **API Key**. Keep the default URLs unless
    you intentionally use a different endpoint.
 
-IntroDB uses the show's IMDb ID. TheIntroDB uses TVDB identification, with
-supported TMDB or IMDb mapping. For local media, [fetch metadata or identify
-the show](setup.md#local-show-titles-and-artwork) first. Correct episode numbering
-is especially important for specials and alternative episode orders.
+IntroDB uses the title's IMDb ID. TheIntroDB uses TVDB identification and can
+resolve supported TMDB or IMDb IDs. For a local TV show, [fetch metadata or
+identify the show](setup.md#local-show-titles-and-artwork) first. Correct episode
+numbering is especially important for specials and alternative episode orders.
 
 ## Submit selected timestamps
 
-1. Open a show and season.
-2. Select the segment types beside the episodes you want to share. The type
-   switches above the list select that type across the current season.
-3. Choose **introdb.app** or **theintrodb.org** from the service selector.
+1. Open a movie, or open a TV show and select a season.
+2. Select the ranges on the movie or episode cards. The switches below the cards
+   select every available range of that type for the movie or selected seasons.
+   For TV, Shift-click season buttons to include several seasons.
+3. Click **IntroDB** or **TheIntroDB**. Shift-click to select both for ranges
+   that both services accept.
 4. Click **Submit**.
-5. Check the show, season, IDs, segment types, and counts in **Review Submission**.
-   For TheIntroDB, also check the mapped TVDB episodes.
+5. In **Review Submission**, check the title, IDs, selected segments, and
+   endpoints. For TV, check the selected season and episodes. For TheIntroDB,
+   check the resolved TVDB movie or episode.
 6. Click **Confirm** to add the submission to the queue.
 
-Repeat for other seasons or services as needed. Detection alone does not submit
-anything, and submissions do not update your media server's markers.
+Submissions go to the selected community databases. Your media server's
+markers remain separate.
 
-For a movie, select timestamps on its movie card. Movie editing allows segments
-of at least 5 seconds, with a maximum of 5 minutes for Intro, 20 minutes for Recap
-and 30 minutes for Credits or Preview. TheIntroDB accepts those lengths.
-IntroDB accepts movie Credits up to 15 minutes from INTROvert.
+### Movie submission limits
+
+Use TheIntroDB for movie Recap, Intro, Credits, and Preview submissions. For
+IntroDB, select Credits. The range must run between 5 seconds and 15 minutes.
+See the [movie editor's range limits](editor.md#edit-without-opening-video).
 
 ## Queue and history
 
 **Queue** shows pending and active detection/submission work. New submissions
 can be added while earlier ones are processing. **History** shows completed
-work and submission totals. Use search or click a column heading to sort;
-click a show title to return to it.
+work and submission totals. Use search or click a column heading to sort.
+Click a movie or show title to return to it.
 
 The submission queue is saved across restarts. Detection scans must be started
 again after quitting.
 
-Episode feedback includes **Submitted**, **Exists**, **Queued**, **Submitting**,
-**Limited**, **Skipped**, and **Failed**. **Exists** means the service already
-has a matching timestamp. Click **FAILED** for details on an unsuccessful submission.
+Movie and episode cards show submission status by endpoint. Use the info button
+beside **ERROR** to see why a submission failed. **Duplicate** in History means
+the service already had a matching timestamp.
 
 INTROvert checks for duplicates and observes service rate limits. If a service
 limits requests, let the queue wait rather than repeatedly submitting the same

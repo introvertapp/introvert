@@ -9,8 +9,8 @@ Qt, FFmpeg, Python, or development tools.
 
 **The detector is not bundled with the app.** After installing INTROvert,
 [install the detector separately](#install-the-detector) through Settings before
-running automated detection. You can browse, play media, and edit timestamps
-without it.
+running automated TV detection. Browsing, playback, and timestamp editing work
+for movies and TV episodes with the app alone.
 
 Current releases do not have trusted publisher signatures. Use the workarounds
 below only for packages you downloaded from this project's GitHub Releases.

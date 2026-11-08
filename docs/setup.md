@@ -14,13 +14,6 @@ Settings save automatically. Open **TV Shows** or **Movies** to load the selecte
    **Import movie timestamps** for segments from named chapters.
 5. Open **TV Shows** or click the film-strip button next to it for **Movies**.
 
-Open a movie to see its runtime, logo, and title links when available. Its movie
-card has the same timestamp tools as a TV episode. With movie timestamp imports
-enabled, Intro, studio logo, opening title and credits chapters become segments
-when you open the movie.
-An explicit Intro takes priority, followed by studio logos, then opening titles
-or credits. Saved edits and deletions take precedence over chapter imports.
-
 | Server | Example URL | Credential |
 | --- | --- | --- |
 | Plex | `http://server:32400` | Your [Plex authentication token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/) (`X-Plex-Token`) |
@@ -29,12 +22,28 @@ or credits. Saved edits and deletions take precedence over chapter imports.
 
 Use your server's actual address in place of `server`. Use a direct server URL
 that does not redirect to another address. Your credential must allow access to
-the selected library. TV detection and playback also need direct access to the
-original media files.
+the selected library. Playback and TV detection need access to the original
+media files.
 
 Both timestamp import switches are **off by default** and saved separately for
 each provider. Turning them off keeps timestamps already saved in INTROvert.
 Use **Rebuild Cache** to refresh the selected server's library and artwork.
+
+### Movie details and chapter imports
+
+Open a movie to see its runtime, logo, and title links when available. Use its
+movie card or video editor to review and edit timestamps.
+
+With **Import movie timestamps** enabled, INTROvert converts named chapters to
+Intro and Credits when you open a movie. For Intro, an explicit **Intro** chapter
+takes priority, followed by labels such as **Studio Logo** or **Studio Logos**,
+then **Main Titles** or **Opening Credits**. Chapters named **Credits** or
+**End Credits** can supply the Credits segment.
+
+The import uses an explicit Start/End pair or the chapter's end time when
+available. For a chapter with a start time only, it uses the next chapter
+start or the movie runtime. Saved edits and deletions take precedence. You can
+[enter timestamps manually](editor.md) when the movie has no usable chapters.
 
 ## Local folders and network storage
 
@@ -80,4 +89,4 @@ If a show is matched incorrectly, open it in **TV Shows**, click **Identify**,
 and enter its show ID from the selected metadata provider. Check the resulting
 show and episode numbering before [sharing timestamps](sharing.md).
 
-Next: [Run detection](detection.md).
+[Run TV detection](detection.md) or [review and edit timestamps](editor.md).

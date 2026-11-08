@@ -6,8 +6,9 @@ Settings save automatically. Use these sections for everyday preferences and mai
 
 Press **⌘K** on macOS or **Ctrl+K** on Windows/Linux to focus the current
 screen's search field. The shortcut hint changes to a clear button while editing
-a nonempty search. In **Settings → Segments**, focus the **TV Show** column and
-type a show's starting letters to jump to it. Pause briefly to start a new prefix.
+a nonempty search. The TV Shows and Movies views keep separate search text.
+In **Settings → Segments**, focus the **TV Show** column and type a show's
+starting letters to jump to it. Pause briefly to start a new prefix.
 
 ## Display and cache
 
@@ -103,9 +104,11 @@ through Settings before running detection there.
 | Local show has the wrong title or no artwork | Check metadata credentials, use **Fetch metadata**, or correct the match with **Identify**. |
 | Video will not open | Check file access and original-file download permissions on the server. INTROvert does not use server transcoding. |
 | Detector unavailable | [Install the detector](installation.md#install-the-detector) through **Settings → Application → Check for Updates**, then start detection again. |
-| No Intro or Credits found | Check that the season has at least two usable episodes and a recurring sequence within the [search areas](detection.md#existing-timestamps-and-missed-matches). Add the range manually if needed. |
+| Movies are missing | Choose Plex, Emby, or Jellyfin in **Settings → Media**, set **Import** to **Movies** or **Both**, and open **Movies**. |
+| Movie Intro or Credits are missing | Enable **Import movie timestamps** in **Settings → Media** and reopen the movie. Imports need [named chapters](setup.md#movie-details-and-chapter-imports). Use the movie card or editor to enter a range manually. |
+| TV detection finds no Intro or Credits | Check that the season has at least two usable episodes and a recurring sequence within the [search areas](detection.md#existing-timestamps-and-missed-matches). Add the range manually if needed. |
 | Re-running detection leaves a timestamp unchanged | Existing timestamps, edits, and intentional deletions are protected. [Edit the range](editor.md) to correct it. |
-| Submission fails | Click **FAILED** on the episode; check the endpoint key, show IDs, and episode mapping. |
+| Submission fails | Use the info button beside **ERROR** on the movie or episode card. Check the endpoint key and title IDs. For TV, also check the episode mapping. |
 | Update cannot install | Finish active jobs and close the editor. On macOS, move the app to a writable Applications folder; on Linux, use an installed DEB/RPM package. |
 
 For more detail, open **Settings → Logs**, search the message, and filter by
