@@ -35,16 +35,18 @@ Open a movie to see its runtime, logo, and title links when available. Use its
 movie card or video editor to review and edit timestamps.
 
 With **Import movie timestamps** enabled, INTROvert converts recognized chapter
-names when you open a movie. Studio logos and opening titles become Intro
-ranges. Credits, Recap, and Preview can also come from named chapters. Separate
-ranges of the same type are imported when they meet TheIntroDB's timing rules.
+names when you open a movie. **Studio Logos** and **Opening Titles** can become
+separate Intro ranges, and **End Credits** becomes Credits. Chapters labeled
+**Recap** or **Preview** can supply those ranges. Separate ranges of the same
+type are imported when they meet the [movie timing rules](editor.md#edit-without-opening-video).
 If Intro chapters conflict, explicit Intro labels take priority over studio
 logos, followed by opening titles.
 
-The import uses an explicit Start/End pair or the chapter's end time when
-available. For a chapter with a start time only, it uses the next chapter
-start or the movie runtime. Saved edits and deletions take precedence. You can
-[enter timestamps manually](editor.md) when the movie has no usable chapters.
+Use matching labels such as **Intro Start** and **Intro End** to mark an explicit
+pair. For a standalone chapter, the import uses its end time, the start of the
+next chapter, or the movie runtime, in that order. Saved edits and deletions
+take precedence. You can [enter timestamps manually](editor.md) when the movie
+has no usable chapters.
 
 ## Local folders and network storage
 

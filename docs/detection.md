@@ -37,8 +37,9 @@ Ordinary clicks browse seasons; Shift-clicks change the detection selection.
 
 ## Entire library
 
-1. Check the selected source in **Settings → Media**. For Local media, rescan first
-   if files have changed.
+1. Check the selected source in **Settings → Media**. For a server source, set
+   **Import** to **TV shows** or **Both**. **Scan Library** is disabled in
+   **Movies** mode. For Local media, rescan first if files have changed.
 2. Open **Settings → Detection → Full-library scan**.
 3. Choose **Intro**, **Credits**, or both, then click **Scan Library**.
 

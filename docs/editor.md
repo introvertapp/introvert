@@ -19,8 +19,9 @@ from the movie or episode card.
 
 TV episode ranges can be 5 seconds to 3 minutes long. Movie ranges have the same
 5-second minimum and can be up to 5 minutes for Intro, 20 minutes for Recap, or
-30 minutes for Credits and Preview. Movie ranges cannot overlap. Leave at least
-5 seconds between ranges of the same type.
+30 minutes for Credits and Preview. Movie Credits must start at least 5 seconds
+into the video. Movie ranges cannot overlap. Leave at least 5 seconds between
+ranges of the same type.
 
 ## Use the video editor
 
@@ -33,10 +34,15 @@ TV episode ranges can be 5 seconds to 3 minutes long. Movie ranges have the same
    range of a type you already have.
 5. Check both boundaries and click the **Save icon**, or press **Cmd/Ctrl + S**.
 
+To split movie Credits around a mid-credits scene, add one range before the scene
+and another after it. Once saved, each range has its own row on the movie card
+where you can edit it or select it for sharing.
+
 Scroll over the timeline to zoom. Shift-scroll or scroll horizontally to pan
 when zoomed in. Audio levels can help locate transitions. The playback controls
-also offer frame-step size, playback speed, mute, auto-play, and embedded
-subtitles when available. Hover over an icon to see its action.
+also offer frame-step size, playback speed, mute, auto-play, and embedded text
+subtitles when available. The editor skips image-based subtitles such as PGS.
+Hover over an icon to see its action.
 
 When editing TV, use the episode drawer or **J / L** to switch episodes. The
 drawer shows the current movie's ranges when editing a movie. INTROvert asks

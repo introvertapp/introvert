@@ -2,7 +2,7 @@
 
 INTROvert is a desktop application for reviewing, editing, and sharing segment
 timestamps for TV episodes and movies. It detects recurring intros and credits
-in TV seasons, imports Intro and Credits from named movie chapters when enabled,
+in TV seasons, imports timestamps from recognized movie chapters when enabled,
 and provides a video editor for precise frame-by-frame adjustments.
 
 <p align="center">
@@ -59,8 +59,9 @@ rewrite the media files or change the markers on a connected media server.
 ### Movies
 
 1. For Plex, Emby, or Jellyfin, set **Import** to **Movies** or **Both**.
-2. Optionally turn on **Import movie timestamps** to bring in Intro and Credits
-   from named chapters. The switch defaults to Off.
+2. Optionally turn on **Import movie timestamps** to bring in Intro, Credits,
+   Recap, and Preview from [recognized chapters](docs/setup.md#movie-details-and-chapter-imports).
+   The switch defaults to Off.
 3. Click the film-strip button beside **TV Shows**, then open a movie.
 4. [Review or edit timestamps](docs/editor.md) on the movie card or in the video
    editor. You can then [submit selected timestamps](docs/sharing.md).
