@@ -90,7 +90,7 @@ QVariantMap SubmissionModel::visibleStatuses(QVariantMap statuses, quint64 gener
         for (auto segment = segments.begin(); segment != segments.end(); ++segment) {
             auto state = segment.value().toMap();
             const auto activity = state.take("activity").toString();
-            const auto key = episode.key() + '\n' + state.value("kind").toString() + ':' + state.value("endpoint").toString();
+            const auto key = episode.key() + '\n' + state.value("segmentKey", state.value("kind")).toString() + ':' + state.value("endpoint").toString();
             const bool active = QStringList{"WAITING", "PROCESSING", "RATE LIMITED"}.contains(state.value("result").toString());
             // A delayed terminal snapshot from before navigation must never
             // turn into fresh feedback on the next snapshot of this visit.
@@ -380,7 +380,7 @@ void SubmissionModel::finished(Kind kind, quint64 generation, const QVariant &va
     if (m_closed) return;
     if (kind == Kind::Snapshot) {
         const auto failureKey = [](const QVariantMap &row) {
-            return row.value("jobId").toString() + '\n' + row.value("code").toString() + '\n' + row.value("error").toString();
+            return row.value("jobId").toString() + '\n' + row.value("itemId", row.value("code")).toString() + '\n' + row.value("error").toString();
         };
         QSet<QString> previousFailures;
         for (const auto &entry : m_queue + m_history) {
@@ -411,7 +411,7 @@ void SubmissionModel::finished(Kind kind, quint64 generation, const QVariant &va
             const auto states = raw.value("segments").toMap();
             for (auto entry = states.begin(); entry != states.end(); ++entry) {
                 const auto state = entry.value().toMap();
-                const auto key = state.value("kind").toString() + ':' + state.value("endpoint").toString();
+                const auto key = state.value("segmentKey", state.value("kind")).toString() + ':' + state.value("endpoint").toString();
                 if (tracked.contains(key) || visible.contains(entry.key())) tracked[key] = state;
             }
             if (!tracked.isEmpty()) {

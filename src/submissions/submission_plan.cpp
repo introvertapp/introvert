@@ -31,18 +31,28 @@ QVariantMap prepareSubmission(const providers::ShowDetail &detail, const QVarian
         if (id.metaType().id() != QMetaType::QString || !episodes.contains(id.toString())
             || kinds.metaType().id() != QMetaType::QVariantList || kinds.toList().isEmpty())
             throw SubmissionError("Invalid episode or segment selection");
-        for (const auto &kind : kinds.toList())
-            if (kind.metaType().id() != QMetaType::QString || !QStringList{"recap", "intro", "credits", "preview"}.contains(kind.toString()))
+        for (const auto &key : kinds.toList())
+            if (key.metaType().id() != QMetaType::QString || !segments::validSegmentKey(key.toString(), movie))
                 throw SubmissionError("Invalid episode or segment selection");
         const auto &episode = episodes[id.toString()];
         const auto coordinates = segments::segmentCoordinates(detail.show, episode);
         if (!coordinates) throw SubmissionError("Invalid episode selection");
         const auto current = segments.load(detail.show, episode);
         for (const auto &value : kinds.toList()) {
-            const auto kind = value.toString();
-            if (!seen.emplace(episode.identity.itemId, kind).second) continue;
-            if (!current.contains(kind)) throw SubmissionError("Selected timestamps are no longer available. Review the selection again.");
-            const auto times = current.value(kind);
+            const auto key = value.toString(), kind = segments::segmentKind(key);
+            if (!seen.emplace(episode.identity.itemId, key).second) continue;
+            if (!current.contains(key)) throw SubmissionError("Selected timestamps are no longer available. Review the selection again.");
+            const auto times = current.value(key);
+            if (movie) for (const auto &selected : items) {
+                const auto previous = selected.toMap();
+                const auto previousKind = previous.value("segment_type").toString();
+                if (endpoint == "introdb_app" && kind == previousKind)
+                    throw SubmissionError("Choose one Credits range for IntroDB.app.");
+                if (endpoint == "theintrodb_org" && providers::movieSegmentsConflict(
+                        {providers::segmentType(kind), times.first, times.second},
+                        {providers::segmentType(previousKind), previous.value("start_sec").toDouble(), previous.value("end_sec").toDouble()}))
+                    throw SubmissionError("Movie segments cannot overlap. Leave at least 5 seconds between segments of the same type.");
+            }
             const auto duration = segments.durationMs(episode, &detail.show);
             providers::checkCancelled(cancelled);
             QVariantMap values{{"tvdb_id", detail.show.externalIds.tvdb ? QVariant(*detail.show.externalIds.tvdb) : QVariant()},
@@ -55,6 +65,7 @@ QVariantMap prepareSubmission(const providers::ShowDetail &detail, const QVarian
                 {"start_sec", times.first}, {"end_sec", times.second}, {"video_duration_ms", duration ? QVariant(*duration) : QVariant()}};
             if (movie) {
                 values["media_type"] = "movie";
+                values["segment_key"] = key;
                 values["season"] = coordinates->first;
                 values["episode"] = coordinates->second;
             }

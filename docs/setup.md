@@ -34,11 +34,12 @@ Use **Rebuild Cache** to refresh the selected server's library and artwork.
 Open a movie to see its runtime, logo, and title links when available. Use its
 movie card or video editor to review and edit timestamps.
 
-With **Import movie timestamps** enabled, INTROvert converts named chapters to
-Intro and Credits when you open a movie. For Intro, an explicit **Intro** chapter
-takes priority, followed by labels such as **Studio Logo** or **Studio Logos**,
-then **Main Titles** or **Opening Credits**. Chapters named **Credits** or
-**End Credits** can supply the Credits segment.
+With **Import movie timestamps** enabled, INTROvert converts recognized chapter
+names when you open a movie. Studio logos and opening titles become Intro
+ranges. Credits, Recap, and Preview can also come from named chapters. Separate
+ranges of the same type are imported when they meet TheIntroDB's timing rules.
+If Intro chapters conflict, explicit Intro labels take priority over studio
+logos, followed by opening titles.
 
 The import uses an explicit Start/End pair or the chapter's end time when
 available. For a chapter with a start time only, it uses the next chapter

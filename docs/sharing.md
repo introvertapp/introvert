@@ -37,8 +37,10 @@ markers remain separate.
 
 ### Movie submission limits
 
-Use TheIntroDB for movie Recap, Intro, Credits, and Preview submissions. For
-IntroDB, select Credits. The range must run between 5 seconds and 15 minutes.
+Use TheIntroDB for movie Recap, Intro, Credits, and Preview submissions. You can
+select multiple ranges of one type when they are at least 5 seconds apart.
+Ranges of any type must avoid overlapping your other submissions for that movie.
+For IntroDB, select one Credits range between 5 seconds and 15 minutes long.
 See the [movie editor's range limits](editor.md#edit-without-opening-video).
 
 ## Queue and history

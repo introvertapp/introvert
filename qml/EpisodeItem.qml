@@ -34,6 +34,10 @@ Rectangle {
             return group
         })
     }
+    readonly property var segmentKeys: ["Recap", "Intro", "Credits", "Preview"].concat(episode.movie
+        ? Object.keys(episode.segmentValues || {}).filter(function(key) { return key.includes(":") })
+            .sort(function(a,b) { return episode.segmentValues[a][0]-episode.segmentValues[b][0] })
+            .map(function(key) { return key.charAt(0).toUpperCase()+key.slice(1) }) : [])
     function cooldownLabel(seconds) {return Math.floor(seconds/60)+":"+String(seconds%60).padStart(2,"0")}
     function valuesFor(kind) {
         var raw=episode.segmentValues && episode.segmentValues[kind.toLowerCase()]
@@ -101,12 +105,13 @@ Rectangle {
         ColumnLayout {
             spacing: 10; Layout.fillWidth: true
             Repeater {
-                model: ["Recap", "Intro", "Credits", "Preview"]
+                model: row.segmentKeys
                 ColumnLayout {
                     id: segmentLine
                     objectName: "segmentLine_" + row.episode.id + "_" + modelData
                     required property string modelData
-                    property color segmentColor: modelData === "Intro" ? "#22b8bd" : modelData === "Credits" ? "#aaa8ff" : modelData === "Recap" ? "#dbaa69" : "#dc88ca"
+                    readonly property string kind: modelData.split(":")[0]
+                    property color segmentColor: kind === "Intro" ? "#22b8bd" : kind === "Credits" ? "#aaa8ff" : kind === "Recap" ? "#dbaa69" : "#dc88ca"
                     Layout.fillWidth: true; spacing: 0
                     RowLayout {
                         spacing: 10; Layout.preferredHeight: row.available(segmentLine.modelData) && row.timestampFormat === "both" ? 30 : 18
@@ -114,7 +119,7 @@ Rectangle {
                             text: ""; implicitWidth: 16; implicitHeight: 18
                             enabled: row.available(segmentLine.modelData)
                             objectName: "select_" + row.episode.id + "_" + segmentLine.modelData
-                            Accessible.name: segmentLine.modelData + " selected for submission"
+                            Accessible.name: segmentLine.kind + " " + row.valueFor(segmentLine.modelData) + " selected for submission"
                             checked: row.selectedKinds.indexOf(segmentLine.modelData) >= 0
                             onToggled: {
                                 var kinds=row.selectedKinds.slice(); var i=kinds.indexOf(segmentLine.modelData)
@@ -131,13 +136,13 @@ Rectangle {
                             implicitWidth: timestamp.implicitWidth + (row.available(segmentLine.modelData) ? 0 : 16)
                             implicitHeight: timestamp.implicitHeight; hoverEnabled: true
                             onClicked: { var ends=row.valueFor(segmentLine.modelData).split(/\s*[–→]\s*/); var raw=row.valuesFor(segmentLine.modelData); startField.text=raw?(row.timestampFormat==="seconds"?SegmentTime.seconds(raw[0]):SegmentTime.mmss(raw[0])):""; endField.text=raw?(row.timestampFormat==="seconds"?SegmentTime.seconds(raw[1]):SegmentTime.mmss(raw[1])):""; row.editingKind=segmentLine.modelData }
-                            Accessible.name: row.available(segmentLine.modelData) ? segmentLine.modelData + ": " + row.valueFor(segmentLine.modelData) : "No " + segmentLine.modelData.toLowerCase()
+                            Accessible.name: row.available(segmentLine.modelData) ? segmentLine.kind + ": " + row.valueFor(segmentLine.modelData) : "No " + segmentLine.modelData.toLowerCase()
                             background: Rectangle { visible: !row.available(segmentLine.modelData); color: row.theme.field; radius: 10; border.color: row.theme.border }
                             contentItem: Row {
                                 id: timestamp
                                 spacing: 6
                                 Item { visible: row.available(segmentLine.modelData); width: 20; height: 14; anchors.verticalCenter: parent.verticalCenter; IconGlyph { objectName: "segmentClock_"+row.episode.id+"_"+segmentLine.modelData; name: "clock"; antialiasing: true; width: 14; height: 14; color: segmentLine.segmentColor; opacity: .8 } }
-                                Text { text: row.available(segmentLine.modelData) ? segmentLine.modelData+":" : "No "+segmentLine.modelData.toLowerCase(); width: row.available(segmentLine.modelData) ? 46 : implicitWidth; color: row.theme.muted; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
+                                Text { text: row.available(segmentLine.modelData) ? segmentLine.kind+":" : "No "+segmentLine.modelData.toLowerCase(); width: row.available(segmentLine.modelData) ? 46 : implicitWidth; color: row.theme.muted; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
                                 Text { objectName: "timestamp_"+row.episode.id+"_"+segmentLine.modelData; visible: row.available(segmentLine.modelData); text: row.timestamp(segmentLine.modelData); color: segmentLine.segmentColor; font.pixelSize: 12; font.weight: Font.DemiBold; lineHeight: 1.2 }
                             }
                         }
@@ -148,7 +153,7 @@ Rectangle {
                             Layout.minimumHeight: Layout.preferredHeight; Layout.maximumHeight: Layout.preferredHeight
                         }
                         Repeater {
-                            model: row.submissionState.badges ? (row.submissionState.badges[segmentLine.modelData.toLowerCase()] || []).filter(function(badge){var times=row.valuesFor(segmentLine.modelData);return times && times[0]===badge.start && times[1]===badge.end}).map(function(badge){return badge.endpoint}) : []
+                            model: row.submissionState.badges ? (row.submissionState.badges[segmentLine.kind.toLowerCase()] || []).filter(function(badge){var times=row.valuesFor(segmentLine.modelData);return times && times[0]===badge.start && times[1]===badge.end}).map(function(badge){return badge.endpoint}) : []
                             AppImage {
                                 required property string modelData
                                 Layout.preferredWidth: modelData==="theintrodb_org" ? 34 : 16; Layout.preferredHeight: modelData==="theintrodb_org" ? 8 : 13
@@ -167,7 +172,7 @@ Rectangle {
                         ColumnLayout {
                             anchors.fill: parent; anchors.margins: 10; spacing: 6
                             RowLayout {
-                                Text { text: segmentLine.modelData; color: segmentLine.segmentColor; font.pixelSize: 12; Layout.preferredWidth: 42 }
+                                Text { text: segmentLine.kind; color: segmentLine.segmentColor; font.pixelSize: 12; Layout.preferredWidth: 42 }
                                 AppTextField { id: startField; objectName: "segmentStart_"+row.episode.id+"_"+segmentLine.modelData; Layout.preferredWidth: 90; implicitHeight: 28; placeholderText: "Start"; Accessible.name: "Segment start" }
                                 AppTextField { id: endField; objectName: "segmentEnd_"+row.episode.id+"_"+segmentLine.modelData; Layout.preferredWidth: 90; implicitHeight: 28; placeholderText: "End"; Accessible.name: "Segment end" }
                                 AppButton { objectName: "saveSegment_"+row.episode.id+"_"+segmentLine.modelData; text: "Save"; implicitHeight: 28; theme: row.theme; enabled: Boolean(row.segmentManager) && !row.segmentManager.busy; onClicked: row.segmentManager.saveInline(row.episode.id,segmentLine.modelData,startField.text,endField.text) }

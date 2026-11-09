@@ -19,7 +19,8 @@ from the movie or episode card.
 
 TV episode ranges can be 5 seconds to 3 minutes long. Movie ranges have the same
 5-second minimum and can be up to 5 minutes for Intro, 20 minutes for Recap, or
-30 minutes for Credits and Preview.
+30 minutes for Credits and Preview. Movie ranges cannot overlap. Leave at least
+5 seconds between ranges of the same type.
 
 ## Use the video editor
 
@@ -27,8 +28,9 @@ TV episode ranges can be 5 seconds to 3 minutes long. Movie ranges have the same
 2. Play or seek to the sequence you want to check.
 3. Drag a segment's edges on the timeline, or type its **Start** and **End**
    in the segment drawer. Drag the body of a segment to move the whole range.
-4. To add a missing segment, move the playhead to its start and use the drawer's
-   insert icon, or press **R**, **I**, **C**, or **P**.
+4. To add a segment, move the playhead to its start and use the drawer's insert
+   icon, or press **R**, **I**, **C**, or **P**. In a movie, this can add a second
+   range of a type you already have.
 5. Check both boundaries and click the **Save icon**, or press **Cmd/Ctrl + S**.
 
 Scroll over the timeline to zoom. Shift-scroll or scroll horizontally to pan
@@ -52,7 +54,7 @@ keyboard icon for the full shortcut list.
 | Left / Right | Move by the selected frame-step size |
 | Shift + Left / Right | Move one frame |
 | R / I / C / P | Insert Recap / Intro / Credits / Preview |
-| Shift + R / I / C / P | Move that segment's nearest edge to the playhead |
+| Shift + R / I / C / P | Move the closest edge of that type to the playhead |
 | Delete / Backspace | Delete selected segment drafts |
 | Cmd/Ctrl + Z | Undo the last timeline edit |
 | Cmd/Ctrl + S | Save changes |

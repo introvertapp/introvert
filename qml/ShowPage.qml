@@ -61,20 +61,41 @@ Item {
     readonly property int selectedSegmentCount: selectedPayload().reduce(function(n,item){return n+item.segmentTypes.length},0)
     readonly property var selectedTypes: {
         var counts={}
-        selectedPayload().forEach(function(item){item.segmentTypes.forEach(function(kind){var label=kind.charAt(0).toUpperCase()+kind.slice(1);counts[label]=(counts[label] || 0)+1})})
+        selectedPayload().forEach(function(item){item.segmentTypes.forEach(function(key){
+            var kind=key.split(":")[0], label=kind.charAt(0).toUpperCase()+kind.slice(1)
+            counts[label]=(counts[label] || 0)+1
+        })})
         return counts
     }
-    function hasKind(kind) {return submissionEpisodes.some(function(ep){return ep.segmentValues ? Boolean(ep.segmentValues[kind.toLowerCase()]) : ep[kind.toLowerCase()] && ep[kind.toLowerCase()]!=="—"})}
+    function rangesFor(ep,kind) {
+        var key=kind.toLowerCase()
+        if(!ep.segmentValues) return ep[key] && ep[key]!=="—" ? [kind] : []
+        return Object.keys(ep.segmentValues).filter(function(id){return id.split(":")[0]===key})
+            .map(function(id){return kind+id.slice(key.length)})
+    }
+    function hasKind(kind) {return submissionEpisodes.some(function(ep){return rangesFor(ep,kind).length>0})}
+    function kindSelected(kind) {
+        return hasKind(kind) && submissionEpisodes.every(function(ep){
+            return rangesFor(ep,kind).every(function(key){return (selectionByEpisode[ep.id] || []).includes(key)})
+        })
+    }
     function selectKind(kind,checked) {
         var next=Object.assign({},selectionByEpisode)
         submissionEpisodes.forEach(function(ep){
-            var kinds=(next[ep.id] || []).filter(function(value){return value!==kind})
-            if(checked && (ep.segmentValues ? ep.segmentValues[kind.toLowerCase()] : ep[kind.toLowerCase()] && ep[kind.toLowerCase()]!=="—")) kinds.push(kind)
-            next[ep.id]=kinds
+            var kinds=(next[ep.id] || []).filter(function(value){return value.split(":")[0]!==kind})
+            next[ep.id]=checked ? kinds.concat(rangesFor(ep,kind)) : kinds
         })
         selectionByEpisode=next
     }
-    function selectedPayload() {return submissionEpisodes.filter(function(ep){return (selectionByEpisode[ep.id] || []).length>0}).map(function(ep){return {id:ep.id,segmentTypes:selectionByEpisode[ep.id].map(function(kind){return kind.toLowerCase()})}})}
+    function selectedPayload() {
+        var result=[]
+        submissionEpisodes.forEach(function(ep) {
+            var selected=(selectionByEpisode[ep.id] || []).map(function(key){return key.toLowerCase()})
+                .filter(function(key){return ep.segmentValues ? Boolean(ep.segmentValues[key]) : ep[key] && ep[key]!=="—"})
+            if(selected.length) result.push({id:ep.id,segmentTypes:selected})
+        })
+        return result
+    }
     function scanStateFor(ep) {
         if(!detector || !detector.status.id)return ""
         var state=detector.status, kinds=JSON.parse(state.kinds || "[]")
@@ -173,7 +194,7 @@ Item {
         footer: Column {
             width: episodeList.width; spacing: 10; topPadding: 20
             RowLayout {
-                Repeater { model: ["Recap","Intro","Credits","Preview"]; SegmentSwitch { compact: true; required property string modelData; objectName: "selectAll_"+modelData; text: modelData; enabled: page.hasKind(modelData); checked: enabled && page.submissionEpisodes.every(function(ep){return !(ep.segmentValues ? ep.segmentValues[modelData.toLowerCase()] : ep[modelData.toLowerCase()] && ep[modelData.toLowerCase()]!=="—") || (page.selectionByEpisode[ep.id] || []).indexOf(modelData)>=0}); onToggled: page.selectKind(modelData,checked) } }
+                Repeater { model: ["Recap","Intro","Credits","Preview"]; SegmentSwitch { compact: true; required property string modelData; objectName: "selectAll_"+modelData; text: modelData; enabled: page.hasKind(modelData); checked: page.kindSelected(modelData); onToggled: page.selectKind(modelData,checked) } }
             }
             RowLayout {
                 Repeater {

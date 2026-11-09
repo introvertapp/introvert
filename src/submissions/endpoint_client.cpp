@@ -427,6 +427,10 @@ SubmissionResult EndpointClient::submit(const QVariantMap &values, const provide
     if (response.status == 429 || (intro && response.status >= 400 && string(body.value("error")).contains("Rate limit exceeded"))) {
         return rateLimit(response);
     }
+    if (!intro && response.status == 409) {
+        const auto message = string(body.value("error")).simplified().left(512);
+        return {"FAIL", response.status, message.isEmpty() ? QString("This segment conflicts with an existing TheIntroDB submission.") : message, {}, {}};
+    }
     bool success = intro ? response.status == 200 : response.status >= 200 && response.status < 300 && submissionBody(response.body.toObject());
     if (success && !intro && values.value("media_type") == "movie") {
         const auto submitted = response.body.toObject()["submissions"].toArray();

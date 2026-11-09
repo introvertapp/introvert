@@ -1,4 +1,5 @@
 #include "segment_management_model.h"
+#include "segments/identity.h"
 #include <QRunnable>
 #include <cmath>
 #include <limits>
@@ -109,7 +110,7 @@ void SegmentManagementModel::inlineChange(const QString &id, const QString &kind
         if (!context->detail.show.isMovie()
             && m_library.m_editLocks.blocked(context->detail.show, context->episode.seasonNumber.value_or(-1), m_library.connectionAddress()))
             throw SegmentError("Season timestamps cannot be edited during detection");
-        if (type != "recap" && type != "intro" && type != "credits" && type != "preview") throw SegmentError("Unsupported segment type");
+        if (!validSegmentKey(type, context->detail.show.isMovie())) throw SegmentError("Unsupported segment type");
         if (times) value = qMakePair(parseTime(times->first), parseTime(times->second));
     } catch (const SegmentError &error) { m_message = QString::fromUtf8(error.what()); emit errorOccurred(m_message); emit changed(); return; }
     start(Kind::Inline, [this, context = *context, id, type, value, connection=m_library.connectionAddress()](const Cancellation &cancel) {

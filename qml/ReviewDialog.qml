@@ -45,11 +45,16 @@ Dialog {
                 if(!review.backend || !review.backend.review.targets) return ""
                 var seen={}, rows=[]
                 review.backend.review.targets.forEach(function(item) {
-                    if(seen[item.episode_id]) return
-                    seen[item.episode_id]=true
                     var title = item.resolved_title ? " · "+item.resolved_title : ""
-                    if(item.media_type==="movie") rows.push("TVDB "+item.tvdb_id+title)
-                    else rows.push("S"+item.season+" E"+item.episode+" → TVDB "+item.tvdb_id+", S"+(item.target_season===undefined?item.season:item.target_season)+" E"+(item.target_episode===undefined?item.episode:item.target_episode)+title)
+                    if(!seen[item.episode_id]) {
+                        seen[item.episode_id]=true
+                        if(item.media_type==="movie") rows.push("TVDB "+item.tvdb_id+title)
+                        else rows.push("S"+item.season+" E"+item.episode+" → TVDB "+item.tvdb_id+", S"+(item.target_season===undefined?item.season:item.target_season)+" E"+(item.target_episode===undefined?item.episode:item.target_episode)+title)
+                    }
+                    if(item.media_type==="movie") {
+                        var kind=item.segment_type
+                        rows.push(kind.charAt(0).toUpperCase()+kind.slice(1)+"  "+Number(item.start_sec).toFixed(3)+"s → "+Number(item.end_sec).toFixed(3)+"s")
+                    }
                 })
                 return rows.join("\n")
             }

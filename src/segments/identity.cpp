@@ -34,6 +34,18 @@ std::optional<QPair<qint64, qint64>> segmentCoordinates(const providers::ShowSum
     return qMakePair(*episode.seasonNumber, *episode.episodeNumber);
 }
 
+QString segmentKind(const QString &key)
+{
+    return key.section(':', 0, 0);
+}
+
+bool validSegmentKey(const QString &key, bool movie)
+{
+    static const QRegularExpression moviePattern(R"(\A(?:recap|intro|credits|preview)(?::(?:chapter-[0-9]+|[0-9a-f-]{36}))?\z)");
+    return movie ? moviePattern.match(key).hasMatch()
+        : key == "recap" || key == "intro" || key == "credits" || key == "preview";
+}
+
 void initializeTables(QSqlDatabase &db)
 {
     auto version = sql::execute(db, "PRAGMA user_version"); version.next();
@@ -42,6 +54,8 @@ void initializeTables(QSqlDatabase &db)
     sql::execute(db, "CREATE TABLE IF NOT EXISTS segments (show_key TEXT NOT NULL,season INTEGER NOT NULL,episode INTEGER NOT NULL,"
         "kind TEXT NOT NULL,start REAL,end REAL,deleted INTEGER NOT NULL DEFAULT 0,source TEXT NOT NULL,provider TEXT,provider_episode TEXT,"
         "updated TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,revision INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(show_key,season,episode,kind))");
+    sql::execute(db, "CREATE TABLE IF NOT EXISTS movie_segment_chapters (show_key TEXT NOT NULL,kind TEXT NOT NULL,"
+        "start_ms INTEGER NOT NULL,PRIMARY KEY(show_key,kind))");
     sql::execute(db, "CREATE INDEX IF NOT EXISTS segments_revision ON segments(revision)");
     sql::execute(db, "CREATE TABLE IF NOT EXISTS episode_media(provider TEXT,episode_id TEXT,duration_ms INTEGER NOT NULL,PRIMARY KEY(provider,episode_id))");
     sql::execute(db, "CREATE TABLE IF NOT EXISTS preferences (name TEXT PRIMARY KEY,value INTEGER NOT NULL)");

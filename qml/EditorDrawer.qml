@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 
-Item {
+Flickable {
     id: drawer
     required property var editor
     required property var theme
@@ -9,7 +9,12 @@ Item {
     clip: true
     readonly property real tableWidth: 218
     function columnWidth(index) { return tableWidth*[54,64,64,24][index]/206 }
+    contentHeight: rows.height
+    contentWidth: width
+    interactive: editor.movieMode && contentHeight > height
+    boundsBehavior: Flickable.StopAtBounds
     Column {
+        id: rows
         opacity: drawer.reveal
         enabled: editor.drawerOpen
         x: 9; width: drawer.tableWidth
@@ -21,11 +26,12 @@ Item {
             }
         }
         Repeater {
-            model: ["Recap","Intro","Credits","Preview"]
+            model: editor.segments.length
             Item {
                 id: entry
                 required property int index
-                required property string modelData
+                readonly property string modelData: editor.segments[index] ? editor.segments[index].label : ""
+                readonly property string objectSuffix: index < 4 ? modelData : modelData + "_" + index
                 width: drawer.tableWidth; height: 25
                 Rectangle { anchors.fill: parent; color: editor.selectedSegment===entry.index ? "#14ffd12a" : "transparent" }
                 Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: "#0effffff" }
@@ -34,7 +40,7 @@ Item {
                     AbstractButton {
                         HoverHandler { cursorShape: Qt.PointingHandCursor }
                         width: drawer.columnWidth(0); height: 25; padding: 0; enabled: editor.segmentValid(entry.index)
-                        onClicked: { editor.selectedSegment=entry.index;editor.selectedIndices=[entry.index];var value=editor.segments[entry.index];if(value)editor.cursorSeconds=entry.index>1?value.end:value.start }
+                        onClicked: { editor.selectedSegment=entry.index;editor.selectedIndices=[entry.index];var value=editor.segments[entry.index];if(value)editor.cursorSeconds=value.label==="Credits" || value.label==="Preview" ? value.end : value.start }
                         contentItem: Text { text: entry.modelData; leftPadding: 5; verticalAlignment: Text.AlignVCenter; font.pixelSize: 12; font.weight: Font.DemiBold; color: "#adffffff" }
                     }
                     Repeater {
@@ -44,7 +50,7 @@ Item {
                             required property int index
                             width: drawer.columnWidth(index+1); height: 25
                             TextField {
-                                objectName: "drawer_" + entry.modelData + "_" + modelData
+                                objectName: "drawer_" + entry.objectSuffix + "_" + modelData
                                 x: 5; y: 3; width: parent.width-10; height: 18
                                 leftPadding: 3; rightPadding: 3; topPadding: 1; bottomPadding: 1
                                 font.pixelSize: 12; color: "#bdffffff"; selectByMouse: true
@@ -60,12 +66,12 @@ Item {
                     AbstractButton {
                         HoverHandler { cursorShape: Qt.PointingHandCursor }
                         id: insertControl
-                        objectName: "insert_"+entry.modelData
+                        objectName: "insert_"+entry.objectSuffix
                         Accessible.name: "Insert "+entry.modelData+" at playhead"
                         AppToolTip { visible: insertControl.hovered; text: "Insert "+entry.modelData+" at playhead ("+["R","I","C","P"][entry.index]+")"; theme: drawer.theme }
                         hoverEnabled: true
                         width: drawer.columnWidth(3); height: 25
-                        visible: !editor.segmentValid(entry.index)
+                        visible: editor.movieMode ? entry.index < 4 : !editor.segmentValid(entry.index)
                         enabled: editor.editable
                         onClicked: editor.insertDraft(entry.index)
                         contentItem: Item { AppImage { anchors.centerIn: parent; width: 14; height: 14; source: "icons/insert-timeline.svg"; opacity: insertControl.hovered ? .72 : .34 } }

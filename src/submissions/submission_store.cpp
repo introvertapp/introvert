@@ -12,6 +12,7 @@
 #include <QUuid>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace introvert::submissions {
 namespace {
@@ -199,6 +200,34 @@ QString SubmissionStore::enqueuePlan(const QVariantMap &plan, QSqlDatabase &db) 
     }
     for (const auto &value : plan.value("items").toList()) {
         const auto item = value.toMap();
+        const auto kind = item.value("segment_type").toString();
+        auto segmentKey = kind;
+        if (item.value("media_type") == "movie" && plan.value("endpoint") == "theintrodb_org") {
+            segmentKey = item.value("segment_key", kind).toString();
+            if (!segments::validSegmentKey(segmentKey, true) || segments::segmentKind(segmentKey) != kind)
+                throw SubmissionError("Invalid movie segment selection.");
+            const auto range = [](const QString &type, const QVariant &start, const QVariant &end) {
+                return providers::ImportedSegment{providers::segmentType(type), start.toDouble(),
+                    end.isNull() ? std::numeric_limits<double>::infinity() : end.toDouble()};
+            };
+            const auto candidate = range(kind, item.value("start_sec"), item.value("end_sec"));
+            const auto others = rows(db, "SELECT kind,start,end FROM submit_items WHERE job_id=? AND episode_id=? "
+                "AND status IN ('WAITING','PROCESSING','RATE LIMITED','OK')", {id, item.value("episode_id")});
+            bool alreadyQueued = false;
+            for (const auto &other : others) {
+                const auto key = other.value("kind").toString();
+                if (key == segmentKey) {
+                    if (candidate.startSeconds != other.value("start").toDouble()
+                        || candidate.endSeconds != range(kind, other.value("start"), other.value("end")).endSeconds)
+                        throw SubmissionError("This movie range is already in the queue with different timestamps.");
+                    alreadyQueued = true;
+                    continue;
+                }
+                if (providers::movieSegmentsConflict(candidate, range(segments::segmentKind(key), other.value("start"), other.value("end"))))
+                    throw SubmissionError("A queued movie range overlaps this range or is less than 5 seconds away from it.");
+            }
+            if (alreadyQueued) continue;
+        }
         QVariantMap address;
         for (const auto &name : {"tvdb_id","tmdb_id","imdb_id","numbering_source","mapping","tvdb_episode_id",
                                  "target_season","target_episode","episode_name","resolved_title","media_type"})
@@ -212,7 +241,7 @@ QString SubmissionStore::enqueuePlan(const QVariantMap &plan, QSqlDatabase &db) 
             "AND submit_items.status IN ('OK','DUPLICATE') THEN submit_items.status ELSE 'WAITING' END,"
             "error='',comparison=NULL,updated=excluded.updated,revision=submit_items.revision+1,status_revision=excluded.status_revision,address=excluded.address",
             {id, item.value("episode_id"), sql::text(item.value("title").toString()), item.value("season"), item.value("episode"),
-             item.value("segment_type"), item.value("start_sec"), nullable(item.value("end_sec")), nullable(item.value("video_duration_ms")), now, now,statusRevision,encoded});
+             segmentKey, item.value("start_sec"), nullable(item.value("end_sec")), nullable(item.value("video_duration_ms")), now, now,statusRevision,encoded});
     }
     for (const auto &row : rows(db, "SELECT episode_id FROM submit_items WHERE job_id=? AND status IN " + pendingSql + " GROUP BY episode_id ORDER BY MIN(id)", {id}))
         queueOrder::append(db, "s:" + id + ':' + row.value("episode_id").toString());
@@ -275,7 +304,7 @@ void SubmissionStore::finish(const SubmissionClaim &claim, const SubmissionCompl
     else if (completion.limit) queueOrder::running(db, key, false);
     if (updated && completion.status == "OK" && completion.settings && completion.settings->value("save_submissions_local_db").toBool())
         sql::execute(db, "INSERT OR REPLACE INTO local_submissions VALUES(?,?,?,?,?,?,?,?,?)",
-            {item.value("id"), job.value("endpoint"), job.value("canonical"), item.value("season"), item.value("number"), item.value("kind"),
+            {item.value("id"), job.value("endpoint"), job.value("canonical"), item.value("season"), item.value("number"), segments::segmentKind(item.value("kind").toString()),
              item.value("start"), nullable(item.value("end")), now});
     if (!exists(db, "SELECT 1 FROM submit_items WHERE job_id=? AND status IN " + pendingSql + " LIMIT 1", {job.value("id")}))
         sql::execute(db, "UPDATE submit_jobs SET status='complete',updated=? WHERE id=?", {now, job.value("id")});
@@ -290,8 +319,9 @@ bool SubmissionStore::processOne(const SettingsStore &settings, const providers:
     const auto &job = selected->job; const auto &item = selected->item;
     if (progress) progress();
     const auto client = EndpointClient::fromStore(job.value("endpoint").toString(), settings, m_clock);
+    const auto kind = segments::segmentKind(item.value("kind").toString());
     QVariantMap values{{"imdb_id", nullable(job.value("imdb"))}, {"tmdb_id", nullable(job.value("tmdb"))},
-        {"season", item.value("season")}, {"episode", item.value("number")}, {"segment_type", item.value("kind")},
+        {"season", item.value("season")}, {"episode", item.value("number")}, {"segment_type", kind},
         {"start_sec", item.value("start")}, {"end_sec", nullable(item.value("end"))}, {"video_duration_ms", nullable(item.value("duration_ms"))}};
     const auto address=QJsonValue::fromJson(item.value("address").toString().toUtf8()).toObject().toVariantMap();
     for(auto i=address.begin();i!=address.end();++i) values[i.key()]=i.value();
@@ -314,7 +344,6 @@ bool SubmissionStore::processOne(const SettingsStore &settings, const providers:
     }
     const bool theIntroDb = client.endpoint() == "theintrodb_org";
     const auto durationMs = item.value("duration_ms").toLongLong();
-    const auto kind = item.value("kind").toString();
     const auto mediaEnd = theIntroDb && values.value("media_type") == "movie" && durationMs > 0
         && (kind == "credits" || kind == "preview") ? std::optional{durationMs / 1000.} : std::nullopt;
     completion.comparison = comparison(lookup, item.value("start").toDouble(), item.value("end").isNull()
@@ -361,15 +390,17 @@ QVariantMap SubmissionStore::episodeStatuses(bool includeActivity, const QString
         auto state = result.value(key).toMap();
         if (includeActivity) state["season"] = item.value("season");
         auto segments = state.value("segments").toMap(), badges = state.value("badges").toMap();
-        const auto kind = item.value("kind").toString();
-        const auto primaryEndpoint = primaryEndpoints.value(key + ":" + kind);
+        const auto segmentKey = item.value("kind").toString();
+        const auto kind = segments::segmentKind(segmentKey);
+        const auto primaryEndpoint = primaryEndpoints.value(key + ":" + segmentKey);
         const auto itemEndpoint = item.value("endpoint") == "introdb_app" ? QString("introdb.app") : QString("theintrodb.org");
-        const auto statusKey = primaryEndpoint.isEmpty() || primaryEndpoint == itemEndpoint ? kind : kind + ":" + item.value("endpoint").toString();
-        if (primaryEndpoint.isEmpty()) primaryEndpoints[key + ":" + kind] = itemEndpoint;
+        const auto statusKey = primaryEndpoint.isEmpty() || primaryEndpoint == itemEndpoint ? segmentKey : segmentKey + ":" + item.value("endpoint").toString();
+        if (primaryEndpoint.isEmpty()) primaryEndpoints[key + ":" + segmentKey] = itemEndpoint;
         if (!segments.contains(statusKey)) {
             QVariantMap current{{"kind", kind}, {"result", item.value("status")},
                 {"comparison", item.value("comparison").isNull() ? QString("") : item.value("comparison").toString()},
                 {"error", item.value("error")}, {"httpStatus", nullable(item.value("http_status"))}};
+            if (segmentKey != kind) current["segmentKey"] = segmentKey;
             if (includeActivity) {
                 current["endpoint"] = itemEndpoint;
                 current["rateLimitOrigin"] = limitOrigins.value(item.value("endpoint").toString(), -1) == item.value("id").toLongLong();
@@ -422,13 +453,16 @@ SubmissionSnapshot SubmissionStore::snapshot() const
         else text = status;
         const auto tmdb = job.value("tmdb"), imdb = job.value("imdb");
         const bool movie = item.value("season").toLongLong() == segments::movieCoordinate;
-        QVariantMap row{{"type", title(item.value("kind").toString())}, {"endpoint", label(endpoint)}, {"show", job.value("title")},
+        QVariantMap row{{"type", title(segments::segmentKind(item.value("kind").toString()))}, {"endpoint", label(endpoint)}, {"show", job.value("title")},
             {"episode", movie ? QVariant(QString()) : item.value("title")}, {"code", movie ? QString("Movie")
                 : QString("S%1E%2").arg(item.value("season").toLongLong(), 2, 10, QChar('0')).arg(item.value("number").toLongLong(), 2, 10, QChar('0'))},
             {"date", timestamp(item.value("created").toDouble())}, {"status", text}, {"providerId", job.value("provider")}, {"showId", job.value("show_id")},
             {"jobId", job.value("id")}, {"error", item.value("error")}, {"canonical", !tmdb.isNull() && !tmdb.toString().isEmpty() ? tmdb
                 : !imdb.isNull() && !imdb.toString().isEmpty() ? imdb : QVariant(job.value("provider").toString() + ':' + job.value("show_id").toString())}};
-        if (movie) row["movie"] = true;
+        if (movie) {
+            row["movie"] = true;
+            row["itemId"] = item.value("id");
+        }
         if (!job.value("scope").toString().isEmpty()) row["scope"] = job.value("scope");
         if (job.value("status") == "complete") result.history.append(row);
         else {

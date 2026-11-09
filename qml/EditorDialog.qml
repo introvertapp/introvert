@@ -92,9 +92,15 @@ Dialog {
         videoTapTimer.stop();pendingVideoTap=null;skipFade.stop();skipOverlay.opacity=0
         var values=backend.segmentValues
         initialSegments=segmentTemplates.map(function(item) {
-            var range=values[item.label.toLowerCase()]
-            return Object.assign({},item,{start:range?range[0]:NaN,end:range?range[1]:NaN})
+            var key=item.label.toLowerCase(), range=values[key]
+            return Object.assign({},item,{key:key,start:range?range[0]:NaN,end:range?range[1]:NaN})
         })
+        if(movieMode) initialSegments=initialSegments.concat(Object.keys(values).filter(function(key) {
+            return key.includes(":")
+        }).sort(function(a,b) { return values[a][0]-values[b][0] }).map(function(key) {
+            var item=segmentTemplates.find(function(template) { return template.label.toLowerCase()===key.split(":")[0] })
+            return Object.assign({},item,{key:key,start:values[key][0],end:values[key][1]})
+        }))
         resetDrafts(true,keepViewport);undoHistory=[];episodeTitle=backend.episodeTitle
     }
     function saveTimeline(closeAfter) {
@@ -103,7 +109,9 @@ Dialog {
         for(var i=0;i<segments.length;i++) {
             var start=draftText(i,"start"),end=draftText(i,"end")
             if((start.length || end.length) && (!isFinite(segments[i].start) || !isFinite(segments[i].end))) {draftError="Segment timestamps are invalid";return}
-            rows.push({start:start.length?segments[i].start:null,end:end.length?segments[i].end:null})
+            var row={start:start.length?segments[i].start:null,end:end.length?segments[i].end:null}
+            if(movieMode) {row.key=segments[i].key;row.kind=segments[i].label.toLowerCase()}
+            rows.push(row)
         }
         closeAfterSave=Boolean(closeAfter);backend.save(rows)
     }
@@ -192,7 +200,7 @@ Dialog {
         if(!editable)return
         var values = segments.slice(); var item = values[index]; var duration = item.end-item.start
         var start = Math.min(durationSeconds-duration, Math.max(0,item.start+delta))
-        values[index] = {label:item.label,start:start,end:start+duration,color:item.color}
+        values[index] = Object.assign({},item,{start:start,end:start+duration})
         clearTextFor(index); segments = values; draftChanged = hasDraftChanges()
     }
     function undo() {
@@ -204,7 +212,7 @@ Dialog {
         if(!editable)return
         var values=segments.slice(); var item=values[index]
         var maximum = maxSegmentLength(item)
-        values[index]={label:item.label,start:edge==="start"?Math.max(0,item.end-maximum,Math.min(time,item.end-5)):item.start,end:edge==="end"?Math.min(durationSeconds,item.start+maximum,Math.max(time,item.start+5)):item.end,color:item.color}
+        values[index]=Object.assign({},item,{start:edge==="start"?Math.max(0,item.end-maximum,Math.min(time,item.end-5)):item.start,end:edge==="end"?Math.min(durationSeconds,item.start+maximum,Math.max(time,item.start+5)):item.end})
         clearTextFor(index);segments=values; draftChanged=hasDraftChanges()
     }
     function editTime(seconds) {
@@ -242,17 +250,38 @@ Dialog {
     function insertDraft(index) {
         if(!editable)return
         var existing=segments[index]
-        if(segmentValid(index)) {selectedSegment=index;selectedIndices=[index];cursorSeconds=index>1?existing.end:existing.start;return}
+        if(!existing)return
+        var late=existing.label==="Credits" || existing.label==="Preview"
+        var occupied=isFinite(existing.start) || isFinite(existing.end)
+        if(!movieMode && segmentValid(index)) {selectedSegment=index;selectedIndices=[index];cursorSeconds=late?existing.end:existing.start;return}
         var start=cursorSeconds
         draftError=""
-        if((index<2 && start>durationSeconds/2)||(index>1 && start<durationSeconds/2)) {draftError=initialSegments[index].label+" segment can only be inserted in the "+(index<2?"first":"second")+" half of the video";return}
+        if(!movieMode && ((!late && start>durationSeconds/2)||(late && start<durationSeconds/2))) {draftError=existing.label+" segment can only be inserted in the "+(late?"second":"first")+" half of the video";return}
         if(durationSeconds-start<5){draftError="At least 5 seconds are required after the playhead";return}
-        var values=segments.slice();remember();clearTextFor(index);values[index]=Object.assign({},initialSegments[index],{start:start,end:Math.min(durationSeconds,start+(index>1?30:15))});segments=values;selectedSegment=index;selectedIndices=[index];draftChanged=true
+        var values=segments.slice()
+        remember()
+        if(movieMode && occupied) {index=values.length;existing=Object.assign({},existing,{key:""})}
+        clearTextFor(index)
+        values[index]=Object.assign({},existing,{start:start,end:Math.min(durationSeconds,start+(late?30:15))})
+        segments=values;selectedSegment=index;selectedIndices=[index];draftChanged=true
     }
     function moveNearest(index) {
-        var item=segments[index]
         if(!editable)return
-        if(!item || !isFinite(item.start) || !isFinite(item.end)){draftError=initialSegments[index].label+" segment must exist before its position can be changed";return}
+        var label=segmentTemplates[index].label
+        if(movieMode) {
+            var closest=Infinity
+            for(var candidateIndex=0;candidateIndex<segments.length;candidateIndex++) {
+                var candidate=segments[candidateIndex]
+                if(candidate.label!==label || !isFinite(candidate.start) || !isFinite(candidate.end))continue
+                var distance=Math.min(Math.abs(cursorSeconds-candidate.start),Math.abs(cursorSeconds-candidate.end))
+                if(distance<closest || (distance===closest && candidateIndex===selectedSegment)) {
+                    index=candidateIndex
+                    closest=distance
+                }
+            }
+        }
+        var item=segments[index]
+        if(!item || !isFinite(item.start) || !isFinite(item.end)){draftError=label+" segment must exist before its position can be changed";return}
         var edge=Math.abs(cursorSeconds-item.start)<=Math.abs(cursorSeconds-item.end)?"start":"end"
         remember();resizeSegment(index,edge,cursorSeconds);selectedSegment=index;selectedIndices=[index]
     }

@@ -73,6 +73,8 @@ struct ImportedSegment {
     double startSeconds;
     double endSeconds;
 };
+bool validMovieSegment(const ImportedSegment &segment, double durationSeconds = 0);
+bool movieSegmentsConflict(const ImportedSegment &left, const ImportedSegment &right);
 
 struct LocalShowMetadata {
     std::optional<QString> localPath, metadataStatus, metadataError;

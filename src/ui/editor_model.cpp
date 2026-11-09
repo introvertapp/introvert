@@ -1,6 +1,7 @@
 #include "editor_model.h"
 #include "editor/audio_levels.h"
 #include "providers/access_retry.h"
+#include "segments/identity.h"
 #include <QDir>
 #include <QCoreApplication>
 #include <QEvent>
@@ -10,6 +11,7 @@
 #include <QRunnable>
 #include <QPointer>
 #include <QVideoFrame>
+#include <QUuid>
 #include <cmath>
 #include <algorithm>
 #include <limits>
@@ -240,8 +242,10 @@ void EditorModel::save(const QVariantList &rows)
     if(!editingAllowed()) {m_message="Season timestamps cannot be edited during detection";emit changed();return;}
     SegmentChanges changes;
     try {
-        if (rows.size() != 4) throw SegmentError("Invalid timeline segments");
+        const auto movie = m_context->detail.show.isMovie();
+        if (!movie && rows.size() != 4) throw SegmentError("Invalid timeline segments");
         const QStringList kinds{"recap", "intro", "credits", "preview"};
+        QSet<QString> seen;
         for (qsizetype index = 0; index < rows.size(); ++index) {
             if (rows[index].metaType().id() != QMetaType::QVariantMap) throw SegmentError("Invalid timeline segments");
             const auto row = rows[index].toMap(); const auto start = row.value("start"), end = row.value("end");
@@ -252,8 +256,20 @@ void EditorModel::save(const QVariantList &rows)
                     : "Segment timestamps must be within the video and between 5 and 180 seconds long");
                 value = qMakePair(*a, *b);
             }
-            const auto baseline = m_baseline.contains(kinds[index]) ? std::optional<QPair<double, double>>(m_baseline.value(kinds[index])) : std::nullopt;
-            if (value != baseline) changes[kinds[index]] = value;
+            auto key = movie ? row.value("key").toString() : kinds[index];
+            if (movie && key.isEmpty() && index < kinds.size() && !row.contains("key")) key = kinds[index];
+            if (movie && key.isEmpty()) {
+                if (!value) continue;
+                const auto kind = row.value("kind").toString();
+                if (!validSegmentKey(kind, false)) throw SegmentError("Unsupported segment type");
+                key = kind + ':' + QUuid::createUuid().toString(QUuid::WithoutBraces);
+            } else if (!validSegmentKey(key, movie) || (movie && key.contains(':') && !m_baseline.contains(key))) {
+                throw SegmentError("Invalid timeline segment");
+            }
+            if (seen.contains(key)) throw SegmentError("Duplicate timeline segment");
+            seen.insert(key);
+            const auto baseline = m_baseline.contains(key) ? std::optional<QPair<double, double>>(m_baseline.value(key)) : std::nullopt;
+            if (value != baseline) changes[key] = value;
         }
         if (changes.isEmpty()) throw SegmentError("No segment changes to save");
     } catch (const SegmentError &error) { m_message = QString::fromUtf8(error.what()); emit errorOccurred(m_message); emit changed(); return; }

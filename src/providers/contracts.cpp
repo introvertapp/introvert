@@ -6,6 +6,7 @@
 #include <QJsonDocument>
 #include <QRegularExpression>
 #include <algorithm>
+#include <cmath>
 
 namespace introvert::providers {
 
@@ -29,11 +30,28 @@ void normalizeChapters(MovieDetail &detail)
     }
 }
 
+bool validMovieSegment(const ImportedSegment &segment, double durationSeconds)
+{
+    const auto [type, start, end] = segment;
+    const auto lengthMs = std::round(end * 1000) - std::round(start * 1000);
+    const auto maximumMs = type == SegmentType::Intro ? 300000 : type == SegmentType::Recap ? 1200000 : 1800000;
+    return std::isfinite(start) && std::isfinite(end) && start >= 0 && end <= 21600
+        && (type != SegmentType::Credits || std::round(start * 1000) >= 5000)
+        && lengthMs >= 5000 && lengthMs <= maximumMs && (durationSeconds <= 0 || end <= durationSeconds);
+}
+
+bool movieSegmentsConflict(const ImportedSegment &left, const ImportedSegment &right)
+{
+    const auto gapMs = std::max(std::round(left.startSeconds * 1000), std::round(right.startSeconds * 1000))
+        - std::min(std::round(left.endSeconds * 1000), std::round(right.endSeconds * 1000));
+    return gapMs < (left.type == right.type ? 5000 : 0);
+}
+
 QList<ImportedSegment> movieChapterSegments(const MovieDetail &detail)
 {
     static const QRegularExpression separators("[\\s_-]+");
     static const QStringList logoNames{"studiologo", "studiologos", "productionlogo", "productionlogos",
-        "distributorlogo", "distributorlogos"};
+        "productioncompanylogo", "productioncompanylogos", "distributorlogo", "distributorlogos"};
     static const QStringList titleNames{"maintitle", "maintitles", "openingtitle", "openingtitles", "openingcredits",
         "titlesequence", "openingtitlesequence", "maintitle&credits", "maintitleandcredits"};
     const auto &chapters = detail.chapters;
@@ -43,41 +61,43 @@ QList<ImportedSegment> movieChapterSegments(const MovieDetail &detail)
     for (const auto &chapter : chapters)
         names.append(chapter.title.toLower().remove(separators));
 
-    QList<ImportedSegment> segments;
-    for (const auto type : {SegmentType::Intro, SegmentType::Credits}) {
+    QList<QList<ImportedSegment>> priorities(3);
+    for (const auto type : {SegmentType::Intro, SegmentType::Credits, SegmentType::Recap, SegmentType::Preview}) {
         const auto kind = segmentName(type);
-        const auto startName = kind + "start", endName = kind + "end";
-        std::optional<ImportedSegment> preferred;
-        int preferredPriority = 3;
         for (qsizetype index = 0; index < chapters.size(); ++index) {
             const auto &name = names[index];
             const auto &chapter = chapters[index];
+            const bool paired = name.endsWith("start");
+            const auto label = paired ? name.chopped(5) : name;
             // Keep an explicit Intro ahead of aliases. A logo and a title
             // sequence can be separated by story footage.
             int priority = 0;
-            if (name != kind && name != startName) {
-                if (type == SegmentType::Intro && logoNames.contains(name)) priority = 1;
-                else if (type == SegmentType::Intro && titleNames.contains(name)) priority = 2;
-                else if (type != SegmentType::Credits || (name != "endcredits" && name != "closingcredits")) continue;
+            if (label != kind) {
+                if (type == SegmentType::Intro && logoNames.contains(label)) priority = 1;
+                else if (type == SegmentType::Intro && titleNames.contains(label)) priority = 2;
+                else if (type != SegmentType::Credits || (label != "endcredits" && label != "closingcredits" && label != "outro")) continue;
             }
-            if (priority >= preferredPriority) continue;
             std::optional<qint64> end;
-            if (name == startName) {
+            if (paired) {
+                const auto endName = label + "end";
                 for (qsizetype next = index + 1; next < chapters.size(); ++next) {
-                    if (names[next] == startName) break;
+                    if (names[next] == name) break;
                     if (names[next] == endName) { end = chapters[next].startMs; break; }
                 }
             } else {
                 end = chapter.endMs;
                 if (!end) end = index + 1 < chapters.size() ? std::optional{chapters[index + 1].startMs} : detail.movie.durationMs;
             }
-            if (!end || chapter.startMs < 0 || *end <= chapter.startMs || (duration > 0 && *end > duration)) continue;
-            preferred = ImportedSegment{type, chapter.startMs / 1000., *end / 1000.};
-            preferredPriority = priority;
-            if (priority == 0) break;
+            if (!end) continue;
+            const ImportedSegment segment{type, chapter.startMs / 1000., *end / 1000.};
+            if (validMovieSegment(segment, duration / 1000.)) priorities[priority].append(segment);
         }
-        if (preferred) segments.append(*preferred);
     }
+    QList<ImportedSegment> segments;
+    for (const auto &candidates : priorities) for (const auto &candidate : candidates)
+        if (std::none_of(segments.cbegin(), segments.cend(), [&](const auto &other) {
+                return movieSegmentsConflict(candidate, other);
+            })) segments.append(candidate);
     return segments;
 }
 

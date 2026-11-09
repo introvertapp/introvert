@@ -24,7 +24,13 @@ void write(QSqlDatabase &db, const Identity &id, const providers::Episode &episo
 {
     auto query = sql::execute(db, "SELECT COALESCE(MAX(revision),0)+1 FROM segments"); query.next();
     const auto revision = query.value(0); query.finish();
-    for (auto change = changes.cbegin(); change != changes.cend(); ++change) for (const auto &key : id.keys)
+    for (auto change = changes.cbegin(); change != changes.cend(); ++change) for (const auto &key : id.keys) {
+        // A new manual primary has no source chapter. Missing associations on
+        // older rows are left for the importer to reconcile.
+        if (id.season == movieCoordinate && !change.key().contains(':'))
+            sql::execute(db, "INSERT OR IGNORE INTO movie_segment_chapters SELECT ?,?,-1 WHERE NOT EXISTS "
+                "(SELECT 1 FROM segments WHERE show_key=? AND season=? AND episode=? AND kind=?)",
+                {key, change.key(), key, id.season, id.episode, change.key()});
         sql::execute(db, "INSERT INTO segments(show_key,season,episode,kind,start,end,deleted,source,provider,provider_episode,revision) "
             "VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(show_key,season,episode,kind) DO UPDATE SET "
             "start=excluded.start,end=excluded.end,deleted=excluded.deleted,source=excluded.source,provider=excluded.provider,"
@@ -32,6 +38,7 @@ void write(QSqlDatabase &db, const Identity &id, const providers::Episode &episo
             {key, id.season, id.episode, change.key(), change.value() ? QVariant(change.value()->first) : QVariant(),
              change.value() ? QVariant(change.value()->second) : QVariant(), !change.value(), sql::text(source),
              providers::providerName(episode.identity.provider), sql::text(episode.identity.itemId), revision});
+    }
 }
 
 QVariantMap defaults()
@@ -63,20 +70,16 @@ void SegmentStore::save(const providers::ShowSummary &show, const providers::Epi
 {
     const auto id = identity(show, episode);
     for (auto change = changes.cbegin(); change != changes.cend(); ++change) {
-        if (change.key() != "recap" && change.key() != "intro" && change.key() != "credits" && change.key() != "preview")
-            throw SegmentError("Unsupported segment type");
+        if (!validSegmentKey(change.key(), show.isMovie())) throw SegmentError("Unsupported segment type");
         if (change.value()) {
             const auto [start, end] = *change.value();
-            auto maximum = 180;
-            auto length = end - start;
             if (show.isMovie()) {
-                maximum = change.key() == "intro" ? 300 : change.key() == "recap" ? 1200 : 1800;
-                length = (std::round(end * 1000) - std::round(start * 1000)) / 1000.;
+                if (!providers::validMovieSegment({providers::segmentType(segmentKind(change.key())), start, end}, duration))
+                    throw SegmentError("Movie timestamps must be within the video and meet TheIntroDB timing limits.");
+            } else if (!std::isfinite(start) || !std::isfinite(end) || start < 0 || !(5 <= end - start && end - start <= 180)
+                       || (duration > 0 && end > duration)) {
+                throw SegmentError("Segment timestamps must be within the video and between 5 and 180 seconds long");
             }
-            if (!std::isfinite(start) || !std::isfinite(end) || start < 0 || !(5 <= length && length <= maximum)
-                || (duration > 0 && end > duration))
-                throw SegmentError(qPrintable(QStringLiteral("Segment timestamps must be within the video and between 5 and %1 seconds long")
-                    .arg(maximum)));
         }
     }
     std::optional<qint64> milliseconds;
@@ -89,6 +92,24 @@ void SegmentStore::save(const providers::ShowSummary &show, const providers::Epi
         milliseconds = qint64(floor + (value - floor > .5 || (value - floor == .5 && std::fmod(floor, 2) != 0) ? 1 : 0));
     }
     sql::Connection connection(m_path); sql::Transaction transaction(connection.db); initializeTables(connection.db);
+    if (show.isMovie()) {
+        QList<providers::ImportedSegment> live;
+        auto saved = sql::execute(connection.db, "SELECT kind,start,end FROM segments WHERE show_key=? AND season=? AND episode=? AND deleted=0",
+            {id.keys.first(), id.season, id.episode});
+        while (saved.next()) {
+            const auto key = saved.value(0).toString();
+            if (!changes.contains(key) && validSegmentKey(key, true))
+                live.append({providers::segmentType(segmentKind(key)), saved.value(1).toDouble(), saved.value(2).toDouble()});
+        }
+        for (auto change = changes.cbegin(); change != changes.cend(); ++change) {
+            if (!change.value()) continue;
+            const providers::ImportedSegment candidate{providers::segmentType(segmentKind(change.key())), change.value()->first, change.value()->second};
+            for (const auto &other : live)
+                if (providers::movieSegmentsConflict(candidate, other))
+                    throw SegmentError("Movie segments cannot overlap. Leave at least 5 seconds between segments of the same type.");
+            live.append(candidate);
+        }
+    }
     write(connection.db, id, episode, changes, source);
     if (milliseconds) sql::execute(connection.db, "INSERT OR REPLACE INTO episode_media VALUES(?,?,?)",
         {providers::providerName(episode.identity.provider), sql::text(show.movieKey.value_or(episode.identity.itemId)), *milliseconds});
@@ -101,7 +122,18 @@ qsizetype SegmentStore::deleteMany(const QList<EpisodeTarget> &episodes, qint64 
     for (const auto &target : episodes) plan.append(identity(target.first, target.second));
     sql::Connection connection(m_path); sql::Transaction transaction(connection.db); initializeTables(connection.db);
     const SegmentChanges changes{{"recap", {}}, {"intro", {}}, {"credits", {}}, {"preview", {}}};
-    for (qsizetype index = 0; index < episodes.size(); ++index) write(connection.db, plan[index], episodes[index].second, changes, "manual");
+    for (qsizetype index = 0; index < episodes.size(); ++index) {
+        const auto &id = plan[index];
+        auto deletions = changes;
+        if (id.season == movieCoordinate) {
+            auto saved = sql::execute(connection.db, "SELECT kind FROM segments WHERE show_key=? AND season=? AND episode=?",
+                {id.keys.first(), id.season, id.episode});
+            while (saved.next()) deletions[saved.value(0).toString()] = std::nullopt;
+        }
+        write(connection.db, id, episodes[index].second, deletions, "manual");
+        if (id.season == movieCoordinate)
+            sql::execute(connection.db, "DELETE FROM movie_segment_chapters WHERE show_key=?", {id.keys.first()});
+    }
     const auto revision=currentRevision(connection.db);
     for(const auto &id:plan)for(const auto &key:id.keys)
         sql::execute(connection.db,"INSERT INTO episode_status_resets VALUES(?,?,?,?) ON CONFLICT(show_key,season,episode) DO UPDATE SET revision=excluded.revision",
