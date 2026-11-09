@@ -34,7 +34,9 @@ Column {
                     compact: panel.section === "endpoints"; width: parent.width; theme: panel.theme
                     label: fieldData.label; fieldKey: fieldData.key; kind: fieldData.kind || "text"
                     enabled: Boolean(panel.endpointSettings)
-                    value: kind === "secret" ? "" : panel.endpointSettings ? String(panel.endpointSettings.values[fieldData.key]) : fieldData.value || ""
+                    value: !panel.endpointSettings ? fieldData.value || ""
+                         : kind === "secret" ? panel.endpointSettings.keyInputs[fieldData.key] || ""
+                         : String(panel.endpointSettings.values[fieldData.key])
                     checked: panel.endpointSettings ? Boolean(panel.endpointSettings.values[fieldData.key]) : false
                     secretSaved: kind === "secret" && panel.endpointSettings ? Boolean(panel.endpointSettings.keyStatus[fieldData.key]) : false
                     Connections { target: panel.endpointSettings || null; function onSaved() { endpointRow.reveal=false } }

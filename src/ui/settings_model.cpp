@@ -14,7 +14,7 @@ QString errorText(const std::exception &error) { return QString::fromUtf8(error.
 
 struct OperationResult {
     QVariantMap values;
-    QVariantMap status;
+    QVariantMap credentials;
     QString error;
 };
 
@@ -32,10 +32,10 @@ void startOperation(QThreadPool &pool, QObject *owner, std::function<OperationRe
     }));
 }
 
-QVariantMap endpointKeyStatus(const SettingsStore &store)
+QVariantMap endpointKeys(const SettingsStore &store)
 {
-    return {{"introdb_app", store.hasCredential("endpoints:introdb_app")},
-            {"theintrodb_org", store.hasCredential("endpoints:theintrodb_org")}};
+    return {{"introdb_app", store.credential("endpoints:introdb_app").value_or(QString())},
+            {"theintrodb_org", store.credential("endpoints:theintrodb_org").value_or(QString())}};
 }
 
 QVariant endpointInput(const QString &name, const QVariant &value)
@@ -196,6 +196,22 @@ EndpointSettingsModel::EndpointSettingsModel(SettingsStore store, QObject *paren
 }
 
 EndpointSettingsModel::~EndpointSettingsModel() { close(); }
+QVariantMap EndpointSettingsModel::keyStatus() const
+{
+    QVariantMap status;
+    for (auto it = m_savedKeys.cbegin(); it != m_savedKeys.cend(); ++it)
+        status.insert(it.key(), !it.value().toString().isEmpty());
+    return status;
+}
+
+QVariantMap EndpointSettingsModel::keyInputs() const
+{
+    auto inputs = m_savedKeys;
+    for (auto it = m_keys.cbegin(); it != m_keys.cend(); ++it)
+        inputs.insert(it.key(), it.value());
+    return inputs;
+}
+
 void EndpointSettingsModel::edited() { ++m_revision; m_message.clear(); m_timer.start(); emit changed(); }
 void EndpointSettingsModel::setValue(const QString &name, const QVariant &value)
 {
@@ -212,12 +228,12 @@ void EndpointSettingsModel::activate()
 {
     if (m_closed || m_busy) return;
     m_busy = true;
-    startOperation(m_pool, this, [store = m_store] { return OperationResult{{}, endpointKeyStatus(store), {}}; },
+    startOperation(m_pool, this, [store = m_store] { return OperationResult{{}, endpointKeys(store), {}}; },
         [this](const OperationResult &result) {
             if (m_closed) return;
             m_busy = false; m_message = result.error;
             if (!result.error.isEmpty()) emit errorOccurred(result.error);
-            if (result.error.isEmpty()) m_keyStatus = result.status;
+            if (result.error.isEmpty()) m_savedKeys = result.credentials;
             if (m_revision > m_persistedRevision && result.error.isEmpty()) m_timer.start();
             emit changed();
         });
@@ -235,13 +251,13 @@ void EndpointSettingsModel::save()
     m_busy = true;
     startOperation(m_pool, this, [store = m_store, values = m_values, keys = m_keys] {
         store.saveEndpoints(values, keys);
-        return OperationResult{values, endpointKeyStatus(store), {}};
+        return OperationResult{values, endpointKeys(store), {}};
     }, [this, revision](const OperationResult &result) {
         if (m_closed) return;
         m_busy = false; m_message = result.error;
         if (!result.error.isEmpty()) emit errorOccurred(result.error);
         if (result.error.isEmpty()) {
-            m_persistedRevision = revision; m_keyStatus = result.status;
+            m_persistedRevision = revision; m_savedKeys = result.credentials;
             if (m_revision == revision) { m_values = result.values; m_keys.clear(); }
             emit saved();
         }
@@ -301,7 +317,7 @@ void WebhookSettingsModel::activate()
         if (m_closed) return;
         m_busy = false;
         if (!result.error.isEmpty()) { m_message = result.error; emit errorOccurred(result.error); }
-        if (result.error.isEmpty()) m_hasKey = result.status["key"].toBool();
+        if (result.error.isEmpty()) m_hasKey = result.credentials["key"].toBool();
         if (m_revision > m_persistedRevision && result.error.isEmpty()) m_timer.start();
         emit changed();
     });
@@ -324,7 +340,7 @@ void WebhookSettingsModel::save()
         m_busy = false;
         if (!result.error.isEmpty()) { m_message = result.error; emit errorOccurred(result.error); }
         if (result.error.isEmpty()) {
-            m_hasKey = result.status["key"].toBool(); m_persistedRevision = revision;
+            m_hasKey = result.credentials["key"].toBool(); m_persistedRevision = revision;
             if (m_revision == revision) { m_values = result.values; m_key.reset(); }
             emit saved();
         }

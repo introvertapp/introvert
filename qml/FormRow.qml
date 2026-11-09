@@ -41,7 +41,7 @@ Item {
         objectName: "fieldAction_"+field.label
         theme: field.theme; iconName: field.kind === "secret" ? (field.reveal ? "eye-off" : "eye") : (field.locked ? "lock" : "unlock")
         width: 40; height: 40; implicitWidth: 40
-        hint: field.kind === "secret" ? "Show or hide typed value" : "Lock or unlock URL"
+        hint: field.kind === "secret" ? (field.reveal ? "Hide value" : "Show value") : "Lock or unlock URL"
         onClicked: field.kind === "secret" ? field.reveal = !field.reveal : field.locked = !field.locked
     }
     AppNumberField {

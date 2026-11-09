@@ -73,13 +73,15 @@ class EndpointSettingsModel final : public QObject {
     Q_OBJECT
     Q_PROPERTY(QVariantMap values READ values NOTIFY changed)
     Q_PROPERTY(QVariantMap keyStatus READ keyStatus NOTIFY changed)
+    Q_PROPERTY(QVariantMap keyInputs READ keyInputs NOTIFY changed)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
     Q_PROPERTY(QString message READ message NOTIFY changed)
 public:
     explicit EndpointSettingsModel(SettingsStore store, QObject *parent = nullptr);
     ~EndpointSettingsModel() override;
     QVariantMap values() const { return m_values; }
-    QVariantMap keyStatus() const { return m_keyStatus; }
+    QVariantMap keyStatus() const;
+    QVariantMap keyInputs() const;
     bool busy() const { return m_busy; }
     QString message() const { return m_message; }
     Q_INVOKABLE void setValue(const QString &name, const QVariant &value);
@@ -94,7 +96,7 @@ signals:
 private:
     void edited();
     SettingsStore m_store;
-    QVariantMap m_values, m_keyStatus;
+    QVariantMap m_values, m_savedKeys;
     QMap<QString, QString> m_keys;
     QTimer m_timer;
     QThreadPool m_pool;
