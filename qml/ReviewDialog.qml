@@ -13,6 +13,7 @@ Dialog {
     property int selectedSegments: 0
     property int activeSeason: 1
     property var selectedTypes: ({})
+    readonly property var reviewedTypes: movieMode && backend ? (backend.review.types || {}) : selectedTypes
     property string endpoint: "IntroDB"
     readonly property string endpointLabel: String(backend ? backend.review.endpoint || "—" : endpoint).replace(/theintrodb\.org/g,"TheIntroDB").replace(/introdb\.app/g,"IntroDB")
     objectName: "submissionReviewDialog"
@@ -30,13 +31,13 @@ Dialog {
                     {label:"Episodes",value:String(review.backend ? review.backend.review.episodes : review.selectedEpisodes)}])
                 .concat([{label:"IMDb",value:review.backend ? review.backend.review.imdb || "—" : "—"},{label:"TMDB",value:review.backend ? review.backend.review.tmdb || "—" : "—"}])
                 .concat(review.movieMode ? [{label:"TVDB",value:review.backend ? review.backend.review.tvdb || "—" : "—"}] : [])
-                .concat([{label:"Submitting",value:Object.keys(review.selectedTypes).join(" / ")},{label:"Segments",value:String(review.backend ? review.backend.review.segments : review.selectedSegments)},{label:"Types",value:Object.keys(review.selectedTypes).map(function(kind){return kind+" "+review.selectedTypes[kind]}).join(" / ")},{label:"Endpoint",value:review.endpointLabel}])
+                .concat([{label:"Submitting",value:Object.keys(review.reviewedTypes).join(" / ")},{label:"Segments",value:String(review.backend ? review.backend.review.segments : review.selectedSegments)},{label:"Types",value:Object.keys(review.reviewedTypes).map(function(kind){return kind+" "+review.reviewedTypes[kind]}).join(" / ")},{label:"Endpoint",value:review.endpointLabel}])
             RowLayout { required property var modelData; Text { text: modelData.label + ":"; color: review.theme.muted; font.pixelSize: 15 } Text { text: modelData.value; color: review.theme.text; font.pixelSize: 15; font.bold: true; elide: Text.ElideRight } Item { Layout.fillWidth: true } }
         }
         Text { Layout.fillWidth: true; font.pixelSize: 12; color: review.theme.muted; text: review.backend ? review.backend.message : "No submission is ready to send."; visible: text !== "" }
         ScrollView {
             id: targetsScroll; Layout.fillWidth: true; Layout.preferredHeight: Math.min(targetsText.implicitHeight,120)
-            visible: review.endpoint.indexOf("theintrodb.org")>=0 && targetsText.text.length>0
+            visible: targetsText.text.length>0
             clip: true; contentWidth: availableWidth
             ScrollBar.vertical.policy: ScrollBar.AlwaysOff; ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
         Text {

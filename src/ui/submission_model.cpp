@@ -324,6 +324,8 @@ void SubmissionModel::run()
                         providers::checkCancelled(command->cancel);
                         if (command->endpoints.isEmpty()) throw submissions::SubmissionError("Choose a submission endpoint");
                         QVariantList plans;
+                        bool skippedIntroDb = false, excludedMovieRanges = false;
+                        const bool hasTheIntroDb = command->endpoints.contains(QStringLiteral("theintrodb_org"));
                         for (const auto &endpoint : command->endpoints) {
                             QMap<int, QVariantList> seasons;
                             for (const auto &entry : command->selection) {
@@ -334,8 +336,16 @@ void SubmissionModel::run()
                                 if (!found) throw submissions::SubmissionError("Invalid episode selection");
                             }
                             if (seasons.isEmpty()) throw submissions::SubmissionError("Select at least one segment");
-                            for (const auto &selection : seasons)
-                                plans.append(submissions::prepareSubmission(*command->detail, selection, endpoint.toString(), m_settings, m_segments, command->cancel, command->scope));
+                            for (const auto &selection : seasons) {
+                                const auto plan = submissions::prepareSubmission(*command->detail, selection, endpoint.toString(),
+                                    m_settings, m_segments, command->cancel, command->scope, hasTheIntroDb);
+                                if (plan.isEmpty()) {
+                                    skippedIntroDb = true;
+                                } else {
+                                    excludedMovieRanges |= plan.value("excludedMovieRanges").toBool();
+                                    plans.append(plan);
+                                }
+                            }
                         }
                         auto combined = plans.first().toMap(); QVariantList items, targets; QStringList labels, seasons;
                         for (const auto &entry : plans) {
@@ -345,6 +355,10 @@ void SubmissionModel::run()
                             if (!seasons.contains(plan.value("season").toString())) seasons.append(plan.value("season").toString());
                         }
                         combined["targets"] = targets; combined["plans"] = plans; combined["items"] = items; combined["endpointLabel"] = labels.join(", "); combined["season"] = seasons.join(", ");
+                        if (skippedIntroDb)
+                            combined["notice"] = "IntroDB needs a selected Credits range. TheIntroDB will receive the selected ranges.";
+                        else if (excludedMovieRanges)
+                            combined["notice"] = "IntroDB will receive only the selected Credits range.";
                         value = combined;
                     } else {
                         const auto plans = command->plan.value("plans").toList();
@@ -441,6 +455,7 @@ void SubmissionModel::finished(Kind kind, quint64 generation, const QVariant &va
                 m_review = {{"show", plan.value("show")}, {"season", plan.value("season")}, {"imdb", identifier("imdb")}, {"tmdb", identifier("tmdb")}, {"tvdb", identifier("tvdb")}, {"targets", plan.value("targets")},
                     {"endpoint", plan.value("endpointLabel")}, {"episodes", episodes.size()}, {"segments", items.size()}, {"types", types}};
                 if (plan.value("movie").toBool()) m_review["movie"] = true;
+                m_message = plan.value("notice").toString();
                 emit prepared();
             } else { m_review.clear(); m_context.reset(); emit enqueued(); }
         }

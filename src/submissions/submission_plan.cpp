@@ -8,7 +8,7 @@ namespace introvert::submissions {
 
 QVariantMap prepareSubmission(const providers::ShowDetail &detail, const QVariantList &selection,
                               const QString &endpoint, const SettingsStore &settings, const segments::SegmentStore &segments,
-                              const providers::Cancellation &cancelled, const QString &scope)
+                              const providers::Cancellation &cancelled, const QString &scope, bool allowMissingMovieCredits)
 {
     if (endpoint != "introdb_app" && endpoint != "theintrodb_org") throw SubmissionError("Choose a submission endpoint");
     const auto client = EndpointClient::fromStore(endpoint, settings);
@@ -22,6 +22,8 @@ QVariantMap prepareSubmission(const providers::ShowDetail &detail, const QVarian
     std::set<std::pair<QString, QString>> seen;
     QSet<qint64> seasons;
     const bool movie = detail.show.isMovie();
+    const bool movieCreditsOnly = movie && endpoint == "introdb_app";
+    bool excludedMovieRanges = false;
     for (const auto &value : selection) {
         providers::checkCancelled(cancelled);
         if (value.metaType().id() != QMetaType::QVariantMap) throw SubmissionError("Invalid episode or segment selection");
@@ -41,14 +43,18 @@ QVariantMap prepareSubmission(const providers::ShowDetail &detail, const QVarian
         for (const auto &value : kinds.toList()) {
             const auto key = value.toString(), kind = segments::segmentKind(key);
             if (!seen.emplace(episode.identity.itemId, key).second) continue;
+            if (movieCreditsOnly && kind != "credits") {
+                excludedMovieRanges = true;
+                continue;
+            }
             if (!current.contains(key)) throw SubmissionError("Selected timestamps are no longer available. Review the selection again.");
             const auto times = current.value(key);
-            if (movie) for (const auto &selected : items) {
+            if (movieCreditsOnly && !items.isEmpty())
+                throw SubmissionError("Select one Credits range for IntroDB, or choose TheIntroDB for multiple ranges.");
+            if (movie && endpoint == "theintrodb_org") for (const auto &selected : items) {
                 const auto previous = selected.toMap();
                 const auto previousKind = previous.value("segment_type").toString();
-                if (endpoint == "introdb_app" && kind == previousKind)
-                    throw SubmissionError("Choose one Credits range for IntroDB.app.");
-                if (endpoint == "theintrodb_org" && providers::movieSegmentsConflict(
+                if (providers::movieSegmentsConflict(
                         {providers::segmentType(kind), times.first, times.second},
                         {providers::segmentType(previousKind), previous.value("start_sec").toDouble(), previous.value("end_sec").toDouble()}))
                     throw SubmissionError("Movie segments cannot overlap. Leave at least 5 seconds between segments of the same type.");
@@ -92,6 +98,10 @@ QVariantMap prepareSubmission(const providers::ShowDetail &detail, const QVarian
             items.append(values); seasons.insert(coordinates->first);
         }
     }
+    if (movieCreditsOnly && items.isEmpty()) {
+        if (allowMissingMovieCredits) return {};
+        throw SubmissionError("Select one movie Credits range for IntroDB, or choose TheIntroDB for other movie segments.");
+    }
     if (seasons.size() != 1) throw SubmissionError("Select episodes from one season");
     const auto saved = settings.loadProvider(providers::providerName(detail.show.identity.provider));
     const auto sourceScope = scope.isEmpty() ? providers::providerScope(detail.show.identity,
@@ -102,6 +112,7 @@ QVariantMap prepareSubmission(const providers::ShowDetail &detail, const QVarian
         {"tvdb", detail.show.externalIds.tvdb ? QVariant(*detail.show.externalIds.tvdb) : QVariant()},
         {"canonical", segments::showKeys(detail.show)}, {"season", items.first().toMap().value("season")}, {"items", items}};
     if (movie) plan["movie"] = true;
+    if (excludedMovieRanges) plan["excludedMovieRanges"] = true;
     return plan;
 }
 

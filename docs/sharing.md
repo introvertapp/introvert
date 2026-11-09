@@ -41,6 +41,9 @@ Use TheIntroDB for movie Recap, Intro, Credits, and Preview submissions. You can
 select multiple ranges of one type when they are at least 5 seconds apart.
 Ranges of any type must avoid overlapping your other submissions for that movie.
 For IntroDB, select one Credits range between 5 seconds and 15 minutes long.
+When your selection includes other movie segment types, the review shows which
+ranges will go to each service. If you select both services without a Credits
+range, the review includes TheIntroDB alone.
 See the [movie editor's range limits](editor.md#edit-without-opening-video).
 
 ## Queue and history
