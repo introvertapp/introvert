@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import "Endpoints.js" as Endpoints
 
 Rectangle {
     id: table
@@ -38,7 +39,7 @@ Rectangle {
     property var columnOverrides: ({})
     function columnWidth(column) { return columnOverrides[column.key] || (history ? viewport.width : Math.max(viewport.width,1110)) * column.weight / totalWeight }
     function displayValue(record, key) {
-        if(key === "endpoint") return record.endpoint === "introdb.app" ? "IntroDB" : record.endpoint === "theintrodb.org" ? "TheIntroDB" : record.endpoint || "—"
+        if(key === "endpoint") return Endpoints.name(record.endpoint || "—")
         if(key !== "date") return String(record[key])
         var date = new Date(record[key])
         return isNaN(date.getTime()) ? String(record[key]) : date.toLocaleString(Qt.locale(), Locale.ShortFormat)

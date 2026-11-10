@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
 import "SegmentTime.js" as SegmentTime
+import "Endpoints.js" as Endpoints
 Item {
     id: page
     required property var theme
@@ -21,6 +22,7 @@ Item {
         if(imdb) links.push({id:"imdb", label:"IMDB", href:"https://www.imdb.com/title/"+encodeURIComponent(imdb)+"/", logo:"imdb_logo.svg"})
         if(tvdb && tvdb !== "--") links.push({id:"theintrodb-org", label:"TheIntroDB", href:"https://theintrodb.org/"+(page.movieMode ? "movie/" : "tv/")+encodeURIComponent(tvdb), logo:"theintrodb_org_logo.svg"})
         if(imdb) links.push({id:"introdb-app", label:"IntroDB", href:"https://introdb.app/shows/"+encodeURIComponent(imdb), logo:"introdb_app_logo.svg"})
+        if(page.hasSkipDbId) links.push({id:"skipdb-tv", label:"SkipDB", href:"https://skipdb.tv/title/"+encodeURIComponent(imdb.toLowerCase()), logo:"skipdb_tv_logo.png"})
         return links
     }
     property var segmentManager: null
@@ -127,13 +129,16 @@ Item {
         return {segments:segments,badges:badges}
     }
     property var selectedEndpoints: []
+    readonly property bool hasSkipDbId: /^tt[0-9]{6,10}$/i.test(String(show && show.externalIds ? show.externalIds.imdb || "" : "").trim())
     readonly property var availableEndpoints: {
         var endpoints = submissions ? submissions.endpoints : ["introdb.app", "theintrodb.org"]
-        if(!movieMode || preview) return endpoints
+        if(!movieMode || preview) return endpoints.filter(function(value) { return value!=="skipdb.tv" || page.hasSkipDbId })
         var ids = show && show.externalIds ? show.externalIds : {}
-        return ["theintrodb.org", "introdb.app"].filter(function(value) {
+        var available = ["theintrodb.org", "introdb.app"].filter(function(value) {
             return endpoints.indexOf(value)>=0 && (value==="introdb.app" ? ids.imdb : (ids.tvdb || ids.tmdb || ids.imdb))
         })
+        if(page.hasSkipDbId && endpoints.indexOf("skipdb.tv")>=0) available.push("skipdb.tv")
+        return available
     }
     readonly property var requestedEndpoints: selectedEndpoints.length ? selectedEndpoints.filter(function(value){return availableEndpoints.indexOf(value)>=0}) : availableEndpoints.slice(0,1)
     readonly property string endpoint: requestedEndpoints.join(", ")
@@ -203,7 +208,7 @@ Item {
                         id: endpointButton
                         required property string modelData
                         objectName: "endpoint_"+modelData
-                        text: modelData === "introdb.app" ? "IntroDB" : modelData === "theintrodb.org" ? "TheIntroDB" : modelData; theme: page.theme; selected: page.requestedEndpoints.indexOf(modelData)>=0
+                        text: Endpoints.name(modelData); theme: page.theme; selected: page.requestedEndpoints.indexOf(modelData)>=0
                         onClicked: page.chooseEndpoint(modelData,false)
                         Keys.onSpacePressed: function(event) { page.chooseEndpoint(modelData,Boolean(event.modifiers & Qt.ShiftModifier)); event.accepted=true }
                         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: function(mouse) { endpointButton.forceActiveFocus(); page.chooseEndpoint(endpointButton.modelData,Boolean(mouse.modifiers & Qt.ShiftModifier)) } }
@@ -258,10 +263,13 @@ Item {
                         AppImage {
                             id: externalLogo
                             required property var modelData
+                            readonly property bool skipDbLogo: modelData.id === "skipdb-tv"
                             source: "assets/"+modelData.logo
-                            height: modelData.id === "theintrodb-org" ? 13 : modelData.id === "introdb-app" ? 18 : 20
-                            width: Math.min(modelData.id === "theintrodb-org" ? 58 : modelData.id === "introdb-app" ? 26 : Infinity, implicitHeight > 0 ? implicitWidth*height/implicitHeight : 0)
-                            y: (20-height)/2; fillMode: Image.PreserveAspectFit
+                            height: skipDbLogo ? 22 : modelData.id === "theintrodb-org" ? 13 : modelData.id === "introdb-app" ? 18 : 20
+                            width: skipDbLogo ? height
+                                : Math.min(modelData.id === "theintrodb-org" ? 58 : modelData.id === "introdb-app" ? 26 : Infinity, implicitHeight > 0 ? implicitWidth*height/implicitHeight : 0)
+                            y: ((page.hasSkipDbId ? 22 : 20)-height)/2
+                            fillMode: Image.PreserveAspectFit; mipmap: !skipDbLogo
                             MouseArea {
                                 id: externalMouse
                                 objectName: "externalLink_"+externalLogo.modelData.id

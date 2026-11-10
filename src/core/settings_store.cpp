@@ -1,4 +1,5 @@
 #include "settings_store.h"
+#include "endpoints.h"
 
 #include <QDir>
 #include <QFile>
@@ -16,11 +17,12 @@ namespace {
 
 const QStringList providers = {"plex", "emby", "jellyfin", "local"};
 const QStringList accounts = {"media:plex", "media:emby", "media:jellyfin",
-                             "endpoints:introdb_app", "endpoints:theintrodb_org",
+                             "endpoints:introdb_app", "endpoints:theintrodb_org", "endpoints:skipdb_tv",
                              "metadata:tmdb", "metadata:tvdb", "metadata:tvdb_pin", "metadata:omdb", "metadata:fanart", "webhook:key"};
 const QStringList endpointFields = {"introdb_enabled", "introdb_api_url", "introdb_lookup_url",
     "theintrodb_enabled", "theintrodb_base_url", "api_timeout_ms", "api_delay_seconds",
-    "save_submissions_local_db"};
+    "save_submissions_local_db", "skipdb_enabled", "skipdb_base_url"};
+const QString skipDbBaseUrl = QStringLiteral("https://api.skipdb.tv");
 
 void require(bool condition, const char *message)
 {
@@ -223,10 +225,19 @@ void SettingsStore::initialize() const
         "introdb_lookup_url TEXT NOT NULL,theintrodb_enabled INTEGER NOT NULL CHECK(theintrodb_enabled IN (0,1)),"
         "theintrodb_base_url TEXT NOT NULL,api_timeout_ms INTEGER NOT NULL,api_delay_seconds INTEGER NOT NULL,"
         "save_submissions_local_db INTEGER NOT NULL CHECK(save_submissions_local_db IN (0,1)))"));
+    const auto existingEndpointFields = columns(db, "endpoint_settings");
+    if (!existingEndpointFields.contains("skipdb_enabled"))
+        execute(db, "ALTER TABLE endpoint_settings ADD COLUMN skipdb_enabled INTEGER NOT NULL DEFAULT 0 CHECK(skipdb_enabled IN (0,1))");
+    if (!existingEndpointFields.contains("skipdb_base_url"))
+        execute(db, "ALTER TABLE endpoint_settings ADD COLUMN skipdb_base_url TEXT NOT NULL DEFAULT '" + skipDbBaseUrl + "'");
     QVariantList defaults;
+    QStringList placeholders;
     const auto endpointValues = endpointDefaults();
-    for (const auto &name : endpointFields) defaults.append(endpointValues.value(name));
-    execute(db, QStringLiteral("INSERT OR IGNORE INTO endpoint_settings VALUES(1,?,?,?,?,?,?,?,?)"), defaults);
+    for (const auto &name : endpointFields) {
+        defaults.append(endpointValues.value(name));
+        placeholders.append("?");
+    }
+    execute(db, "INSERT OR IGNORE INTO endpoint_settings(id," + endpointFields.join(',') + ") VALUES(1," + placeholders.join(',') + ')', defaults);
     execute(db,"UPDATE endpoint_settings SET theintrodb_base_url='https://api.theintrodb.org/v4' WHERE theintrodb_base_url IN "
         "('https://api.theintrodb.org/v3','https://api.theintrodb.org/v3/','https://api.theintrodb.org/v2','https://api.theintrodb.org/v2/')");
     execute(db,"CREATE TABLE IF NOT EXISTS local_metadata_settings(root TEXT PRIMARY KEY,provider TEXT NOT NULL,artwork TEXT NOT NULL,episode_order TEXT NOT NULL)");
@@ -431,7 +442,8 @@ QVariantMap SettingsStore::endpointDefaults()
     return {{"introdb_enabled", true}, {"introdb_api_url", "https://api.introdb.app/submit"},
         {"introdb_lookup_url", "https://api.introdb.app/segments"}, {"theintrodb_enabled", false},
         {"theintrodb_base_url", "https://api.theintrodb.org/v4"}, {"api_timeout_ms", 10000},
-        {"api_delay_seconds", 5}, {"save_submissions_local_db", true}};
+        {"api_delay_seconds", 5}, {"save_submissions_local_db", true},
+        {"skipdb_enabled", false}, {"skipdb_base_url", skipDbBaseUrl}};
 }
 
 void SettingsStore::validateEndpoints(const QVariantMap &values)
@@ -453,6 +465,7 @@ void SettingsStore::validateEndpoints(const QVariantMap &values)
     require(!values["introdb_enabled"].toBool() || (!values["introdb_api_url"].toString().isEmpty()
                 && !values["introdb_lookup_url"].toString().isEmpty()), "IntroDB requires submission and lookup URLs.");
     require(!values["theintrodb_enabled"].toBool() || !values["theintrodb_base_url"].toString().isEmpty(), "TheIntroDB requires a URL.");
+    require(!values["skipdb_enabled"].toBool() || !values["skipdb_base_url"].toString().isEmpty(), "SkipDB requires a URL.");
 }
 
 QVariantMap SettingsStore::loadEndpoints() const
@@ -465,7 +478,7 @@ void SettingsStore::saveEndpoints(const QVariantMap &values, const QMap<QString,
 {
     validateEndpoints(values);
     for (auto it = editedKeys.cbegin(); it != editedKeys.cend(); ++it)
-        require((it.key() == "introdb_app" || it.key() == "theintrodb_org")
+        require(endpointById(it.key())
                     && !it.value().contains('\r') && !it.value().contains('\n'), "Invalid endpoint credential.");
     Connection connection(m_path);
     Transaction transaction(connection.db);

@@ -1,4 +1,5 @@
 #include "submission_plan.h"
+#include "core/endpoints.h"
 #include "segments/identity.h"
 #include <set>
 #include <QElapsedTimer>
@@ -10,7 +11,7 @@ QVariantMap prepareSubmission(const providers::ShowDetail &detail, const QVarian
                               const QString &endpoint, const SettingsStore &settings, const segments::SegmentStore &segments,
                               const providers::Cancellation &cancelled, const QString &scope, bool allowMissingMovieCredits)
 {
-    if (endpoint != "introdb_app" && endpoint != "theintrodb_org") throw SubmissionError("Choose a submission endpoint");
+    if (!endpointById(endpoint)) throw SubmissionError("Choose a submission endpoint");
     const auto client = EndpointClient::fromStore(endpoint, settings);
     if (!client.configured()) throw SubmissionError("Enable the endpoint and save its API key in Settings → Endpoints");
     if (selection.isEmpty()) throw SubmissionError("Select at least one segment");
@@ -51,6 +52,10 @@ QVariantMap prepareSubmission(const providers::ShowDetail &detail, const QVarian
             const auto times = current.value(key);
             if (movieCreditsOnly && !items.isEmpty())
                 throw SubmissionError("Select one Credits range for IntroDB, or choose TheIntroDB for multiple ranges.");
+            if (movie && endpoint == "skipdb_tv") for (const auto &selected : items) {
+                if (selected.toMap().value("segment_type") == kind)
+                    throw SubmissionError("Select one movie range per segment type for SkipDB.");
+            }
             if (movie && endpoint == "theintrodb_org") for (const auto &selected : items) {
                 const auto previous = selected.toMap();
                 const auto previousKind = previous.value("segment_type").toString();

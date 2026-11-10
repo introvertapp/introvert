@@ -1,4 +1,5 @@
 #include "submission_store.h"
+#include "core/endpoints.h"
 #include "core/queue_order.h"
 #include "segments/identity.h"
 #include <QDateTime>
@@ -35,7 +36,6 @@ bool exists(QSqlDatabase &db, const QString &statement, const QVariantList &argu
 {
     auto query = sql::execute(db, statement, arguments); return query.next();
 }
-QString label(const QString &endpoint) { return endpoint == "introdb_app" ? QString("introdb.app") : QString("theintrodb.org"); }
 QString title(QString text) { if (!text.isEmpty()) text[0] = text[0].toUpper(); return text; }
 QString timestamp(double seconds)
 {
@@ -143,9 +143,12 @@ void SubmissionStore::initialize() const
         if (!present.next()) continue; present.finish();
         for (const auto &operation : {QString("INSERT"), QString("UPDATE"), QString("DELETE")}) {
             const auto record = operation == "DELETE" ? QString("OLD") : QString("NEW");
+            const auto trigger = "submission_changed_" + QString(table) + '_' + operation;
             const auto condition = QString(table) == "queue_order" ? " WHEN " + record + ".key LIKE 's:%'"
-                : QString(table) == "credentials" ? " WHEN " + record + ".account IN ('endpoints:introdb_app','endpoints:theintrodb_org')" : QString();
-            sql::execute(db, "CREATE TRIGGER IF NOT EXISTS submission_changed_" + QString(table) + '_' + operation
+                : QString(table) == "credentials" ? " WHEN " + record + ".account IN ('endpoints:introdb_app','endpoints:theintrodb_org','endpoints:skipdb_tv')" : QString();
+            // Older databases already have this trigger with two credential accounts.
+            if (QString(table) == "credentials") sql::execute(db, "DROP TRIGGER IF EXISTS " + trigger);
+            sql::execute(db, "CREATE TRIGGER IF NOT EXISTS " + trigger
                 + " AFTER " + operation + " ON " + table + condition + " BEGIN UPDATE submission_state SET revision=revision+1 WHERE id=1; END");
         }
     }
@@ -202,7 +205,8 @@ QString SubmissionStore::enqueuePlan(const QVariantMap &plan, QSqlDatabase &db) 
         const auto item = value.toMap();
         const auto kind = item.value("segment_type").toString();
         auto segmentKey = kind;
-        if (item.value("media_type") == "movie" && plan.value("endpoint") == "theintrodb_org") {
+        const bool skipDb = plan.value("endpoint") == "skipdb_tv";
+        if (item.value("media_type") == "movie" && (plan.value("endpoint") == "theintrodb_org" || skipDb)) {
             segmentKey = item.value("segment_key", kind).toString();
             if (!segments::validSegmentKey(segmentKey, true) || segments::segmentKind(segmentKey) != kind)
                 throw SubmissionError("Invalid movie segment selection.");
@@ -223,7 +227,10 @@ QString SubmissionStore::enqueuePlan(const QVariantMap &plan, QSqlDatabase &db) 
                     alreadyQueued = true;
                     continue;
                 }
-                if (providers::movieSegmentsConflict(candidate, range(segments::segmentKind(key), other.value("start"), other.value("end"))))
+                const auto otherKind = segments::segmentKind(key);
+                if (skipDb && otherKind == kind)
+                    throw SubmissionError("Another movie range of this type is already queued for SkipDB.");
+                if (!skipDb && providers::movieSegmentsConflict(candidate, range(otherKind, other.value("start"), other.value("end"))))
                     throw SubmissionError("A queued movie range overlaps this range or is less than 5 seconds away from it.");
             }
             if (alreadyQueued) continue;
@@ -342,18 +349,14 @@ bool SubmissionStore::processOne(const SettingsStore &settings, const providers:
         if(completion.status=="RATE LIMITED")completion.limit=*lookup.failure;
         finish(*selected,completion);return true;
     }
-    const bool theIntroDb = client.endpoint() == "theintrodb_org";
-    const auto durationMs = item.value("duration_ms").toLongLong();
-    const auto mediaEnd = theIntroDb && values.value("media_type") == "movie" && durationMs > 0
-        && (kind == "credits" || kind == "preview") ? std::optional{durationMs / 1000.} : std::nullopt;
-    completion.comparison = comparison(lookup, item.value("start").toDouble(), item.value("end").isNull()
-        ? std::nullopt : std::optional<double>(item.value("end").toDouble()), theIntroDb, mediaEnd);
+    completion.comparison = client.compare(lookup, values);
     if (*completion.comparison == "DUPLICATE") completion.status = "DUPLICATE";
     else {
         const auto result = client.submit(values, cancelled);
         if (cancelled && cancelled->load()) return false;
         completion.status = result.result; completion.error = result.error; completion.httpStatus = result.httpStatus;
         if (result.result == "RATE LIMITED") completion.limit = result;
+        if (result.result == "DUPLICATE") completion.comparison = result.result;
     }
     finish(*selected, completion); return true;
 }
@@ -393,7 +396,7 @@ QVariantMap SubmissionStore::episodeStatuses(bool includeActivity, const QString
         const auto segmentKey = item.value("kind").toString();
         const auto kind = segments::segmentKind(segmentKey);
         const auto primaryEndpoint = primaryEndpoints.value(key + ":" + segmentKey);
-        const auto itemEndpoint = item.value("endpoint") == "introdb_app" ? QString("introdb.app") : QString("theintrodb.org");
+        const auto itemEndpoint = endpointDomain(item.value("endpoint").toString());
         const auto statusKey = primaryEndpoint.isEmpty() || primaryEndpoint == itemEndpoint ? segmentKey : segmentKey + ":" + item.value("endpoint").toString();
         if (primaryEndpoint.isEmpty()) primaryEndpoints[key + ":" + segmentKey] = itemEndpoint;
         if (!segments.contains(statusKey)) {
@@ -453,7 +456,7 @@ SubmissionSnapshot SubmissionStore::snapshot() const
         else text = status;
         const auto tmdb = job.value("tmdb"), imdb = job.value("imdb");
         const bool movie = item.value("season").toLongLong() == segments::movieCoordinate;
-        QVariantMap row{{"type", title(segments::segmentKind(item.value("kind").toString()))}, {"endpoint", label(endpoint)}, {"show", job.value("title")},
+        QVariantMap row{{"type", title(segments::segmentKind(item.value("kind").toString()))}, {"endpoint", endpointDomain(endpoint)}, {"show", job.value("title")},
             {"episode", movie ? QVariant(QString()) : item.value("title")}, {"code", movie ? QString("Movie")
                 : QString("S%1E%2").arg(item.value("season").toLongLong(), 2, 10, QChar('0')).arg(item.value("number").toLongLong(), 2, 10, QChar('0'))},
             {"date", timestamp(item.value("created").toDouble())}, {"status", text}, {"providerId", job.value("provider")}, {"showId", job.value("show_id")},
@@ -494,7 +497,8 @@ SubmissionSnapshot SubmissionStore::snapshot() const
         return left.value("queueOrder").toLongLong() < right.value("queueOrder").toLongLong();
     });
     QSet<QString> shows, movies; QSet<QPair<QString, QString>> episodes;
-    result.statistics = {{"Shows", 0}, {"Episodes", 0}, {"IntroDB", 0}, {"TheIntroDB", 0}};
+    result.statistics = {{"Shows", 0}, {"Episodes", 0}};
+    for (const auto &endpoint : endpoints) result.statistics[endpoint.name] = 0;
     for (const auto &kind : kinds) result.statistics[title(kind)] = 0;
     for (const auto &value : result.history) {
         const auto row = value.toMap();
@@ -504,7 +508,7 @@ SubmissionSnapshot SubmissionStore::snapshot() const
         else { shows.insert(show); episodes.insert(qMakePair(show, row.value("code").toString())); }
         const auto type = row.value("type").toString();
         if (kinds.contains(type.toLower())) result.statistics[type] = result.statistics.value(type).toInt() + 1;
-        const auto endpoint = row.value("endpoint") == "introdb.app" ? QString("IntroDB") : QString("TheIntroDB");
+        const auto endpoint = endpointName(row.value("endpoint").toString());
         result.statistics[endpoint] = result.statistics.value(endpoint).toInt() + 1;
     }
     result.statistics["Shows"] = shows.size(); result.statistics["Episodes"] = episodes.size();

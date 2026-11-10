@@ -1,4 +1,5 @@
 #include "settings_model.h"
+#include "core/endpoints.h"
 
 #include <QMetaObject>
 #include <QRunnable>
@@ -34,8 +35,10 @@ void startOperation(QThreadPool &pool, QObject *owner, std::function<OperationRe
 
 QVariantMap endpointKeys(const SettingsStore &store)
 {
-    return {{"introdb_app", store.credential("endpoints:introdb_app").value_or(QString())},
-            {"theintrodb_org", store.credential("endpoints:theintrodb_org").value_or(QString())}};
+    QVariantMap keys;
+    for (const auto &endpoint : endpoints)
+        keys[endpoint.id] = store.credential("endpoints:" + endpoint.id).value_or(QString());
+    return keys;
 }
 
 QVariant endpointInput(const QString &name, const QVariant &value)
@@ -220,7 +223,7 @@ void EndpointSettingsModel::setValue(const QString &name, const QVariant &value)
 }
 void EndpointSettingsModel::editKey(const QString &name, const QString &value)
 {
-    if (m_closed || (name != "introdb_app" && name != "theintrodb_org")) return;
+    if (m_closed || !endpointById(name)) return;
     m_keys[name] = value; edited();
 }
 

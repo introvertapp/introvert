@@ -1,4 +1,5 @@
 #include "endpoint_client.h"
+#include "core/endpoints.h"
 #include "providers/http_transport.h"
 #include <QDateTime>
 #include <QJsonArray>
@@ -82,6 +83,55 @@ bool imdb(const QString &value)
     static const QRegularExpression pattern(QStringLiteral("\\Att\\d{7,8}\\z"), QRegularExpression::UseUnicodePropertiesOption);
     return pattern.match(value).hasMatch();
 }
+
+QVariantMap skipDbIdentity(const QVariantMap &values)
+{
+    static const QRegularExpression pattern(QStringLiteral("\\Att[0-9]{6,10}\\z"));
+    const auto id = values.value("imdb_id").toString().trimmed().toLower();
+    if (!pattern.match(id).hasMatch()) throw SubmissionError("SkipDB requires a valid IMDb title ID.");
+    QVariantMap identity{{"imdb_id", id}};
+    if (values.value("media_type") != "movie") {
+        const auto season = values.value("season"), episode = values.value("episode");
+        if (!integer(season, 0, 1000) || !integer(episode, 0, 100000))
+            throw SubmissionError("SkipDB requires a valid season and episode number.");
+        const auto order = values.value("mapping").toString();
+        if (!order.isEmpty() && order != "default" && order != "official")
+            throw SubmissionError("SkipDB requires aired episode numbering. Review the show's episode order.");
+        identity["season"] = season;
+        identity["episode"] = episode;
+    }
+    return identity;
+}
+
+QString skipDbSegment(const QString &kind) { return kind == "credits" ? QString("outro") : kind; }
+
+QJsonObject skipDbBody(const QVariantMap &values, const QString &kind, double start, std::optional<double> end)
+{
+    auto body = skipDbIdentity(values);
+    if (values.value("media_type") == "movie" && kind == "recap")
+        throw SubmissionError("SkipDB does not accept movie Recap segments.");
+    const auto duration = numeric(values.value("video_duration_ms"));
+    const bool hasDuration = duration && *duration > 0;
+    const auto roundMs = [](double milliseconds) { return rounded(milliseconds / 100) * 100; };
+    const auto startMs = roundMs(start * 1000);
+    const auto durationMs = hasDuration ? roundMs(*duration) : 0.;
+    auto endMs = end ? std::optional{roundMs(*end * 1000)} : std::nullopt;
+    if (kind == "credits" && hasDuration && (!endMs || std::abs(*endMs - durationMs) <= 10000))
+        endMs = durationMs;
+    if (!endMs) throw SubmissionError("SkipDB requires an end timestamp. Credits can use the video runtime.");
+    const auto length = *endMs - startMs;
+    const auto maximum = kind == "intro" || kind == "recap" ? 300000 : 900000;
+    if (!integer(QVariant(startMs), 0, std::numeric_limits<int>::max())
+        || !integer(QVariant(*endMs), 0, std::numeric_limits<int>::max())
+        || (hasDuration && (durationMs <= 0 || durationMs > std::numeric_limits<int>::max() || *endMs > durationMs))
+        || length < 5000 || length > maximum)
+        throw SubmissionError("SkipDB requires ranges within the video and at least 5 seconds long (up to 5 minutes for Intro/Recap or 15 for Credits/Preview).");
+    body["segment_type"] = skipDbSegment(kind);
+    body["start_ms"] = startMs;
+    body["end_ms"] = *endMs;
+    if (hasDuration) body["duration_ms"] = durationMs;
+    return QJsonObject::fromVariantMap(body);
+}
 bool mediaBody(const QJsonObject &body)
 {
     const auto row = body.toVariantMap();
@@ -136,18 +186,18 @@ std::optional<QString> iso(double seconds)
 EndpointClient::EndpointClient(QString endpoint, QVariantMap settings, std::optional<QString> key, Clock clock)
     : m_endpoint(std::move(endpoint)), m_settings(std::move(settings)), m_key(std::move(key)), m_clock(std::move(clock))
 {
-    if (m_endpoint != "introdb_app" && m_endpoint != "theintrodb_org") throw SubmissionError("Unsupported submission endpoint");
+    if (!endpointById(m_endpoint)) throw SubmissionError("Unsupported submission endpoint");
     SettingsStore::validateEndpoints(m_settings);
     if (!m_clock) m_clock = [] { return QDateTime::currentMSecsSinceEpoch() / 1000.; };
 }
 EndpointClient EndpointClient::fromStore(const QString &endpoint, const SettingsStore &store, Clock clock)
 {
-    if (endpoint != "introdb_app" && endpoint != "theintrodb_org") throw SubmissionError("Unsupported submission endpoint");
+    if (!endpointById(endpoint)) throw SubmissionError("Unsupported submission endpoint");
     return EndpointClient(endpoint, store.loadEndpoints(), store.credential("endpoints:" + endpoint), std::move(clock));
 }
 bool EndpointClient::enabled() const
 {
-    return m_settings.value(m_endpoint == "introdb_app" ? "introdb_enabled" : "theintrodb_enabled").toBool();
+    return m_settings.value(endpointById(m_endpoint)->enabledSetting).toBool();
 }
 
 std::optional<QString> EndpointClient::resetDate(const QVariant &value, double now, bool relative)
@@ -205,6 +255,39 @@ LookupResult EndpointClient::lookup(const QVariantMap &values, const providers::
 {
     const auto kind = values.value("segment_type").toString();
     if (!enabled() || !kinds.contains(kind)) return {};
+    if (m_endpoint == "skipdb_tv") {
+        try {
+            const auto identity = skipDbIdentity(values);
+            auto query = identity;
+            const auto segment = skipDbSegment(kind);
+            query["type"] = segment;
+            query["adjust"] = "none";
+            const auto duration = numeric(values.value("video_duration_ms"));
+            if (duration && *duration > 0) query["duration"] = QString::number(*duration / 1000., 'f', 3);
+            const auto response = request(base(m_settings.value("skipdb_base_url").toString()) + "/api/segments", query, {}, false, cancel);
+            if (response.status == 429) return {{}, rateLimit(response)};
+            if (response.status != 200)
+                return {{}, SubmissionResult{"FAIL", response.status, "SkipDB could not verify existing segments. Check the URL or retry later.", {}, {}}};
+            const auto body = response.body.toObject();
+            const auto item = body["segments"].toObject().value(segment);
+            const auto row = item.toObject();
+            const auto start = row["start_ms"].toDouble(-1), end = row["end_ms"].toDouble(-1);
+            const auto coordinateMatches = [&](const QString &key) {
+                return identity.contains(key) ? body.value(key) == QJsonValue::fromVariant(identity.value(key)) : body.value(key).isNull();
+            };
+            if (body["imdb_id"].toString() != identity["imdb_id"].toString()
+                || !coordinateMatches("season") || !coordinateMatches("episode")
+                || (!item.isNull() && (!item.isObject() || !integer(row["start_ms"].toVariant())
+                    || !integer(row["end_ms"].toVariant(), start) || (start == end && start != 0) || row["adjusted"] == true)))
+                return {{}, SubmissionResult{"FAIL", response.status, "SkipDB returned an invalid segment lookup response.", {}, {}}};
+            if (item.isNull() || (start == 0 && end == 0)) return {};
+            return {{{start / 1000., end / 1000., row["confidence"].toVariant(), {}, {}}}, {}};
+        } catch (const SubmissionError &error) {
+            return {{}, SubmissionResult{"FAIL", {}, QString::fromUtf8(error.what()), {}, {}}};
+        } catch (const EndpointError &error) {
+            return {{}, SubmissionResult{"FAIL", {}, QString::fromUtf8(error.what()), {}, {}}};
+        }
+    }
     const bool intro = m_endpoint == "introdb_app";
     const bool movie = values.value("media_type") == "movie";
     QVariantMap query; QString segment = kind, url;
@@ -291,6 +374,8 @@ EndpointClient::Payload EndpointClient::payload(const QVariantMap &values, bool 
     const auto season = values.value("season"), episode = values.value("episode");
     if (!movie && (!integralType(season) || !integralType(episode) || !integer(season) || !integer(episode)))
         throw SubmissionError("Invalid season or episode number");
+    if (m_endpoint == "skipdb_tv")
+        return {base(m_settings.value("skipdb_base_url").toString()) + "/api/segments", skipDbBody(values, kind, *start, end)};
     if (m_endpoint == "introdb_app") {
         if (!truthy(values.value("imdb_id"))) throw SubmissionError("Missing imdbId");
         QVariantMap body{{"imdb_id", values.value("imdb_id")},
@@ -391,6 +476,15 @@ QVariantMap EndpointClient::resolve(const QVariantMap &values, const providers::
 
 SubmissionResult EndpointClient::rateLimit(const Response &response) const
 {
+    if (m_endpoint == "skipdb_tv") {
+        const auto now = m_clock();
+        const auto current = iso(now);
+        auto reset = resetDate(QString::fromUtf8(response.headers.value("retry-after")), now, true);
+        if (!reset || reset <= current)
+            reset = resetDate(QString::fromUtf8(response.headers.value("x-ratelimit-reset")), now);
+        if (!reset || reset <= current) reset = iso(now + 60);
+        return {"RATE LIMITED", response.status, "Rate limit exceeded", reset, reset};
+    }
     const auto body=response.body.toObject().toVariantMap();
     const bool intro=m_endpoint=="introdb_app";
         std::optional<QString> reset, resume;
@@ -427,6 +521,21 @@ SubmissionResult EndpointClient::submit(const QVariantMap &values, const provide
     if (response.status == 429 || (intro && response.status >= 400 && string(body.value("error")).contains("Rate limit exceeded"))) {
         return rateLimit(response);
     }
+    if (m_endpoint == "skipdb_tv") {
+        const auto status = body.value("status").toString();
+        const auto id = body.value("id");
+        if (response.status == 409 && status == "already_approved" && integer(id, 1))
+            return {"DUPLICATE", response.status, {}, {}, {}};
+        if ((response.status == 200 || response.status == 201) && integer(id, 1) && (status == "approved" || status == "pending"))
+            return {"OK", response.status, {}, {}, {}};
+        if (response.status == 401 || response.status == 403)
+            return {"FAIL", response.status, "SkipDB did not authorize the submission. Check its API key in Settings.", {}, {}};
+        auto error = body.value("error").toString();
+        if (m_key && !m_key->trimmed().isEmpty()) error.replace(m_key->trimmed(), "[redacted]");
+        error = error.simplified().left(512);
+        if (error.isEmpty()) error = status == "rejected" ? "SkipDB rejected the submission." : "SkipDB returned an invalid submission response.";
+        return {"FAIL", response.status, error, {}, {}};
+    }
     if (!intro && response.status == 409) {
         const auto message = string(body.value("error")).simplified().left(512);
         return {"FAIL", response.status, message.isEmpty() ? QString("This segment conflicts with an existing TheIntroDB submission.") : message, {}, {}};
@@ -439,6 +548,22 @@ SubmissionResult EndpointClient::submit(const QVariantMap &values, const provide
         });
     }
     return {success ? "OK" : "FAIL", response.status, success ? QString() : QString("Endpoint rejected the submission or returned an invalid response"), {}, {}};
+}
+
+QString EndpointClient::compare(const LookupResult &lookup, const QVariantMap &values) const
+{
+    const auto start = values.value("start_sec").toDouble();
+    const auto end = numeric(values.value("end_sec"));
+    const auto duration = values.value("video_duration_ms").toLongLong();
+    const auto kind = values.value("segment_type").toString();
+    if (m_endpoint == "skipdb_tv") {
+        const auto body = skipDbBody(values, kind, start, end);
+        return comparison(lookup, body["start_ms"].toDouble() / 1000., body["end_ms"].toDouble() / 1000., true);
+    }
+    const bool theIntroDb = m_endpoint == "theintrodb_org";
+    const auto mediaEnd = theIntroDb && values.value("media_type") == "movie" && duration > 0
+        && (kind == "credits" || kind == "preview") ? std::optional{duration / 1000.} : std::nullopt;
+    return comparison(lookup, start, end, theIntroDb, mediaEnd);
 }
 
 QString comparison(const LookupResult &lookup, double start, const std::optional<double> &end, bool millisecondPrecision,

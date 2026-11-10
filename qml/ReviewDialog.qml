@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import "Endpoints.js" as Endpoints
 Dialog {
     id: review
     required property var theme
@@ -15,7 +16,7 @@ Dialog {
     property var selectedTypes: ({})
     readonly property var reviewedTypes: movieMode && backend ? (backend.review.types || {}) : selectedTypes
     property string endpoint: "IntroDB"
-    readonly property string endpointLabel: String(backend ? backend.review.endpoint || "—" : endpoint).replace(/theintrodb\.org/g,"TheIntroDB").replace(/introdb\.app/g,"IntroDB")
+    readonly property string endpointLabel: String(backend ? backend.review.endpoint || "—" : endpoint).split(", ").map(Endpoints.name).join(", ")
     objectName: "submissionReviewDialog"
     parent: Overlay.overlay; anchors.centerIn: parent
     width: Math.min(520, parent ? parent.width - 40 : 520)

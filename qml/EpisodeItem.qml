@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import "SegmentTime.js" as SegmentTime
+import "Endpoints.js" as Endpoints
 
 Rectangle {
     id: row
@@ -14,7 +15,7 @@ Rectangle {
         var endpoints={}
         Object.keys(submissionState.segments || {}).forEach(function(key) {
             var state=submissionState.segments[key], endpoint=state.endpoint || "introdb.app"
-            if(!endpoints[endpoint]) endpoints[endpoint]={endpoint:endpoint,name:endpoint==="theintrodb.org" ? "TheIntroDB" : "IntroDB",states:[],errors:[],cooldown:0}
+            if(!endpoints[endpoint]) endpoints[endpoint]={endpoint:endpoint,name:Endpoints.name(endpoint),states:[],errors:[],cooldown:0}
             var group=endpoints[endpoint]
             group.states.push(state)
             if(state.result==="FAIL") {
@@ -25,7 +26,7 @@ Rectangle {
             }
             group.cooldown=Math.max(group.cooldown,Number(state.cooldownSeconds || 0))
         })
-        return ["theintrodb.org","introdb.app"].filter(function(endpoint){return Boolean(endpoints[endpoint])}).map(function(endpoint){
+        return ["theintrodb.org","introdb.app","skipdb.tv"].filter(function(endpoint){return Boolean(endpoints[endpoint])}).map(function(endpoint){
             var group=endpoints[endpoint]
             var processing=group.states.some(function(state){return state.result==="PROCESSING"})
             var pending=group.states.some(function(state){return ["WAITING","RATE LIMITED"].indexOf(state.result)>=0})
@@ -156,10 +157,13 @@ Rectangle {
                             model: row.submissionState.badges ? (row.submissionState.badges[segmentLine.kind.toLowerCase()] || []).filter(function(badge){var times=row.valuesFor(segmentLine.modelData);return times && times[0]===badge.start && times[1]===badge.end}).map(function(badge){return badge.endpoint}) : []
                             AppImage {
                                 required property string modelData
-                                Layout.preferredWidth: modelData==="theintrodb_org" ? 34 : 16; Layout.preferredHeight: modelData==="theintrodb_org" ? 8 : 13
+                                readonly property bool skipDbBadge: modelData === "skipdb_tv"
+                                Layout.preferredWidth: skipDbBadge ? 18 : modelData==="theintrodb_org" ? 34 : 16
+                                Layout.preferredHeight: skipDbBadge ? 18 : modelData==="theintrodb_org" ? 8 : 13
                                 Layout.minimumWidth: Layout.preferredWidth; Layout.maximumWidth: Layout.preferredWidth
                                 Layout.minimumHeight: Layout.preferredHeight; Layout.maximumHeight: Layout.preferredHeight
-                                fillMode: Image.PreserveAspectFit; source: "assets/"+(modelData==="theintrodb_org" ? "theintrodb_org_logo.svg" : "introdb_app_logo.svg")
+                                fillMode: Image.PreserveAspectFit; mipmap: !skipDbBadge
+                                source: skipDbBadge ? "assets/skipdb_tv_logo.png" : "assets/"+modelData+"_logo.svg"
                             }
                         }
                         Item { Layout.fillWidth: true }

@@ -29,9 +29,9 @@ episode drawer lets you switch episodes while reviewing a show.
   Local TV libraries can import supported embedded chapters during discovery.
 - View movie posters, logos, runtime, and title links when available. Identify
   local TV shows and fetch metadata and artwork from selectable providers.
-- Review and share selected timestamps with [IntroDB](https://introdb.app) and
-  [TheIntroDB](https://theintrodb.org), with duplicate checks, queued processing,
-  and submission history.
+- Review and share selected timestamps with [IntroDB](https://introdb.app),
+  [TheIntroDB](https://theintrodb.org), and [SkipDB](https://skipdb.tv), with
+  duplicate checks, queued processing, and submission history.
 - Edit or remove ranges on a movie or episode card. For TV, bulk delete by
   show, season, or episode. Saved edits take precedence over later imports.
 

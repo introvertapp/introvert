@@ -24,9 +24,16 @@ AbstractButton {
     background: Rectangle {
         radius: tile.gpuMask ? 0 : 14
         color: tile.record.color || "#263744"; clip: true
+        readonly property bool supersample: tile.gpuMask && (tile.hovered || artwork.scale > 1)
         // Mask the composited artwork, dimming and labels together. Covering
         // corners with background-colored paint leaves edge fringes on the GPU.
         layer.enabled: tile.gpuMask
+        // Transform the artwork at full decode resolution during hover.
+        // Downsample the finished tile once so fine detail stays sharp.
+        layer.textureSize: supersample ? Qt.size(Math.ceil(width * Screen.devicePixelRatio * 2),
+                                                Math.ceil(height * Screen.devicePixelRatio * 2)) : Qt.size(0, 0)
+        layer.smooth: supersample
+        layer.mipmap: supersample
         layer.effect: MultiEffect {
             maskEnabled: true; maskSource: posterMask
             // Preserve the mask's fractional edge coverage; the default sharp
@@ -36,6 +43,7 @@ AbstractButton {
             autoPaddingEnabled: false
         }
         Item {
+            id: artwork
             objectName: "posterArtwork"
             anchors.fill: parent
             scale: tile.hovered ? 1.025 : 1
@@ -43,12 +51,9 @@ AbstractButton {
         AppImage {
             id: posterImage; objectName: "posterImage"
             anchors.fill: parent; source: tile.record.posterUrl || ""; fillMode: Image.PreserveAspectCrop
-            // Posters retain their full physical decode even when artwork is SVG.
+            // Match the hover layer resolution for SVG and raster posters.
             sourceSize.width: Math.ceil(160 * Screen.devicePixelRatio * 2)
             sourceSize.height: Math.ceil(240 * Screen.devicePixelRatio * 2)
-            // Sample the 2x decode directly throughout the small hover zoom.
-            // Minification mip levels discard detail that zooming then enlarges.
-            mipmap: false
             opacity: status === Image.Ready ? 1 : 0
             Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
         }

@@ -42,6 +42,7 @@ public:
     bool enabled() const;
     bool configured() const { return enabled() && m_key && !m_key->isEmpty(); }
     LookupResult lookup(const QVariantMap &values, const providers::Cancellation &cancelled = {}) const;
+    QString compare(const LookupResult &lookup, const QVariantMap &values) const;
     void validate(const QVariantMap &values) const;
     QVariantMap resolve(const QVariantMap &values, const providers::Cancellation &cancelled = {}) const;
     SubmissionResult submit(const QVariantMap &values, const providers::Cancellation &cancelled = {}) const;

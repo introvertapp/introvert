@@ -1,4 +1,5 @@
 #include "submission_model.h"
+#include "core/endpoints.h"
 #include <QCoreApplication>
 #include <QEvent>
 #include "segments/identity.h"
@@ -7,20 +8,13 @@
 #include <cmath>
 
 namespace introvert::ui {
-namespace {
-QString label(const QString &endpoint)
-{
-    return endpoint == "introdb_app" ? QString("introdb.app") : QString("theintrodb.org");
-}
-}
-
 SubmissionModel::SubmissionModel(LibraryModel &library, SettingsStore settings, submissions::SubmissionStore store,
                                  segments::SegmentStore segments, QObject *parent)
     : QObject(parent), m_library(library), m_settings(std::move(settings)), m_store(std::move(store)), m_segments(std::move(segments))
 {
     m_pool.setMaxThreadCount(1);
     m_queuePool.setMaxThreadCount(1);
-    m_endpointPool.setMaxThreadCount(2);
+    m_endpointPool.setMaxThreadCount(int(introvert::endpoints.size()));
     connect(&library, &LibraryModel::changed, this, &SubmissionModel::libraryChanged);
     libraryChanged();
 }
@@ -140,8 +134,8 @@ void SubmissionModel::start()
     if (m_closed || m_started) return;
     m_started = true;
     m_pool.start(QRunnable::create([this] { run(); }));
-    for (const auto &endpoint : {QString("introdb_app"), QString("theintrodb_org")})
-        m_endpointPool.start(QRunnable::create([this, endpoint] {
+    for (const auto &endpoint : introvert::endpoints)
+        m_endpointPool.start(QRunnable::create([this, endpoint = endpoint.id] {
             while (!m_stop->load()) {
                 try { m_store.processOne(m_settings, m_stop, {}, endpoint); }
                 catch (...) {
@@ -181,7 +175,7 @@ void SubmissionModel::prepareMany(const QVariantList &selection, const QVariantL
     QVariantList keys;
     for (const auto &value : endpoints) {
         auto key = value.toString();
-        for (const auto &id : {QString("introdb_app"), QString("theintrodb_org")}) if (key == label(id)) key = id;
+        for (const auto &endpoint : introvert::endpoints) if (key == endpoint.domain) key = endpoint.id;
         if (!keys.contains(key)) keys.append(key);
     }
     push({Kind::Prepare, m_generation, *detail, selection, keys, {}, m_reviewCancel, m_feedbackScope});
@@ -254,21 +248,21 @@ void SubmissionModel::run()
         const bool changed = !cachedRevision || *cachedRevision != revision;
         if (changed) {
             const auto settings = m_settings.loadEndpoints(); QVariantList endpoints;
-            for (const auto &id : {QString("introdb_app"), QString("theintrodb_org")}) {
-                const auto enabled = settings.value(id == "introdb_app" ? "introdb_enabled" : "theintrodb_enabled").toBool();
-                if (enabled && m_settings.hasCredential("endpoints:" + id)) endpoints.append(label(id));
+            for (const auto &endpoint : introvert::endpoints) {
+                if (settings.value(endpoint.enabledSetting).toBool() && m_settings.hasCredential("endpoints:" + endpoint.id))
+                    endpoints.append(endpoint.domain);
             }
             const auto snapshot = m_store.snapshot();
             cached = {{"queue", snapshot.queue}, {"history", snapshot.history}, {"statistics", snapshot.statistics}, {"endpoints", endpoints}};
             limits.clear(); limitOrigins.clear();
             auto query = sql::execute(watch->db, "SELECT endpoint,resume_at FROM submit_api_rate_limits");
-            while (query.next()) limits[label(query.value(0).toString())] = query.value(1).toDouble();
+            while (query.next()) limits[endpointDomain(query.value(0).toString())] = query.value(1).toDouble();
             auto origins = sql::execute(watch->db,
                 "SELECT j.endpoint,j.id,i.episode_id FROM submit_items i JOIN submit_jobs j ON j.id=i.job_id "
                 "JOIN submit_api_rate_limits l ON l.endpoint=j.endpoint WHERE i.status='RATE LIMITED' "
                 "AND j.status IN ('queued','running','rate_limited') ORDER BY i.updated DESC,i.id DESC");
             while (origins.next()) {
-                const auto endpoint = label(origins.value(0).toString());
+                const auto endpoint = endpointDomain(origins.value(0).toString());
                 if (!limitOrigins.contains(endpoint)) limitOrigins[endpoint] = "s:" + origins.value(1).toString() + ':' + origins.value(2).toString();
             }
         }
@@ -325,7 +319,8 @@ void SubmissionModel::run()
                         if (command->endpoints.isEmpty()) throw submissions::SubmissionError("Choose a submission endpoint");
                         QVariantList plans;
                         bool skippedIntroDb = false, excludedMovieRanges = false;
-                        const bool hasTheIntroDb = command->endpoints.contains(QStringLiteral("theintrodb_org"));
+                        const bool hasOtherMovieEndpoint = command->endpoints.contains(QStringLiteral("skipdb_tv"))
+                            || command->endpoints.contains(QStringLiteral("theintrodb_org"));
                         for (const auto &endpoint : command->endpoints) {
                             QMap<int, QVariantList> seasons;
                             for (const auto &entry : command->selection) {
@@ -338,7 +333,7 @@ void SubmissionModel::run()
                             if (seasons.isEmpty()) throw submissions::SubmissionError("Select at least one segment");
                             for (const auto &selection : seasons) {
                                 const auto plan = submissions::prepareSubmission(*command->detail, selection, endpoint.toString(),
-                                    m_settings, m_segments, command->cancel, command->scope, hasTheIntroDb);
+                                    m_settings, m_segments, command->cancel, command->scope, hasOtherMovieEndpoint);
                                 if (plan.isEmpty()) {
                                     skippedIntroDb = true;
                                 } else {
@@ -351,13 +346,15 @@ void SubmissionModel::run()
                         for (const auto &entry : plans) {
                             const auto plan = entry.toMap(); items.append(plan.value("items").toList());
                             if (plan.value("endpoint") == "theintrodb_org") targets.append(plan.value("items").toList());
-                            if (!labels.contains(label(plan.value("endpoint").toString()))) labels.append(label(plan.value("endpoint").toString()));
+                            const auto domain = endpointDomain(plan.value("endpoint").toString());
+                            if (!labels.contains(domain)) labels.append(domain);
                             if (!seasons.contains(plan.value("season").toString())) seasons.append(plan.value("season").toString());
                         }
                         combined["targets"] = targets; combined["plans"] = plans; combined["items"] = items; combined["endpointLabel"] = labels.join(", "); combined["season"] = seasons.join(", ");
-                        if (skippedIntroDb)
-                            combined["notice"] = "IntroDB needs a selected Credits range. TheIntroDB will receive the selected ranges.";
-                        else if (excludedMovieRanges)
+                        if (skippedIntroDb) {
+                            const auto destination = labels.size() == 1 ? endpointName(labels.first()) : QString("The other selected endpoints");
+                            combined["notice"] = "IntroDB needs a selected Credits range. " + destination + " will receive the selected ranges.";
+                        } else if (excludedMovieRanges)
                             combined["notice"] = "IntroDB will receive only the selected Credits range.";
                         value = combined;
                     } else {
@@ -408,7 +405,7 @@ void SubmissionModel::finished(Kind kind, quint64 generation, const QVariant &va
             if (failed.value("status") != "Fail" || previousFailures.contains(key)) continue;
             previousFailures.insert(key);
             emit errorOccurred(QString("Could not submit %1, %2 to %3. %4").arg(failed.value("show").toString(),
-                failed.value("code").toString(), failed.value("endpoint") == "introdb.app" ? QString("IntroDB") : QString("TheIntroDB"), failed.value("error").toString()));
+                failed.value("code").toString(), endpointName(failed.value("endpoint").toString()), failed.value("error").toString()));
         }
         m_statistics = row.value("statistics").toMap(); m_endpoints = row.value("endpoints").toList();
         m_rawStatuses = row.value("statuses").toMap(); m_haveStatusSnapshot = true;
