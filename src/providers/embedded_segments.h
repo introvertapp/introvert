@@ -10,5 +10,6 @@ namespace introvert::providers {
 QList<ImportedSegment> embeddedSegments(const QJsonObject &probe);
 // True means a complete metadata read, including a valid empty chapter list.
 bool inspectEmbeddedSegments(Episode &episode, const Cancellation &cancelled = {});
+bool inspectMovieChapters(MovieDetail &detail, const Cancellation &cancelled = {});
 
 } // namespace introvert::providers

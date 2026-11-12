@@ -9,6 +9,7 @@
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QUrl>
+#include <algorithm>
 #include <cmath>
 #include <utility>
 
@@ -18,7 +19,8 @@ namespace {
 const QStringList providers = {"plex", "emby", "jellyfin", "local"};
 const QStringList accounts = {"media:plex", "media:emby", "media:jellyfin",
                              "endpoints:introdb_app", "endpoints:theintrodb_org", "endpoints:skipdb_tv",
-                             "metadata:tmdb", "metadata:tvdb", "metadata:tvdb_pin", "metadata:omdb", "metadata:fanart", "webhook:key"};
+                             "metadata:tmdb", "metadata:tvdb", "metadata:omdb", "metadata:fanart", "webhook:key",
+                             "metadata:movies:tmdb", "metadata:movies:tvdb", "metadata:movies:omdb", "metadata:movies:fanart"};
 const QStringList endpointFields = {"introdb_enabled", "introdb_api_url", "introdb_lookup_url",
     "theintrodb_enabled", "theintrodb_base_url", "api_timeout_ms", "api_delay_seconds",
     "save_submissions_local_db", "skipdb_enabled", "skipdb_base_url"};
@@ -113,6 +115,11 @@ ProviderSettings loadProviderFrom(QSqlDatabase &db, const QString &provider)
                 || timeout.metaType().id() == QMetaType::LongLong, "Invalid timeout in app.db.");
     ProviderSettings result{provider, query.value(0).toString(), query.value(1).toString(),
                             images.toBool(), timeout.toDouble(), imports.toBool(), query.value(5).toString(), movieImports.toBool()};
+    query.finish();
+    if (provider == "local") {
+        auto folders = execute(db, "SELECT path,type FROM local_media_folders ORDER BY position");
+        while (folders.next()) result.localFolders.append({folders.value(0).toString(), folders.value(1).toString()});
+    }
     result.validate();
     return result;
 }
@@ -146,6 +153,14 @@ QVariantMap loadEndpointsFrom(QSqlDatabase &db)
 
 } // namespace
 
+QStringList ProviderSettings::localPaths(const QString &type) const
+{
+    QStringList result;
+    for (const auto &folder : localFolders) if (folder.type == type) result.append(folder.path);
+    if (type == "tv" && localFolders.isEmpty() && !localRoot.isEmpty()) result.append(localRoot);
+    return result;
+}
+
 void ProviderSettings::validate() const
 {
     require(providers.contains(provider), "Unsupported provider identifier.");
@@ -159,6 +174,26 @@ void ProviderSettings::validate() const
         static const QRegularExpression windowsRoot(QStringLiteral(R"(^(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+))"));
         require(localRoot.isEmpty() || localRoot.startsWith('/') || windowsRoot.match(localRoot).hasMatch(),
                 "Use an absolute local directory path, or leave it empty.");
+        QStringList paths;
+        for (const auto &folder : localFolders) {
+            require(folder.type == "tv" || folder.type == "movies", "Choose TV Shows or Movies for the Local folder.");
+            require(!containsControls(folder.path) && (folder.path.startsWith('/') || windowsRoot.match(folder.path).hasMatch()),
+                "Use an absolute Local directory path.");
+            auto path = folder.path;
+            bool windows = windowsRoot.match(path).hasMatch() || path.startsWith("//");
+#ifdef Q_OS_WIN
+            windows = true;
+#endif
+            if (windows) path.replace('\\', '/');
+            const bool unc = path.startsWith("//");
+            path = QDir::cleanPath(path);
+            if (unc && !path.startsWith("//")) path.prepend('/');
+            if (windows) path = path.toCaseFolded();
+            if (!path.endsWith('/')) path += '/';
+            for (const auto &previous : paths)
+                require(!path.startsWith(previous) && !previous.startsWith(path), "Choose Local folders that do not overlap.");
+            paths.append(path);
+        }
     } else {
         require(localRoot.isEmpty(), "Remote providers do not use a local root.");
         require(validServerUrl(remoteUrl), "Use an HTTP/HTTPS server URL without user-info, query parameters, or fragments. "
@@ -215,11 +250,20 @@ void SettingsStore::initialize() const
         "import_movie_segments INTEGER NOT NULL DEFAULT 0 CHECK(import_movie_segments IN (0,1)))");
     if (!columns(db, "provider_library_settings").contains("import_movie_segments"))
         execute(db, "ALTER TABLE provider_library_settings ADD COLUMN import_movie_segments INTEGER NOT NULL DEFAULT 0 CHECK(import_movie_segments IN (0,1))");
+    execute(db, "CREATE TABLE IF NOT EXISTS local_media_folders("
+        "path TEXT PRIMARY KEY NOT NULL,type TEXT NOT NULL CHECK(type IN ('tv','movies')),position INTEGER NOT NULL)");
+    execute(db, "INSERT OR IGNORE INTO local_media_folders SELECT local_root,'tv',0 FROM provider_settings "
+        "WHERE provider_id='local' AND local_root<>'' AND NOT EXISTS(SELECT 1 FROM local_media_folders)");
     for (const auto &provider : providers) loadProviderFrom(db, provider);
 
     execute(db, QStringLiteral("CREATE TABLE IF NOT EXISTS credentials(account TEXT PRIMARY KEY,value TEXT)"));
-    for (const auto &account : accounts)
-        execute(db, QStringLiteral("INSERT OR IGNORE INTO credentials(account,value) VALUES(?,NULL)"), {account});
+    for (const auto &account : accounts) {
+        if (account.startsWith("metadata:movies:")) {
+            const auto legacy = QString(account).replace("metadata:movies:", "metadata:");
+            execute(db, "INSERT OR IGNORE INTO credentials(account,value) SELECT ?,value FROM credentials WHERE account=?", {account, legacy});
+        }
+        execute(db, "INSERT OR IGNORE INTO credentials(account,value) VALUES(?,NULL)", {account});
+    }
     execute(db, QStringLiteral("CREATE TABLE IF NOT EXISTS endpoint_settings (id INTEGER PRIMARY KEY CHECK(id=1),"
         "introdb_enabled INTEGER NOT NULL CHECK(introdb_enabled IN (0,1)),introdb_api_url TEXT NOT NULL,"
         "introdb_lookup_url TEXT NOT NULL,theintrodb_enabled INTEGER NOT NULL CHECK(theintrodb_enabled IN (0,1)),"
@@ -241,6 +285,15 @@ void SettingsStore::initialize() const
     execute(db,"UPDATE endpoint_settings SET theintrodb_base_url='https://api.theintrodb.org/v4' WHERE theintrodb_base_url IN "
         "('https://api.theintrodb.org/v3','https://api.theintrodb.org/v3/','https://api.theintrodb.org/v2','https://api.theintrodb.org/v2/')");
     execute(db,"CREATE TABLE IF NOT EXISTS local_metadata_settings(root TEXT PRIMARY KEY,provider TEXT NOT NULL,artwork TEXT NOT NULL,episode_order TEXT NOT NULL)");
+    execute(db, "CREATE TABLE IF NOT EXISTS local_library_metadata_settings("
+        "type TEXT PRIMARY KEY CHECK(type IN ('tv','movies')),provider TEXT NOT NULL,artwork TEXT NOT NULL,episode_order TEXT NOT NULL)");
+    execute(db, "INSERT OR IGNORE INTO local_library_metadata_settings "
+        "SELECT f.type,CASE WHEN f.type='movies' AND s.provider='tvmaze' THEN 'tmdb' ELSE s.provider END,"
+        "CASE WHEN f.type='movies' AND s.artwork='tvmaze' THEN 'same' ELSE s.artwork END,"
+        "CASE WHEN f.type='movies' THEN 'official' ELSE s.episode_order END "
+        "FROM local_media_folders f JOIN local_metadata_settings s ON s.root=f.path OR s.root=rtrim(replace(f.path,char(92),'/'),'/') "
+        "WHERE f.position=(SELECT MIN(position) FROM local_media_folders WHERE type=f.type)");
+
     loadEndpointsFrom(db);
     execute(db, QStringLiteral("CREATE TABLE IF NOT EXISTS webhook_settings(id INTEGER PRIMARY KEY CHECK(id=1),enabled INTEGER NOT NULL,url TEXT NOT NULL)"));
     execute(db, QStringLiteral("INSERT OR IGNORE INTO webhook_settings VALUES(1,0,'')"));
@@ -275,9 +328,14 @@ AppSettings SettingsStore::load() const
     return loadApp(connection.db);
 }
 
-QVariantMap SettingsStore::loadLocalMetadata(const QString &root) const
+QVariantMap SettingsStore::loadLocalMetadata(const QString &root, const QString &type) const
 {
     Connection connection(m_path);
+    if (!type.isEmpty()) {
+        require(type == "tv" || type == "movies", "Unsupported Local library type.");
+        auto settings = execute(connection.db, "SELECT provider,artwork,episode_order FROM local_library_metadata_settings WHERE type=?", {type});
+        if (settings.next()) return {{"provider",settings.value(0)},{"artwork",settings.value(1)},{"episode_order",settings.value(2)}};
+    }
     auto query=execute(connection.db,"SELECT provider,artwork,episode_order FROM local_metadata_settings WHERE root=?",{root});
     if(query.next())return {{"provider",query.value(0)},{"artwork",query.value(1)},{"episode_order",query.value(2)}};
     query.finish();
@@ -288,20 +346,67 @@ QVariantMap SettingsStore::loadLocalMetadata(const QString &root) const
         auto saved=execute(connection.db,"SELECT 1 FROM local_show_metadata m JOIN shows s ON s.id=m.show_id WHERE s.root=? LIMIT 1",{root});
         existing=saved.next();
     }
-    auto images=execute(connection.db,"SELECT fetch_images FROM provider_settings WHERE provider_id='local'");
-    const bool enabled=images.next() && images.value(0).toBool();
-    return {{"provider",existing?"tvmaze":"tmdb"},{"artwork",enabled?"same":"off"},{"episode_order","official"}};
+    return {{"provider",existing?"tvmaze":"tmdb"},{"artwork","same"},{"episode_order","official"}};
 }
 
-void SettingsStore::saveLocalMetadata(const QString &root,const QVariantMap &values) const
+QVariantMap SettingsStore::loadLocalLibraryMetadata(const QString &type) const
 {
-    require(!root.isEmpty() && values.size()==3,"Choose a Local media folder first.");
-    require(QStringList{"tmdb","tvdb","omdb","tvmaze"}.contains(values.value("provider").toString()),"Unsupported metadata provider.");
-    require(QStringList{"same","off","tmdb","tvdb","omdb","tvmaze","fanart"}.contains(values.value("artwork").toString()),"Unsupported artwork provider.");
-    require(QStringList{"default","official","dvd","alternate","absolute","regional"}.contains(values.value("episode_order").toString()),"Unsupported episode order.");
+    require(type == "tv" || type == "movies", "Unsupported Local library type.");
+    QString root;
+    {
+        Connection connection(m_path);
+        auto first = execute(connection.db, "SELECT s.root FROM local_media_folders f JOIN local_metadata_settings s "
+            "ON s.root=f.path OR s.root=rtrim(replace(f.path,char(92),'/'),'/') "
+            "WHERE f.type=? ORDER BY f.position LIMIT 1", {type});
+        if (first.next()) root = first.value(0).toString();
+    }
+    auto settings = loadLocalMetadata(root, type);
+    if (type == "movies") {
+        if (settings.value("provider") == "tvmaze") settings["provider"] = "tmdb";
+        if (settings.value("artwork") == "tvmaze") settings["artwork"] = "same";
+        settings["episode_order"] = "official";
+    }
+    return settings;
+}
+
+void SettingsStore::saveLocalLibraryMetadata(const QString &type, const QVariantMap &values) const
+{
+    require(type == "tv" || type == "movies", "Unsupported Local library type.");
+    require(values.size() == 3, "Invalid Local library settings.");
+    require((type == "tv" ? QStringList{"tmdb","tvdb","omdb","tvmaze"} : QStringList{"tmdb","tvdb","omdb"})
+        .contains(values.value("provider").toString()), "Unsupported metadata provider.");
+    require((type == "tv" ? QStringList{"same","off","tmdb","tvdb","omdb","tvmaze","fanart"}
+                         : QStringList{"same","off","tmdb","tvdb","omdb","fanart"})
+        .contains(values.value("artwork").toString()), "Unsupported artwork provider.");
+    require(QStringList{"default","official","dvd","alternate","absolute","regional"}
+        .contains(values.value("episode_order").toString()), "Unsupported episode order.");
+    require(type == "tv" || values.value("episode_order") == "official", "Movies do not use episode ordering.");
     Connection connection(m_path);
-    execute(connection.db,"INSERT INTO local_metadata_settings VALUES(?,?,?,?) ON CONFLICT(root) DO UPDATE SET provider=excluded.provider,artwork=excluded.artwork,episode_order=excluded.episode_order",
-        {root,values.value("provider"),values.value("artwork"),values.value("episode_order")});
+    execute(connection.db, "INSERT INTO local_library_metadata_settings VALUES(?,?,?,?) ON CONFLICT(type) DO UPDATE SET "
+        "provider=excluded.provider,artwork=excluded.artwork,episode_order=excluded.episode_order",
+        {type,values.value("provider"),values.value("artwork"),values.value("episode_order")});
+}
+
+void SettingsStore::saveLocalMetadata(const QString &root, const QVariantMap &values) const
+{
+    saveLocalMetadata({{root, values}});
+}
+
+void SettingsStore::saveLocalMetadata(const QMap<QString, QVariantMap> &folders) const
+{
+    Connection connection(m_path);
+    Transaction transaction(connection.db);
+    for (auto it = folders.cbegin(); it != folders.cend(); ++it) {
+        const auto &values = it.value();
+        require(!it.key().isEmpty() && values.size() == 3, "Choose a Local media folder first.");
+        require(QStringList{"tmdb","tvdb","omdb","tvmaze"}.contains(values.value("provider").toString()), "Unsupported metadata provider.");
+        require(QStringList{"same","off","tmdb","tvdb","omdb","tvmaze","fanart"}.contains(values.value("artwork").toString()), "Unsupported artwork provider.");
+        require(QStringList{"default","official","dvd","alternate","absolute","regional"}.contains(values.value("episode_order").toString()), "Unsupported episode order.");
+        execute(connection.db, "INSERT INTO local_metadata_settings VALUES(?,?,?,?) ON CONFLICT(root) DO UPDATE SET "
+            "provider=excluded.provider,artwork=excluded.artwork,episode_order=excluded.episode_order",
+            {it.key(), values.value("provider"), values.value("artwork"), values.value("episode_order")});
+    }
+    transaction.commit();
 }
 
 QString SettingsStore::detectionResources() const
@@ -416,21 +521,44 @@ std::optional<QString> SettingsStore::providerCredential(const ProviderSettings 
 
 void SettingsStore::saveProvider(const ProviderSettings &settings, CredentialAction action, const QString &key) const
 {
-    settings.validate();
+    Connection connection(m_path);
+    Transaction transaction(connection.db);
+    auto updated = settings;
+    if (updated.provider == "local") {
+        const auto saved = loadProviderFrom(connection.db, "local");
+        if (updated.localFolders.isEmpty() && !updated.localRoot.isEmpty()) {
+            updated.localFolders = {{updated.localRoot, "tv"}};
+        } else if (updated.localFolders == saved.localFolders && updated.localRoot != saved.localRoot) {
+            // Older settings callers replace the first TV folder through localRoot.
+            const auto firstTv = std::find_if(updated.localFolders.begin(), updated.localFolders.end(),
+                [](const LocalFolder &folder) { return folder.type == "tv"; });
+            if (firstTv != updated.localFolders.end()) {
+                if (updated.localRoot.isEmpty()) updated.localFolders.erase(firstTv);
+                else firstTv->path = updated.localRoot;
+            } else if (!updated.localRoot.isEmpty()) updated.localFolders.prepend({updated.localRoot, "tv"});
+        }
+        updated.localRoot.clear();
+        updated.localRoot = updated.localPaths("tv").value(0);
+    }
+    updated.validate();
     require(action == CredentialAction::Keep || action == CredentialAction::Replace || action == CredentialAction::Delete,
             "Unsupported credential action.");
     require(settings.provider != "local" || (action == CredentialAction::Keep && key.isEmpty()), "Local media does not use credentials.");
     require(action != CredentialAction::Keep || key.isEmpty(), "Choose Replace credential to save a new credential.");
     require(action != CredentialAction::Replace || !key.trimmed().isEmpty(), "Enter a nonempty replacement credential.");
-    Connection connection(m_path);
-    Transaction transaction(connection.db);
     auto query = execute(connection.db, QStringLiteral("UPDATE provider_settings SET remote_url=?,local_root=?,fetch_images=?,"
-        "timeout_seconds=?,import_segments=? WHERE provider_id=?"), {text(settings.remoteUrl), text(settings.localRoot), settings.fetchImages, settings.timeoutSeconds, settings.importSegments, settings.provider});
+        "timeout_seconds=?,import_segments=? WHERE provider_id=?"), {text(updated.remoteUrl), text(updated.localRoot), updated.fetchImages, updated.timeoutSeconds, updated.importSegments, updated.provider});
     require(query.numRowsAffected() == 1, "Provider configuration is missing.");
-    if (settings.provider != "local")
-        execute(connection.db, "INSERT INTO provider_library_settings(provider_id,import_mode,import_movie_segments) VALUES(?,?,?) "
-            "ON CONFLICT(provider_id) DO UPDATE SET import_mode=excluded.import_mode,import_movie_segments=excluded.import_movie_segments",
-            {settings.provider, settings.importMode, settings.importMovieSegments});
+    if (updated.provider == "local") {
+        execute(connection.db, "DELETE FROM local_media_folders");
+        for (qsizetype index = 0; index < updated.localFolders.size(); ++index) {
+            const auto &folder = updated.localFolders[index];
+            execute(connection.db, "INSERT INTO local_media_folders VALUES(?,?,?)", {folder.path, folder.type, index});
+        }
+    }
+    execute(connection.db, "INSERT INTO provider_library_settings(provider_id,import_mode,import_movie_segments) VALUES(?,?,?) "
+        "ON CONFLICT(provider_id) DO UPDATE SET import_mode=excluded.import_mode,import_movie_segments=excluded.import_movie_segments",
+        {settings.provider, settings.importMode, settings.importMovieSegments});
     if (action != CredentialAction::Keep)
         writeCredential(connection.db, "media:" + settings.provider,
                         action == CredentialAction::Replace ? std::optional<QString>(key) : std::nullopt);

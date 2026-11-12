@@ -5,6 +5,7 @@
 #include "segments/catalog_segments.h"
 #include <QElapsedTimer>
 #include <QUrl>
+#include <algorithm>
 
 namespace introvert::library {
 using namespace providers;
@@ -18,6 +19,21 @@ QVariantMap titleRow(const Summary &title)
         {"serverId", text(title.identity.serverId)}, {"provider", providerName(title.identity.provider)},
         {"externalIds", QVariantMap{{"tvmaze", text(title.externalIds.tvmaze)}, {"imdb", text(title.externalIds.imdb)},
                                    {"tmdb", text(title.externalIds.tmdb)}, {"tvdb", text(title.externalIds.tvdb)}}}};
+}
+
+ProviderConfig forFolder(ProviderConfig config, const QString &path)
+{
+    config.localRoot = path;
+    config.localTvRoots.clear();
+    config.localMovieRoots.clear();
+    return config;
+}
+
+void sortRows(QVariantList &rows)
+{
+    std::stable_sort(rows.begin(), rows.end(), [](const auto &a, const auto &b) {
+        return a.toMap().value("title").toString().compare(b.toMap().value("title").toString(), Qt::CaseInsensitive) < 0;
+    });
 }
 
 } // namespace
@@ -51,7 +67,16 @@ QList<ShowSummary> CatalogService::series(const ProviderConfig &config, const Ca
 {
     const std::lock_guard<std::mutex> lock(m_providerMutex);
     checkCancelled(cancel);
-    return m_providers.at(config.provider)->listSeries(config, false, cancel);
+    auto &provider = *m_providers.at(config.provider);
+    if (config.localTvRoots.size() <= 1) return provider.listSeries(config, false, cancel);
+    QList<ShowSummary> result;
+    for (const auto &path : config.localTvRoots) {
+        try { result.append(provider.listSeries(forFolder(config, path), false, cancel)); }
+        catch (const ProviderError &) {
+            log("warning", "A Local TV folder could not be loaded for detection.");
+        }
+    }
+    return result;
 }
 
 ProviderConfig CatalogService::config(const ProviderSettings &saved, const Cancellation &cancel) const
@@ -60,11 +85,15 @@ ProviderConfig CatalogService::config(const ProviderSettings &saved, const Cance
     ProviderConfig result(providerId(saved.provider));
     result.remoteUrl = saved.remoteUrl;
     result.localRoot = saved.localRoot;
+    if (result.provider == ProviderId::Local) {
+        result.localTvRoots = saved.localPaths("tv");
+        result.localMovieRoots = saved.localPaths("movies");
+    }
     result.fetchImages = saved.fetchImages;
     result.timeoutSeconds = saved.timeoutSeconds;
     result.importSegments = saved.importSegments;
     if(result.provider==ProviderId::Local && result.localRoot && !result.localRoot->isEmpty())
-        result.fetchImages=m_store.loadLocalMetadata(LocalProvider::rootPath(result)).value("artwork").toString()!="off";
+        result.fetchImages=m_store.loadLocalMetadata(LocalProvider::rootPath(result), "tv").value("artwork").toString()!="off";
     if (result.provider != ProviderId::Local) {
         result.credential = m_store.providerCredential(saved);
         if (!result.credential || result.credential->isEmpty())
@@ -108,10 +137,15 @@ QVariantMap CatalogService::displayShow(const ProviderConfig &config, const Show
     const auto count = [](const std::optional<qint64> &value) -> QVariant { return value ? QVariant(*value) : QVariant("—"); };
     const auto text = [](const std::optional<QString> &value) { return value.value_or(QString()); };
     auto row = titleRow(show);
+    auto source = config;
+    if (show.localRoot && *show.localRoot != config.localRoot) {
+        source = forFolder(config, *show.localRoot);
+        source.fetchImages = true;
+    }
     row["seasons"] = count(show.seasonCount);
     row["episodes"] = count(show.episodeCount);
-    row["posterUrl"] = images ? artwork(config, show.posterUrl, cancel) : QString();
-    row["logoUrl"] = images ? artwork(config, show.logoUrl, cancel) : QString();
+    row["posterUrl"] = images ? artwork(source, show.posterUrl, cancel) : QString();
+    row["logoUrl"] = images ? artwork(source, show.logoUrl, cancel) : QString();
     row["metadataStatus"] = show.localMetadata ? text(show.localMetadata->metadataStatus) : QString();
     row["metadataError"] = show.localMetadata ? text(show.localMetadata->metadataError) : QString();
     return row;
@@ -122,8 +156,9 @@ QVariantMap CatalogService::displayMovie(const ProviderConfig &config, const Mov
 {
     auto row = titleRow(movie);
     row["durationMs"] = movie.durationMs ? QVariant(*movie.durationMs) : QVariant();
-    row["posterUrl"] = images ? artwork(config, movie.posterUrl, cancel) : QString();
-    row["logoUrl"] = images ? artwork(config, movie.logoUrl, cancel) : QString();
+    const auto source = movie.localRoot ? forFolder(config, *movie.localRoot) : config;
+    row["posterUrl"] = images ? artwork(source, movie.posterUrl, cancel) : QString();
+    row["logoUrl"] = images ? artwork(source, movie.logoUrl, cancel) : QString();
     return row;
 }
 
@@ -136,10 +171,82 @@ QList<MovieSummary> CatalogService::listMovies(const ProviderConfig &config, boo
     return provider.listMovies(config, images, cancel);
 }
 
+CatalogResult CatalogService::localMovies(const ProviderConfig &config, bool force, bool images, const Cancellation &cancel,
+                                          const std::function<void(double)> &progress)
+{
+    auto &local = dynamic_cast<LocalProvider &>(*m_providers.at(ProviderId::Local));
+    CatalogResult result;
+    QStringList warnings;
+    for (qsizetype index = 0; index < config.localMovieRoots.size(); ++index) {
+        const auto &path = config.localMovieRoots.at(index);
+        checkCancelled(cancel);
+        QString warning;
+        try {
+            auto folder = forFolder(config, path);
+            folder.fetchImages = images && m_store.loadLocalMetadata(LocalProvider::rootPath(folder), "movies").value("artwork") != "off";
+            QList<MovieSummary> movies;
+            {
+                const std::lock_guard<std::mutex> lock(m_providerMutex);
+                movies = local.movies(folder, force, &warning, cancel);
+            }
+            for (const auto &movie : movies) result.rows.append(displayMovie(folder, movie, cancel, images));
+        } catch (const ProviderError &error) {
+            warning = QString::fromUtf8(error.what());
+        }
+        if (!warning.isEmpty()) warnings.append(path + ": " + warning);
+        progress(double(index + 1) / config.localMovieRoots.size());
+    }
+    sortRows(result.rows);
+    if (!warnings.isEmpty()) {
+        result.message = warnings.join('\n');
+        result.warning = true;
+        log("warning", "Some Local media folders could not be fully checked.");
+    } else if (result.rows.isEmpty()) {
+        result.message = "Check the Movies folders for video files, then use Rescan for changes in Settings → Media.";
+    }
+    return result;
+}
+
+CatalogResult CatalogService::localTv(const ProviderConfig &config, const Cancellation &cancel,
+                                      const std::function<CatalogResult(const ProviderConfig &, qsizetype)> &load)
+{
+    CatalogResult result;
+    result.cached = true;
+    QStringList warnings;
+    for (qsizetype index = 0; index < config.localTvRoots.size(); ++index) {
+        checkCancelled(cancel);
+        const auto &path = config.localTvRoots.at(index);
+        auto folder = forFolder(config, path);
+        folder.fetchImages = m_store.loadLocalMetadata(LocalProvider::rootPath(folder), "tv").value("artwork").toString() != "off";
+        try {
+            const auto part = load(folder, index);
+            result.rows.append(part.rows);
+            result.cached &= part.cached;
+            if (part.warning) warnings.append(path + ": " + part.message);
+        } catch (const ProviderError &error) {
+            warnings.append(path + ": " + QString::fromUtf8(error.what()));
+        }
+    }
+    sortRows(result.rows);
+    if (!warnings.isEmpty()) {
+        result.message = warnings.join('\n');
+        result.warning = true;
+        log("warning", "Some Local media folders could not be fully checked.");
+    } else if (result.rows.isEmpty()) {
+        result.message = "Check the TV folders and use filenames with season and episode numbers, such as S01E01.";
+    }
+    return result;
+}
+
 CatalogResult CatalogService::browseMovies(const ProviderConfig &config, const QString &listing, bool force,
                                            const QVariantList &previous, const Cancellation &cancel, const Progress &progress)
 {
     checkCancelled(cancel);
+    if (config.provider == ProviderId::Local) {
+        const auto result = localMovies(config, force, listing != "basic", cancel, [](double) {});
+        progress(result);
+        return result;
+    }
     const auto scope = m_cache.scope(config, listing);
     const bool images = listing != "basic";
     auto movies = force ? std::optional<QList<MovieSummary>>() : m_cache.movies(scope);
@@ -194,10 +301,22 @@ CatalogResult CatalogService::browseMovies(const ProviderConfig &config, const Q
 }
 
 MovieDetail CatalogService::movieDetail(const ProviderConfig &config, const QString &listing, const QString &id,
-                                        const Cancellation &cancel)
+                                        const Cancellation &cancel, bool inspectMedia)
 {
     checkCancelled(cancel);
     const bool images = listing != "basic";
+    if (config.provider == ProviderId::Local) {
+        const std::lock_guard<std::mutex> lock(m_providerMutex);
+        auto &provider = *m_providers.at(config.provider);
+        auto *local = dynamic_cast<LocalProvider *>(&provider);
+        for (const auto &path : config.localMovieRoots) {
+            auto folder = forFolder(config, path);
+            folder.fetchImages = images && m_store.loadLocalMetadata(LocalProvider::rootPath(folder), "movies").value("artwork") != "off";
+            const auto movie = local ? local->readMovie(folder, id, images, cancel, inspectMedia) : provider.getMovie(folder, id, images, cancel);
+            if (movie) return *movie;
+        }
+        throw ProviderError("This movie is no longer available.");
+    }
     const auto scope = m_cache.scope(config, listing);
     auto detail = m_cache.movie(scope, id);
     if (!detail) {
@@ -213,9 +332,23 @@ MovieDetail CatalogService::movieDetail(const ProviderConfig &config, const QStr
     return *detail;
 }
 
+void CatalogService::clearLocalMovieMetadata(const ProviderConfig &config, const Cancellation &cancel)
+{
+    const std::lock_guard<std::mutex> lock(m_providerMutex);
+    auto *local = dynamic_cast<LocalProvider *>(m_providers.at(ProviderId::Local).get());
+    if (!local) throw ProviderError("Cannot clear Local movie metadata.");
+    for (const auto &path : config.localMovieRoots) {
+        auto folder = forFolder(config, path);
+        local->clearMovieMetadata(folder, cancel);
+        folder.localRoot = LocalProvider::rootPath(folder, cancel);
+        m_cache.clearImages(m_cache.scope(folder, "images"));
+    }
+}
+
 CatalogResult CatalogService::rebuildMovies(const ProviderConfig &config, const QString &listing,
                                             const Cancellation &cancel, const std::function<void(double)> &progress)
 {
+    if (config.provider == ProviderId::Local) return localMovies(config, true, listing != "basic", cancel, progress);
     const auto movies = listMovies(config, true, true, cancel);
     const auto full = m_cache.scope(config, "full"), basic = m_cache.scope(config, "basic");
     const auto total = double(movies.size() + 2);
@@ -250,6 +383,13 @@ CatalogResult CatalogService::browse(const ProviderConfig &config, const QString
                                     const QVariantList &previous, const Cancellation &cancel, const Progress &progress)
 {
     checkCancelled(cancel);
+    if (config.localTvRoots.size() > 1 || (!config.localTvRoots.isEmpty() && !config.localMovieRoots.isEmpty())) {
+        const auto result = localTv(config, cancel, [&](const ProviderConfig &folder, qsizetype) {
+            return browse(folder, listing, force, clearLocal, previous, cancel, [](const CatalogResult &) {});
+        });
+        progress(result);
+        return result;
+    }
     log("info", providerLabel(config.provider) + " metadata refresh started.");
     auto &provider = *m_providers.at(config.provider);
     const bool remote = config.provider != ProviderId::Local;
@@ -321,10 +461,18 @@ CatalogResult CatalogService::browse(const ProviderConfig &config, const QString
         const std::lock_guard<std::mutex> lock(m_providerMutex);
         checkCancelled(cancel);
         localCached=local && !force && !clearLocal && local->hasCatalog(config,cancel);
-        if(remote || force || clearLocal)provider.invalidate();
+        if (remote || (!local && (force || clearLocal))) provider.invalidate();
+        if (local && force && !clearLocal) {
+            try { local->refreshCatalog(config, cancel); }
+            catch (const ProviderError &error) {
+                if (!local->hasCatalog(config, cancel)) throw;
+                localCached = true;
+                result.message = QString::fromUtf8(error.what()) + " Showing saved TV shows.";
+                result.warning = true;
+            }
+        }
         if (clearLocal && !remote) {
-            auto images = config;
-            for (bool enabled : {false, true}) { images.fetchImages = enabled; m_cache.clearImages(m_cache.scope(images, "images")); }
+            m_cache.clearImages(m_cache.scope(config, "images"));
             // Default LocalProvider owns the catalog. Overrides may supply a
             // fixture provider, but cannot silently pretend to clear that catalog.
             if (!local) throw ProviderError("Cannot clear the Local media catalog.");
@@ -350,7 +498,11 @@ CatalogResult CatalogService::browse(const ProviderConfig &config, const QString
         m_cache.putSeries(scope, values);
         if (force) m_cache.invalidateDetails(scope);
     }
-    result.cached = localCached; result.message=localCached?"Using cached Local library.":QString();
+    result.cached = localCached;
+    if (!result.warning && localCached) result.message = "Using cached Local library.";
+    if (local && values.isEmpty() && !result.warning)
+        result.message = localCached ? "Use Rescan for changes in Settings → Media to scan this folder again."
+            : "Check the TV folder and use filenames with season and episode numbers, such as S01E01.";
     display(values);
     log("info", QString("%1 metadata refresh finished: %2 show(s).").arg(providerLabel(config.provider)).arg(values.size()));
     if(!localCached)import(values);
@@ -368,7 +520,15 @@ ShowDetail CatalogService::detail(const ProviderConfig &config, const QString &l
         {
             const std::lock_guard<std::mutex> lock(m_providerMutex);
             checkCancelled(cancel);
-            result = m_providers.at(config.provider)->getShow(config, id, listing != "basic", cancel);
+            auto &provider = *m_providers.at(config.provider);
+            if (config.localTvRoots.size() > 1) {
+                for (const auto &path : config.localTvRoots) {
+                    auto folder = forFolder(config, path);
+                    folder.fetchImages = m_store.loadLocalMetadata(LocalProvider::rootPath(folder), "tv").value("artwork").toString() != "off";
+                    result = provider.getShow(folder, id, listing != "basic", cancel);
+                    if (result) break;
+                }
+            } else result = provider.getShow(config, id, listing != "basic", cancel);
         }
         if (!result) {
             log("warning", providerLabel(config.provider) + " show metadata is no longer available.");
@@ -387,6 +547,25 @@ CatalogResult CatalogService::rebuild(const ProviderConfig &config, const QStrin
                                      const Cancellation &cancel, const std::function<void(double)> &progress)
 {
     checkCancelled(cancel);
+    if (config.localTvRoots.size() > 1 || (!config.localTvRoots.isEmpty() && !config.localMovieRoots.isEmpty())) {
+        return localTv(config, cancel, [&](const ProviderConfig &folder, qsizetype index) {
+            try {
+                return rebuild(folder, listing, cancel, [&](double value) {
+                    progress((index + value) / config.localTvRoots.size());
+                });
+            } catch (const ProviderError &error) {
+                {
+                    const std::lock_guard<std::mutex> lock(m_providerMutex);
+                    auto *local = dynamic_cast<LocalProvider *>(m_providers.at(config.provider).get());
+                    if (!local || !local->hasCatalog(folder, cancel)) throw;
+                }
+                auto saved = browse(folder, listing, false, false, {}, cancel, [](const CatalogResult &) {});
+                saved.message = QString::fromUtf8(error.what()) + " Showing saved TV shows.";
+                saved.warning = true;
+                return saved;
+            }
+        });
+    }
     log("info", providerLabel(config.provider) + " metadata refresh started.");
     auto &provider = *m_providers.at(config.provider);
     const bool remote=config.provider!=ProviderId::Local;
@@ -396,13 +575,15 @@ CatalogResult CatalogService::rebuild(const ProviderConfig &config, const QStrin
         const std::lock_guard<std::mutex> lock(m_providerMutex);
         checkCancelled(cancel);
         if(local)local->refreshCatalog(config,cancel);else provider.invalidate();
-        values = provider.listSeries(config, true, cancel);
+        values = provider.listSeries(config, remote || listing != "basic", cancel);
     }
     checkCancelled(cancel);
     const auto full = m_cache.scope(config, "full"), basic = m_cache.scope(config, "basic");
     const auto total = double(values.size() + 2);
     progress(1 / total);
     CatalogResult result;
+    if (local && values.isEmpty())
+        result.message = "Check the TV folder and use filenames with season and episode numbers, such as S01E01.";
     QMap<QString, QString> images;
     QList<ShowSummary> withoutImages;
     const auto requireStored = [](bool saved) {
@@ -415,7 +596,7 @@ CatalogResult CatalogService::rebuild(const ProviderConfig &config, const QStrin
         {
             const std::lock_guard<std::mutex> lock(m_providerMutex);
             checkCancelled(cancel);
-            detail = local ? local->inspectShow(config,show.identity.itemId,true,cancel) : provider.getShow(config, show.identity.itemId, true, cancel);
+            detail = local ? local->inspectShow(config,show.identity.itemId,listing != "basic",cancel) : provider.getShow(config, show.identity.itemId, true, cancel);
         }
         if (!detail) throw ProviderError("A show changed during the rebuild. Try rebuilding the cache again.");
         for (const auto &path : {show.posterUrl, show.logoUrl, detail->show.posterUrl, detail->show.logoUrl})

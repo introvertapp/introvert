@@ -4,6 +4,7 @@
 #include <QList>
 #include <QJsonValue>
 #include <QString>
+#include <QStringList>
 #include <QVariantMap>
 #include <atomic>
 #include <memory>
@@ -47,6 +48,7 @@ struct ProviderConfig {
     std::optional<QString> remoteUrl;
     std::optional<QString> credential;
     std::optional<QString> localRoot;
+    QStringList localTvRoots, localMovieRoots;
     bool fetchImages = false;
     double timeoutSeconds = 10;
     bool importSegments = false;
@@ -90,6 +92,7 @@ struct ShowSummary {
     std::optional<LocalShowMetadata> localMetadata;
     // Set on the single playable row projected from a movie detail.
     std::optional<QString> movieKey;
+    std::optional<QString> localRoot;
     bool isMovie() const { return movieKey.has_value(); }
 };
 
@@ -121,6 +124,7 @@ struct MovieSummary {
     std::optional<QString> posterUrl, logoUrl;
     ExternalIds externalIds;
     std::optional<qint64> durationMs;
+    std::optional<QString> localRoot;
 };
 
 struct Chapter {
@@ -132,6 +136,7 @@ struct Chapter {
 struct MovieDetail {
     MovieSummary movie;
     QList<Chapter> chapters;
+    std::optional<QString> mediaPath;
 };
 
 void normalizeChapters(MovieDetail &detail);

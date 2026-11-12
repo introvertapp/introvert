@@ -24,11 +24,12 @@ segments for movies and TV episodes. Keyboard shortcuts work in both, and the
 episode drawer lets you switch episodes while reviewing a show.
 
 - Browse and search **TV shows and movies** from Plex, Emby, or Jellyfin.
-  Local folders and network storage support TV libraries.
+  Local folders and mounted network storage support separate TV and movie libraries.
 - Enable separate imports for **TV episode markers** and **named movie chapters**.
   Local TV libraries can import supported embedded chapters during discovery.
+  Local movies can import chapter timestamps when the movie option is enabled.
 - View movie posters, logos, runtime, and title links when available. Identify
-  local TV shows and fetch metadata and artwork from selectable providers.
+  local TV shows and fetch metadata and artwork for both TV shows and movies.
 - Review and share selected timestamps with [IntroDB](https://introdb.app),
   [TheIntroDB](https://theintrodb.org), and [SkipDB](https://skipdb.tv), with
   duplicate checks, queued processing, and submission history.
@@ -54,11 +55,12 @@ rewrite the media files or change the markers on a connected media server.
 ## Quick start
 
 1. [Install INTROvert](docs/installation.md) for your operating system.
-2. Open **Settings → Media** and [connect a server or local folder](docs/setup.md).
+2. Open **Settings → Media** and [connect a server or add local folders](docs/setup.md).
 
 ### Movies
 
-1. For Plex, Emby, or Jellyfin, set **Import** to **Movies** or **Both**.
+1. For Plex, Emby, or Jellyfin, set **Import** to **Movies** or **Both**. For
+   Local, add a folder with type **Movies**.
 2. Optionally turn on **Import movie timestamps** to bring in Intro, Credits,
    Recap, and Preview from [recognized chapters](docs/setup.md#movie-details-and-chapter-imports).
    The switch defaults to Off.

@@ -18,8 +18,13 @@ public:
     QVariantMap record(const QString &root, const QString &state, qint64 current, qint64 total,
                        const QString &title = {}, const QString &message = {}, const QString &error = {}) const;
     QVariantMap recover(const QString &root) const;
-    QVariantMap run(const ProviderConfig &config, const Cancellation &cancelled, const Progress &progress, const QString &showId = {});
+    QVariantMap run(const ProviderConfig &config, const Cancellation &cancelled, const Progress &progress, const QString &showId = {},
+                    bool reuseRecent = false);
+    QVariantMap runMovies(const ProviderConfig &config, const Cancellation &cancelled, const Progress &progress,
+                          bool reuseRecent = false);
 private:
+    QVariantMap runFolder(const ProviderConfig &config, const Cancellation &cancelled, const Progress &progress,
+                          const QString &showId, bool movies, bool reuseRecent);
     QString m_path;
     LocalProvider m_provider;
     library::MediaCache &m_cache;

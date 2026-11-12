@@ -43,7 +43,7 @@ bool DetectionModel::sameConnection(const CatalogSelection &selection) const
 {
     const auto &key=m_library.m_key;
     return key && key->saved.provider==selection.saved.provider && key->saved.remoteUrl==selection.saved.remoteUrl
-        && key->saved.localRoot==selection.saved.localRoot;
+        && key->saved.localPaths("tv")==selection.saved.localPaths("tv");
 }
 bool DetectionModel::sameShow(const providers::ProviderIdentity &show) const
 {
@@ -88,7 +88,7 @@ void DetectionModel::sync()
     if (m_library.m_detail && m_library.m_key) visit = showKey(*m_library.m_key, m_library.m_detail->show.identity);
     if (visit != m_showVisit) { m_showVisit = visit; m_seasonJobs.clear(); m_showDetectionObserved = false; }
     const auto scope = m_library.m_detail && m_library.m_key ? providers::providerScope(m_library.m_detail->show.identity,
-        m_library.m_key->saved.provider == "local" ? m_library.m_key->saved.localRoot : m_library.m_key->saved.remoteUrl) : QString();
+        m_library.connectionAddress()) : QString();
     m_seasonProgress.clear(); m_showDetection.clear();
     try {
         const auto rows = m_store.summaries();
@@ -282,7 +282,7 @@ QString DetectionModel::enqueue(const providers::ShowDetail &detail, int season,
         const auto &job = it.value();
         if (job.season == season && job.show.provider == detail.show.identity.provider && job.show.itemId == detail.show.identity.itemId
             && job.show.serverId == detail.show.identity.serverId && job.selection.saved.provider == selection.saved.provider
-            && job.selection.saved.remoteUrl == selection.saved.remoteUrl && job.selection.saved.localRoot == selection.saved.localRoot) {
+            && job.selection.saved.remoteUrl == selection.saved.remoteUrl && job.selection.saved.localPaths("tv") == selection.saved.localPaths("tv")) {
             m_showJobs[showKey(selection, detail.show.identity)].insert(it.key()); return it.key();
         }
     }
@@ -290,7 +290,7 @@ QString DetectionModel::enqueue(const providers::ShowDetail &detail, int season,
     if (!editLock) { m_message = "Detection is already running for this season"; return {}; }
     QPair<QString, bool> created;
     try { created = m_store.create(detail, season, kinds, providers::providerScope(detail.show.identity,
-        selection.saved.provider == "local" ? selection.saved.localRoot : selection.saved.remoteUrl)); }
+        detail.show.localRoot.value_or(selection.address()))); }
     catch (const DatabaseError &) { m_message = "Cannot create a detection job in app.db"; emit errorOccurred(m_message); return {}; }
     if (!created.second) return {};
     emit jobStarted(detail.show.title, season);

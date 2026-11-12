@@ -44,6 +44,90 @@ QString childPath(const QString &parent, const QString &name)
     if (!path.endsWith('/')) path += '/';
     return QDir::toNativeSeparators(path + name);
 }
+MovieSummary movieSummary(const QSqlQuery &query, const QString &root, bool images)
+{
+    MovieSummary movie{{ProviderId::Local, query.value(0).toString(), {}}, query.value(1).toString()};
+    if (!query.value(2).isNull()) movie.year = query.value(2).toLongLong();
+    movie.externalIds = {optionalString(query.value(3)), optionalString(query.value(4)), optionalString(query.value(5))};
+    if (images) {
+        movie.posterUrl = optionalString(query.value(6));
+        movie.logoUrl = optionalString(query.value(7));
+    }
+    movie.localRoot = root;
+    return movie;
+}
+
+const QString movieRows = "SELECT m.id,COALESCE(d.title,m.title),COALESCE(d.year,m.year),d.imdb,d.tmdb,d.tvdb,d.poster,d.logo,m.path "
+    "FROM local_movies m LEFT JOIN local_movie_metadata d ON d.movie_id=m.id WHERE m.root=?";
+
+struct LocalFiles {
+    QStringList files;
+    QMap<QString, QPair<qint64, qint64>> signatures;
+    bool complete = true;
+};
+
+bool isMovieExtraDirectory(QString name, bool containsMovie)
+{
+    static const QRegularExpression separators("[ ._-]+");
+    name = name.toCaseFolded().remove(separators);
+    static const QSet<QString> excluded{"bdmv", "videots", "extra", "extras", "featurette", "featurettes",
+        "trailer", "trailers", "sample", "samples", "behindthescenes", "deletedscenes", "interview", "interviews",
+        "bonus", "bonusfeatures", "specialfeatures", "outtakes", "bloopers", "clips", "backdrops", "extrafanart",
+        "thememusic", "themevideo", "themevideos"};
+    // These names also occur in genuine movie collections. Treat them as
+    // extras only when the parent contains a feature video.
+    static const QSet<QString> contextual{"shorts", "scenes", "other"};
+    return excluded.contains(name) || (containsMovie && contextual.contains(name));
+}
+
+LocalFiles findMediaFiles(const QString &root, const Cancellation &cancelled, bool movies = false)
+{
+    if (!readableMediaDirectory(root,cancelled)) throw ProviderError(QStringLiteral("Local media path is not a readable directory. Check the folder or mounted drive."));
+    static const QSet<QString> videos{"mkv", "mp4", "m4v", "avi", "mov", "wmv", "flv", "webm", "ts", "m2ts", "mpg", "mpeg"};
+    static const QSet<QString> skipped{"@eadir", ".appledouble", ".ds_store", "sample", "samples", "subs", "subtitles", "extras", "featurettes"};
+    QStringList stack{root};
+    LocalFiles result;
+    static const QRegularExpression discPath(R"((?:^|[\\/])(?:BDMV|VIDEO_TS)(?:[\\/]|$))",
+        QRegularExpression::CaseInsensitiveOption);
+    if (movies && discPath.match(root).hasMatch()) return result;
+    auto &[files, signatures, complete] = result;
+    while (!stack.isEmpty()) {
+        checkCancelled(cancelled);
+        const auto path = stack.takeLast(); const QDir directory(path);
+        if (!directory.isReadable()) {
+            if (path == root) throw ProviderError(QStringLiteral("Local media path is not readable. Check folder permissions."));
+            complete=false;continue;
+        }
+        QStringList directories;
+        bool containsMovie = false;
+        QDirIterator entries(path, QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System);
+        while (entries.hasNext()) {
+            checkCancelled(cancelled);
+            entries.next();
+            const auto entry = entries.fileInfo();
+            const auto name = entry.fileName();
+            if (name.startsWith('.') || entry.isSymLink()) continue;
+            const auto file = childPath(path, name);
+            if (entry.isDir()) {
+                if (!skipped.contains(name.toLower()) && (!movies || !isMovieExtraDirectory(name, false)))
+                    directories.append(file);
+            } else if (entry.isFile() && videos.contains(entry.suffix().toLower())
+                && (!movies || !isMovieExtraFile(name))) {
+                files.append(file);
+                containsMovie = true;
+                if (!movies) signatures[file] = {entry.size(), entry.lastModified().toMSecsSinceEpoch()};
+            }
+        }
+        for (const auto &directory : directories)
+            if (!movies || !isMovieExtraDirectory(QFileInfo(directory).fileName(), containsMovie && path != root)) stack.append(directory);
+    }
+    if (!movies) std::stable_sort(files.begin(), files.end(), [](const auto &a, const auto &b) {
+        return a.compare(b, Qt::CaseInsensitive) < 0;
+    });
+    if(!readableMediaDirectory(root,cancelled))throw ProviderError("Local media path became unavailable during the rescan. Saved catalog retained.");
+    return result;
+}
+
 std::optional<QList<ImportedSegment>> cachedSegments(const QString &payload)
 {
     const auto document=QJsonDocument::fromJson(payload.toUtf8());
@@ -134,53 +218,27 @@ void LocalProvider::initialize(QSqlDatabase &db)
 
 void LocalProvider::scan(QSqlDatabase &db, const QString &root, const Cancellation &cancelled)
 {
-    if (!readableMediaDirectory(root,cancelled)) throw ProviderError(QStringLiteral("Local media path is not a readable directory. Check the folder or mounted drive."));
-    struct Known {QString id;qint64 size,modified;bool signature;};
+    struct Known {QString id;qint64 season,number,size,modified;bool signature;};
     QMap<QString,Known> known;
-    auto stored=sql::execute(db,"SELECT e.id,e.path,m.size,m.modified_ms FROM episodes e JOIN shows s ON s.id=e.show_id "
+    auto stored=sql::execute(db,"SELECT e.id,e.path,e.season,e.number,m.size,m.modified_ms FROM episodes e JOIN shows s ON s.id=e.show_id "
         "LEFT JOIN local_episode_media m ON m.episode_id=e.id WHERE s.root=?",{root});
-    while(stored.next())known[stored.value(1).toString()]={stored.value(0).toString(),stored.value(2).toLongLong(),stored.value(3).toLongLong(),!stored.value(2).isNull()};
+    while(stored.next())known[stored.value(1).toString()]={stored.value(0).toString(),stored.value(2).toLongLong(),
+        stored.value(3).toLongLong(),stored.value(4).toLongLong(),stored.value(5).toLongLong(),!stored.value(4).isNull()};
     stored.finish();
-    static const QSet<QString> videos{"mkv", "mp4", "m4v", "avi", "mov", "wmv", "flv", "webm", "ts", "m2ts", "mpg", "mpeg"};
-    static const QSet<QString> skipped{"@eadir", ".appledouble", ".ds_store", "sample", "samples", "subs", "subtitles", "extras", "featurettes"};
-    QStringList stack{root}, files;bool complete=true;
-    QMap<QString,QPair<qint64,qint64>> signatures;
-    while (!stack.isEmpty() && files.size() < 20000) {
-        checkCancelled(cancelled);
-        const auto path = stack.takeLast(); const QDir directory(path);
-        if (!directory.isReadable()) {
-            if (path == root) throw ProviderError(QStringLiteral("Local media path is not readable. Check folder permissions."));
-            complete=false;continue;
-        }
-        QDirIterator entries(path, QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System);
-        while (entries.hasNext()) {
-            checkCancelled(cancelled);
-            entries.next();
-            const auto entry = entries.fileInfo();
-            const auto name = entry.fileName();
-            if (name.startsWith('.') || entry.isSymLink()) continue;
-            const auto file = childPath(path, name);
-            if (entry.isDir()) { if (!skipped.contains(name.toLower())) stack.append(file); }
-            else if (entry.isFile() && videos.contains(entry.suffix().toLower())) {
-                files.append(file);signatures[file]={entry.size(),entry.lastModified().toMSecsSinceEpoch()};
-                if (files.size() >= 20000) {complete=false;break;}
-            }
-        }
-    }
-    std::stable_sort(files.begin(), files.end(), [](const auto &a, const auto &b) { return a.toCaseFolded() < b.toCaseFolded(); });
-    if(!readableMediaDirectory(root,cancelled))throw ProviderError("Local media path became unavailable during the rescan. Saved catalog retained.");
+    const auto [files, signatures, complete] = findMediaFiles(root, cancelled);
     sql::Transaction transaction(db);
     sql::execute(db,"CREATE TEMP TABLE scanned_local_episodes(id TEXT PRIMARY KEY)");
     static const QRegularExpression normalize(QStringLiteral("[^a-z0-9]+"));
     for (const auto &file : files) {
         checkCancelled(cancelled);
-        const auto signature=signatures.value(file);
-        const auto prior=known.constFind(file);
-        if(prior!=known.cend() && prior->signature && prior->size==signature.first && prior->modified==signature.second) {
-            sql::execute(db,"INSERT OR IGNORE INTO scanned_local_episodes VALUES(?)",{prior->id});continue;
-        }
         const auto parsed = parseEpisode(file, root);
         if (!parsed) continue;
+        const auto signature=signatures.value(file);
+        const auto prior=known.constFind(file);
+        if(prior!=known.cend() && prior->signature && prior->size==signature.first && prior->modified==signature.second
+            && prior->season==parsed->seasonNumber && prior->number==parsed->episodeNumber) {
+            sql::execute(db,"INSERT OR IGNORE INTO scanned_local_episodes VALUES(?)",{prior->id});continue;
+        }
         const auto normalized = cleanTitle(parsed->showTitle).toLower().replace(normalize, " ").trimmed();
         if (normalized.isEmpty()) continue;
         const auto id = hash(root + ':' + normalized);
@@ -189,7 +247,15 @@ void LocalProvider::scan(QSqlDatabase &db, const QString &root, const Cancellati
         sql::execute(db, "INSERT INTO shows VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET path=excluded.path,year=COALESCE(shows.year,excluded.year) "
             "WHERE shows.path IS NOT excluded.path OR (shows.year IS NULL AND excluded.year IS NOT NULL)",
             {id, root, showPath, parsed->showTitle, parsed->year ? QVariant(*parsed->year) : QVariant(QMetaType::fromType<qint64>())});
-        const auto episodeId = hash(file + ':' + QString::number(parsed->seasonNumber) + ':' + QString::number(parsed->episodeNumber));
+        const auto identity = file + ':' + QString::number(parsed->seasonNumber) + ':' + QString::number(parsed->episodeNumber);
+        auto episodeId = hash(identity);
+        const auto scopedId = hash("local-root:" + root + '\n' + identity);
+        // Preserve existing IDs, but give an overlapping catalog its own row.
+        // Keep using the scoped ID after the original catalog is removed.
+        auto occupied = sql::execute(db, "SELECT 1 FROM episodes e JOIN shows s ON s.id=e.show_id "
+            "WHERE e.id=? OR (e.id=? AND s.root<>?) LIMIT 1", {scopedId, episodeId, root});
+        if (occupied.next()) episodeId = scopedId;
+        occupied.finish();
         sql::execute(db,"INSERT OR IGNORE INTO scanned_local_episodes VALUES(?)",{episodeId});
         sql::execute(db, "INSERT INTO episodes VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title",
             {episodeId, id, parsed->seasonNumber, parsed->episodeNumber,
@@ -255,6 +321,7 @@ QList<ShowSummary> LocalProvider::listSeries(const ProviderConfig &config, bool 
     QList<ShowSummary> result;
     while (query.next()) result.append(show(db, query.value(0).toString(), query.value(1).toString(), query.value(2),
                                            query.value(3).toString(), includeImages && config.fetchImages));
+    for (auto &show : result) show.localRoot = config.localRoot;
     std::stable_sort(result.begin(), result.end(), [](const auto &a, const auto &b) { return a.title.toCaseFolded() < b.title.toCaseFolded(); });
     return result;
 }
@@ -280,6 +347,7 @@ std::optional<ShowDetail> LocalProvider::readShow(const ProviderConfig &config,c
     auto found = sql::execute(db, "SELECT id,title,year,path FROM shows WHERE id=? AND root=?", {showId, root});
     if (!found.next()) return std::nullopt;
     ShowDetail result{show(db, showId, found.value(1).toString(), found.value(2), found.value(3).toString(), includeImages && config.fetchImages), {}};
+    result.show.localRoot = config.localRoot;
     found.finish();
     auto query = sql::execute(db, "SELECT e.id,e.season,e.number,CASE WHEN m.show_id IS NOT NULL THEN m.title ELSE e.title END,e.path,p.inspected,p.duration_ms,p.segments "
         ",a.source,a.episode_order,a.tvdb_episode_id FROM episodes e LEFT JOIN local_episode_metadata m ON m.show_id=e.show_id AND m.season=e.season AND m.number=e.number "
@@ -323,6 +391,100 @@ std::optional<ShowDetail> LocalProvider::readShow(const ProviderConfig &config,c
         }
     }
     return result;
+}
+
+void LocalProvider::initializeMovies(QSqlDatabase &db)
+{
+    sql::execute(db, "CREATE TABLE IF NOT EXISTS local_movies("
+        "id TEXT PRIMARY KEY,root TEXT NOT NULL,path TEXT NOT NULL,title TEXT NOT NULL,year INTEGER)");
+    sql::execute(db, "CREATE INDEX IF NOT EXISTS local_movies_root ON local_movies(root)");
+    sql::execute(db, "CREATE TABLE IF NOT EXISTS local_movie_catalog_roots(root TEXT PRIMARY KEY)");
+    sql::execute(db, "CREATE TABLE IF NOT EXISTS local_movie_metadata(movie_id TEXT PRIMARY KEY,title TEXT,year INTEGER,"
+        "imdb TEXT,tmdb TEXT,tvdb TEXT,poster TEXT,logo TEXT,status TEXT,error TEXT)");
+}
+
+QList<MovieSummary> LocalProvider::movies(const ProviderConfig &config, bool refresh, QString *warning,
+                                         const Cancellation &cancelled)
+{
+    const auto root = rootPath(config, cancelled);
+    if (!QDir().mkpath(QFileInfo(m_path).absolutePath())) throw DatabaseError("Cannot open Local catalog in app.db.");
+    sql::Connection connection(m_path);
+    auto &db = connection.db;
+    initializeMovies(db);
+    auto found = sql::execute(db, "SELECT 1 FROM local_movie_catalog_roots WHERE root=?", {root});
+    const bool cached = found.next();
+    found.finish();
+    if (refresh || !cached) {
+        try {
+            const auto files = findMediaFiles(root, cancelled, true);
+            sql::Transaction transaction(db);
+            QHash<QString, QString> existing;
+            auto stored = sql::execute(db, "SELECT path,id FROM local_movies WHERE root=?", {root});
+            while (stored.next()) existing.insert(stored.value(0).toString(), stored.value(1).toString());
+            stored.finish();
+            for (const auto &path : files.files) {
+                checkCancelled(cancelled);
+                if (existing.remove(path)) continue;
+                const auto movie = parseMovie(path);
+                const auto id = hash("movie:" + root + '\n' + path);
+                sql::execute(db, "INSERT INTO local_movies VALUES(?,?,?,?,?)",
+                    {id, root, path, movie.title, movie.year ? QVariant(*movie.year) : QVariant()});
+            }
+            if (files.complete) for (const auto &id : existing) {
+                checkCancelled(cancelled);
+                sql::execute(db, "DELETE FROM local_movies WHERE id=?", {id});
+            }
+            checkCancelled(cancelled);
+            sql::execute(db, "INSERT OR IGNORE INTO local_movie_catalog_roots VALUES(?)", {root});
+            transaction.commit();
+            if (warning && !files.complete) *warning = "Some files could not be checked. Saved movies were retained.";
+        } catch (const ProviderError &error) {
+            if (!cached || !warning) throw;
+            *warning = QString::fromUtf8(error.what()) + " Showing saved movies.";
+        }
+    }
+    QList<MovieSummary> result;
+    auto query = sql::execute(db, movieRows + " ORDER BY COALESCE(d.title,m.title) COLLATE NOCASE,m.id", {root});
+    while (query.next()) {
+        checkCancelled(cancelled);
+        result.append(movieSummary(query, root, config.fetchImages));
+    }
+    return result;
+}
+
+std::optional<MovieDetail> LocalProvider::getMovie(const ProviderConfig &config, const QString &id, bool includeImages,
+                                                  const Cancellation &cancelled)
+{
+    return readMovie(config, id, includeImages, cancelled, true);
+}
+
+std::optional<MovieDetail> LocalProvider::readMovie(const ProviderConfig &config, const QString &id, bool includeImages,
+                                                   const Cancellation &cancelled, bool inspectMedia)
+{
+    const auto root = rootPath(config, cancelled);
+    if (!QDir().mkpath(QFileInfo(m_path).absolutePath())) throw DatabaseError("Cannot open Local catalog in app.db.");
+    std::optional<MovieDetail> result;
+    {
+        sql::Connection connection(m_path);
+        initializeMovies(connection.db);
+        auto query = sql::execute(connection.db, movieRows + " AND m.id=?", {root, id});
+        if (!query.next()) return {};
+        result = MovieDetail{movieSummary(query, root, includeImages && config.fetchImages), {}, query.value(8).toString()};
+    }
+    if (inspectMedia) {
+        try { inspectMovieChapters(*result, cancelled); }
+        catch (const ProviderError &) { checkCancelled(cancelled); }
+    }
+    return result;
+}
+
+void LocalProvider::clearMovieMetadata(const ProviderConfig &config, const Cancellation &cancelled)
+{
+    const auto root = rootPath(config, cancelled);
+    sql::Connection connection(m_path);
+    auto &db = connection.db;
+    initializeMovies(db);
+    sql::execute(db, "DELETE FROM local_movie_metadata WHERE movie_id IN (SELECT id FROM local_movies WHERE root=?)", {root});
 }
 
 void LocalProvider::clear(const ProviderConfig &config, const Cancellation &cancelled)

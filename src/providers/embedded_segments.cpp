@@ -22,13 +22,25 @@ std::optional<double> seconds(const QJsonValue &value)
     return number && *number >= 0 ? number : std::nullopt;
 }
 
-QString chapterName(const QJsonObject &chapter)
+QString chapterTitle(const QJsonObject &chapter)
 {
     const auto tags = chapter["tags"].toObject();
     for (auto it = tags.begin(); it != tags.end(); ++it)
         if (it.key().compare("title", Qt::CaseInsensitive) == 0)
-            return it.value().toString().trimmed().toLower().remove(QRegularExpression("[\\s_-]+"));
+            return it.value().toString();
     return {};
+}
+
+QString chapterName(const QJsonObject &chapter)
+{
+    return chapterTitle(chapter).trimmed().toLower().remove(QRegularExpression("[\\s_-]+"));
+}
+
+std::optional<qint64> milliseconds(const QJsonValue &value)
+{
+    const auto time = seconds(value);
+    return time && *time * 1000 < double(std::numeric_limits<qint64>::max())
+        ? std::optional<qint64>(qint64(*time * 1000)) : std::nullopt;
 }
 }
 
@@ -62,10 +74,11 @@ QList<ImportedSegment> embeddedSegments(const QJsonObject &probe)
     return result;
 }
 
-bool inspectEmbeddedSegments(Episode &episode, const Cancellation &cancelled)
+namespace {
+std::optional<QJsonObject> probeChapters(const std::optional<QString> &mediaPath, const Cancellation &cancelled)
 {
     checkCancelled(cancelled);
-    if (!episode.mediaPath || !QFileInfo(*episode.mediaPath).isFile()) return false;
+    if (!mediaPath || !QFileInfo(*mediaPath).isFile()) return {};
 #ifdef Q_OS_WIN
     const auto name = QStringLiteral("ffprobe.exe");
 #else
@@ -77,7 +90,7 @@ bool inspectEmbeddedSegments(Episode &episode, const Cancellation &cancelled)
     QProcess process;
     process.setProgram(program);
     process.setArguments({"-v", "error", "-protocol_whitelist", "file", "-show_chapters", "-show_entries",
-        "format=duration:chapter=start_time,end_time:chapter_tags=title", "-of", "json", "-i", QFileInfo(*episode.mediaPath).absoluteFilePath()});
+        "format=duration:chapter=start_time,end_time:chapter_tags=title", "-of", "json", "-i", QFileInfo(*mediaPath).absoluteFilePath()});
     process.setProcessChannelMode(QProcess::SeparateChannels);
     process.start();
     QElapsedTimer timer; timer.start();
@@ -102,14 +115,34 @@ bool inspectEmbeddedSegments(Episode &episode, const Cancellation &cancelled)
     if (process.error() == QProcess::FailedToStart) throw ProviderError("Cannot start the ffprobe runtime to check embedded timestamps.");
     // Unsupported/damaged media remains in the catalog and can still be
     // opened by the user. Never interpret partial probe output as timestamps.
-    if (exceeded || process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) return false;
+    if (exceeded || process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) return {};
     QJsonParseError error;
     const auto document = QJsonDocument::fromJson(bytes, &error);
-    if (error.error != QJsonParseError::NoError || !document.isObject()) return false;
-    const auto probe = document.object();
-    episode.importedSegments = embeddedSegments(probe);
-    const auto duration = seconds(probe["format"].toObject()["duration"]);
-    if (duration && *duration * 1000 < double(std::numeric_limits<qint64>::max())) episode.durationMs = qint64(*duration * 1000);
+    if (error.error != QJsonParseError::NoError || !document.isObject()) return {};
+    return document.object();
+}
+}
+
+bool inspectEmbeddedSegments(Episode &episode, const Cancellation &cancelled)
+{
+    const auto probe = probeChapters(episode.mediaPath, cancelled);
+    if (!probe) return false;
+    episode.importedSegments = embeddedSegments(*probe);
+    if (const auto duration = milliseconds((*probe)["format"].toObject()["duration"])) episode.durationMs = duration;
+    return true;
+}
+
+bool inspectMovieChapters(MovieDetail &detail, const Cancellation &cancelled)
+{
+    const auto probe = probeChapters(detail.mediaPath, cancelled);
+    if (!probe) return false;
+    detail.movie.durationMs = milliseconds((*probe)["format"].toObject()["duration"]);
+    for (const auto &value : (*probe)["chapters"].toArray()) {
+        const auto chapter = value.toObject();
+        if (const auto start = milliseconds(chapter["start_time"]))
+            detail.chapters.append({chapterTitle(chapter), *start, milliseconds(chapter["end_time"])});
+    }
+    normalizeChapters(detail);
     return true;
 }
 

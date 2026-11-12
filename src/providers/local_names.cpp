@@ -53,7 +53,7 @@ QString episodeTitle(QString value)
 }
 
 struct Token { qint64 season, episode; qsizetype start, end; };
-struct TokenPattern { QRegularExpression expression; int season, episode, prefix; };
+struct TokenPattern { QRegularExpression expression; int season, episode, prefix; bool explicitSeason = false; };
 
 qint64 decimal(const QString &value)
 {
@@ -67,25 +67,27 @@ qint64 decimal(const QString &value)
 std::optional<Token> token(const QString &name, std::optional<qint64> inferred)
 {
     static const std::array<TokenPattern, 6> patterns{{
-        {pattern(QStringLiteral(R"re(s(\d{1,4})[\s._-]*e(?:p(?:isode)?)?[\s._-]*(\d{1,5})(?:[a-d])?(?:(?:e(?:p(?:isode)?)?[\s._-]*|[\s._-]+e(?:p(?:isode)?)?[\s._-]*|-(?:e)?)(?:\d{1,5})(?:[a-d])?)*)re")), 1, 2, 0},
+        {pattern(QStringLiteral(R"re(s(\d{1,4})[\s._-]*e(?:p(?:isode)?)?[\s._-]*(\d{1,5})(?:[a-d])?(?:(?:e(?:p(?:isode)?)?[\s._-]*|[\s._-]+e(?:p(?:isode)?)?[\s._-]*|-(?:e)?)(?:\d{1,5})(?:[a-d])?)*)re")), 1, 2, 0, true},
         {pattern(QStringLiteral(R"re((^|[\s._\-\[({])(\d{1,2})[\s._-]*x[\s._-]*(\d{1,5})(?:(?:[\s._-]*x[\s._-]*|-)(?:\d{1,5}))*)re")), 2, 3, 1},
-        {pattern(QStringLiteral(R"re((^|[\s._\-\[({])(?:season|saison|series|stagione|temporada)[\s._-]*(\d{1,4})[\s._-]+(?:episodes?|eps?|cap(?:itulo)?s?)[\s._-]*(\d{1,5}))re")), 2, 3, 1},
-        {pattern(QStringLiteral(R"re(s(\d{2})\.(\d{2,3})(?=$|[\s._-]))re")), 1, 2, 0},
+        {pattern(QStringLiteral(R"re((^|[\s._\-\[({])(?:season|saison|series|stagione|temporada)[\s._-]*(\d{1,4})[\s._-]+(?:episodes?|eps?|cap(?:itulo)?s?)[\s._-]*(\d{1,5}))re")), 2, 3, 1, true},
+        {pattern(QStringLiteral(R"re(s(\d{2})\.(\d{2,3})(?=$|[\s._-]))re")), 1, 2, 0, true},
         {pattern(QStringLiteral(R"re((^|[\s._\-\[({])(\d{1,2})-(\d{2,3})(?=$|[\s._\-\])}]))re")), 2, 3, 1},
         {pattern(QStringLiteral(R"re((^|[\s._\-\[({])([1-9])((?:0[1-9]|[1-9]\d))(?=$|[\s._\-\])}]))re")), 2, 3, 1}
     }};
+    // Codec and audio tags can look like shorthand episode numbers.
+    const auto titlePart = truncate(name);
     for (const auto &spec : patterns) {
-        const auto match = spec.expression.match(name);
+        const auto match = spec.expression.match(spec.explicitSeason ? name : titlePart);
         if (match.hasMatch()) return Token{decimal(match.captured(spec.season)), decimal(match.captured(spec.episode)),
             match.capturedStart() + (spec.prefix ? match.capturedLength(spec.prefix) : 0), match.capturedEnd()};
     }
     if (inferred) {
-        auto match = pattern(QStringLiteral(R"re((^|[\s._\-\[({])(\d{2})(\d{2})(?=$|[\s._\-\])}]))re"), false).match(name);
+        auto match = pattern(QStringLiteral(R"re((^|[\s._\-\[({])(\d{2})(\d{2})(?=$|[\s._\-\])}]))re"), false).match(titlePart);
         if (match.hasMatch() && decimal(match.captured(2)) == *inferred)
             return Token{*inferred, decimal(match.captured(3)), match.capturedStart() + match.capturedLength(1), match.capturedEnd()};
-        match = pattern(QStringLiteral(R"re((^|[\s._\-\[({])(?:episodes?|eps?|e)[\s._-]*(\d{1,5})(?=$|[\s._\-\])}]))re")).match(name);
+        match = pattern(QStringLiteral(R"re((^|[\s._\-\[({])(?:episodes?|eps?|e)[\s._-]*(\d{1,5})(?=$|[\s._\-\])}]))re")).match(titlePart);
         if (match.hasMatch()) return Token{*inferred, decimal(match.captured(2)), match.capturedStart() + match.capturedLength(1), match.capturedEnd()};
-        match = pattern(QStringLiteral(R"re(^(\d{1,3})(?=$|[\s._-]+))re"), false).match(name);
+        match = pattern(QStringLiteral(R"re(^(\d{1,3})(?=$|[\s._-]+))re"), false).match(titlePart);
         if (match.hasMatch()) return Token{*inferred, decimal(match.captured(1)), match.capturedStart(), match.capturedEnd()};
     }
     return std::nullopt;
@@ -127,6 +129,30 @@ std::optional<ParsedEpisode> parseEpisode(const QString &filePath, const QString
     const auto episode = episodeTitle(stem.mid(found->end));
     return ParsedEpisode{title, episode.isEmpty() ? std::nullopt : std::optional<QString>(episode), found->season, found->episode,
                          year.hasMatch() ? std::optional<qint64>(decimal(year.captured(1))) : std::nullopt};
+}
+
+bool isMovieExtraFile(const QString &filePath)
+{
+    static const auto standalone = pattern(QStringLiteral(R"(^(?:(?:trailer|sample)(?:[ ._-]*\d+)?|theme)$)"));
+    static const auto suffix = pattern(QStringLiteral(
+        R"((?:-\s*(?:behindthescenes|deleted(?:scenes?)?|interview|scene|clip|featurette|short|other|extra|trailer|sample)|[ ._](?:trailer|sample))$)"));
+    const auto stem = QFileInfo(filePath).completeBaseName();
+    // Release tags can follow the marker, for example Film-sample.1080p.mkv.
+    const auto title = truncate(stem).trimmed();
+    return standalone.match(title).hasMatch() || suffix.match(stem).hasMatch() || suffix.match(title).hasMatch();
+}
+
+ParsedMovie parseMovie(const QString &filePath)
+{
+    const auto stem = QFileInfo(filePath).completeBaseName();
+    auto title = truncate(stem).replace(pattern("[._]+"), " ").simplified();
+    static const auto yearSuffix = pattern(QStringLiteral(R"(\s+[\[(]?((?:19|20)\d{2})[\])]?$)"));
+    const auto year = yearSuffix.match(title);
+    if (year.hasMatch()) title.truncate(year.capturedStart());
+    title = cleanTitle(title);
+    if (title.isEmpty()) title = cleanTitle(stem);
+    if (title.isEmpty()) title = stem;
+    return {title, year.hasMatch() ? std::optional<qint64>(decimal(year.captured(1))) : std::nullopt};
 }
 
 } // namespace introvert::providers

@@ -69,7 +69,10 @@ std::unique_ptr<sql::Connection> MediaCache::connect()
 QString MediaCache::scope(const providers::ProviderConfig &config, const QString &listing)
 {
     const std::lock_guard<std::mutex> lock(m_mutex);
-    QJsonArray values{providers::providerName(config.provider), json(config.remoteUrl), json(config.credential), listing, config.fetchImages};
+    const bool localImages = config.provider == providers::ProviderId::Local && listing == "images";
+    QJsonArray values{providers::providerName(config.provider),
+        json(localImages ? std::nullopt : config.remoteUrl),
+        json(localImages ? std::nullopt : config.credential), listing, localImages || config.fetchImages};
     if (config.provider == providers::ProviderId::Local) values.append(json(config.localRoot));
     const auto context = asciiJson(values);
     if (m_scopes.contains(context)) return m_scopes[context];

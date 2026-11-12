@@ -53,7 +53,7 @@ void SubmissionModel::libraryChanged()
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             m_feedbackScope = current ? providers::providerScope(detail->show.identity,
-                current->key ? (current->key->saved.provider == "local" ? current->key->saved.localRoot : current->key->saved.remoteUrl) : QString()) : QString();
+                detail->show.localRoot.value_or(current->key ? current->key->address() : QString())) : QString();
             m_feedbackCanonical = canonical;
             ++m_feedbackGeneration;
         }

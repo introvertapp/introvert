@@ -20,7 +20,7 @@ class EditLocks final {
     }
     static QStringList identities(const providers::ShowSummary &show,const QString &connection) {
         QStringList result{route(show.identity.provider,show.identity.itemId)
-            +providers::providerScope(show.identity,connection)};
+            +providers::providerScope(show.identity,show.localRoot.value_or(connection))};
         for(const auto &key:showKeys(show))result.append("canonical:"+QString::number(key.size())+':'+key);
         return result;
     }

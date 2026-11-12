@@ -13,6 +13,7 @@ struct CatalogResult {
     QVariantList rows;
     QString message;
     bool cached = false;
+    bool warning = false;
 };
 
 // Synchronous worker-owned coordinator. Settings and QML never perform HTTP or
@@ -38,10 +39,15 @@ public:
     CatalogResult rebuildMovies(const providers::ProviderConfig &config, const QString &listing,
                                 const providers::Cancellation &cancel, const std::function<void(double)> &progress);
     providers::MovieDetail movieDetail(const providers::ProviderConfig &config, const QString &listing, const QString &id,
-                                       const providers::Cancellation &cancel);
+                                       const providers::Cancellation &cancel, bool inspectMedia = true);
+    void clearLocalMovieMetadata(const providers::ProviderConfig &config, const providers::Cancellation &cancel);
     QVariantMap displayMovie(const providers::ProviderConfig &config, const providers::MovieSummary &movie,
                              const providers::Cancellation &cancel, bool images);
 private:
+    CatalogResult localMovies(const providers::ProviderConfig &config, bool force, bool images, const providers::Cancellation &cancel,
+                              const std::function<void(double)> &progress);
+    CatalogResult localTv(const providers::ProviderConfig &config, const providers::Cancellation &cancel,
+                          const std::function<CatalogResult(const providers::ProviderConfig &, qsizetype)> &load);
     QList<providers::MovieSummary> listMovies(const providers::ProviderConfig &config, bool images, bool refresh,
                                               const providers::Cancellation &cancel);
     QString artwork(const providers::ProviderConfig &config, const std::optional<QString> &path,

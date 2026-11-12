@@ -4,6 +4,7 @@
 
 #include <QMap>
 #include <QString>
+#include <QStringList>
 #include <QVariantMap>
 #include <optional>
 #include <stdexcept>
@@ -19,6 +20,12 @@ struct AppSettings {
     QString mediaProvider;
 };
 
+struct LocalFolder {
+    QString path;
+    QString type = QStringLiteral("tv");
+    bool operator==(const LocalFolder &other) const { return path == other.path && type == other.type; }
+};
+
 struct ProviderSettings {
     QString provider;
     QString remoteUrl;
@@ -28,8 +35,10 @@ struct ProviderSettings {
     bool importSegments = false;
     QString importMode = QStringLiteral("tv");
     bool importMovieSegments = false;
-    bool importsTv() const { return importMode != "movies"; }
-    bool importsMovies() const { return provider != "local" && importMode != "tv"; }
+    QList<LocalFolder> localFolders;
+    QStringList localPaths(const QString &type) const;
+    bool importsTv() const { return provider == "local" ? !localPaths("tv").isEmpty() : importMode != "movies"; }
+    bool importsMovies() const { return provider == "local" ? !localPaths("movies").isEmpty() : importMode != "tv"; }
     void validate() const;
 };
 
@@ -65,8 +74,11 @@ public:
     std::optional<QString> providerCredential(const ProviderSettings &saved) const;
     bool hasCredential(const QString &account) const;
     void setCredential(const QString &account, const std::optional<QString> &value) const;
-    QVariantMap loadLocalMetadata(const QString &root) const;
+    QVariantMap loadLocalMetadata(const QString &root, const QString &type = {}) const;
+    QVariantMap loadLocalLibraryMetadata(const QString &type) const;
+    void saveLocalLibraryMetadata(const QString &type, const QVariantMap &values) const;
     void saveLocalMetadata(const QString &root, const QVariantMap &values) const;
+    void saveLocalMetadata(const QMap<QString, QVariantMap> &folders) const;
 
     QString detectionResources() const;
     void setDetectionResources(const QString &profile) const;

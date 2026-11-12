@@ -37,6 +37,7 @@ class LibraryModel final : public QObject {
     Q_PROPERTY(int season READ season NOTIFY changed)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
     Q_PROPERTY(bool rebuildingCache READ rebuildingCache NOTIFY changed)
+    Q_PROPERTY(QString localRebuildType READ localRebuildType NOTIFY changed)
     Q_PROPERTY(double cacheRebuildProgress READ cacheRebuildProgress NOTIFY changed)
     Q_PROPERTY(QString state READ state NOTIFY changed)
     Q_PROPERTY(QString message READ message NOTIFY changed)
@@ -67,7 +68,10 @@ public:
     QString episodeCount() const;
     Q_INVOKABLE void load();
     Q_INVOKABLE void refresh();
+    QString localRebuildType() const { return rebuildingCache() ? m_rebuildType : QString(); }
     Q_INVOKABLE void rebuildCache();
+    Q_INVOKABLE void rebuildLocalMedia(const QString &type);
+    Q_INVOKABLE void clearLocalMedia(const QString &type);
     Q_INVOKABLE void clearImageCache();
     Q_INVOKABLE void clearLocalCache();
     Q_INVOKABLE void setBrowsing(bool active);
@@ -109,13 +113,20 @@ private:
     void defer(const std::optional<CatalogSelection> &key);
     void refresh(bool force, bool clearLocal = false);
     void reloadLocalMetadata();
+    void reloadLocalMetadataItem(const QString &type, const QString &root, const QString &id);
+    void rebuild(const QString &type, bool clearMetadata);
     void openShowScoped(const QString &id, const QString &scope);
     void openMovieScoped(const QString &id, const QString &scope);
     const providers::ShowDetail *activeDetail() const;
     QVariantMap playableRow(const providers::ShowDetail &detail, const providers::Episode &episode) const;
     quint64 beginDetail();
     QVariantList &activeRows() { return m_browseMovies ? m_movies : m_shows; }
-    QString connectionAddress() const { return m_key ? m_key->address() : QString(); }
+    QString m_rebuildType;
+    QString connectionAddress() const {
+        const auto address = m_key ? m_key->address() : QString();
+        const auto *detail = activeDetail();
+        return detail ? detail->show.localRoot.value_or(address) : address;
+    }
     quint64 begin();
     void submit(Kind kind, quint64 generation, Work work);
     void publish(quint64 generation, const library::CatalogResult &catalog);
@@ -158,6 +169,8 @@ class LocalMetadataModel final : public QObject {
     Q_PROPERTY(QString credentialInput READ credentialInput NOTIFY changed)
     Q_PROPERTY(QVariantMap configuration READ configuration NOTIFY configurationChanged)
     Q_PROPERTY(QVariantMap credentials READ credentials NOTIFY changed)
+    Q_PROPERTY(QVariantMap movieConfiguration READ movieConfiguration NOTIFY configurationChanged)
+    Q_PROPERTY(QVariantMap movieCredentials READ movieCredentials NOTIFY changed)
     Q_PROPERTY(QString message READ message NOTIFY changed)
     Q_PROPERTY(QVariantMap status READ status NOTIFY changed)
 public:
@@ -169,6 +182,8 @@ public:
     QString credentialInput() const { return m_credential; }
     QVariantMap configuration() const { return m_configuration; }
     QVariantMap credentials() const { return m_credentials; }
+    QVariantMap movieConfiguration() const { return m_movieConfiguration; }
+    QVariantMap movieCredentials() const { return m_movieCredentials; }
     QString message() const { return m_message; }
     QVariantMap status() const { return m_status; }
     Q_INVOKABLE void activate();
@@ -178,6 +193,9 @@ public:
     Q_INVOKABLE void queueCredential(const QString &provider, const QString &key);
     Q_INVOKABLE void identify(const QString &showId, const QString &providerId);
     Q_INVOKABLE void fetch();
+    Q_INVOKABLE void fetchMedia(const QString &type);
+    Q_INVOKABLE void setMovieOption(const QString &name, const QString &value);
+    Q_INVOKABLE void queueMovieCredential(const QString &provider, const QString &key);
     Q_INVOKABLE void stop();
     void close();
 signals:
@@ -191,6 +209,8 @@ private:
     using Work = std::function<Result(quint64)>;
     void start(Kind kind, Work work);
     void flushKey();
+    void setMediaOption(const QString &type, const QString &name, const QString &value);
+    void editCredential(bool movies, const QString &provider, const QString &key);
     LibraryModel &m_library;
     SettingsStore m_store;
     providers::MetadataService m_service;
@@ -202,7 +222,7 @@ private:
     quint64 m_generation = 0, m_keyRevision = 0;
     QString m_message, m_credential;
     QVariantMap m_status;
-    QVariantMap m_configuration, m_credentials;
+    QVariantMap m_configuration, m_credentials, m_movieConfiguration, m_movieCredentials;
     QMap<QString,QString> m_pendingCredentials;
     QString m_root, m_targetShow;
 };

@@ -21,6 +21,12 @@ public:
                                      bool includeImages = true, const Cancellation &cancelled = {}) override;
     std::optional<ShowDetail> inspectShow(const ProviderConfig &config, const QString &showId,
                                          bool includeImages = true, const Cancellation &cancelled = {});
+    QList<MovieSummary> movies(const ProviderConfig &config, bool refresh, QString *warning, const Cancellation &cancelled);
+    std::optional<MovieDetail> getMovie(const ProviderConfig &config, const QString &id, bool includeImages,
+                                       const Cancellation &cancelled) override;
+    std::optional<MovieDetail> readMovie(const ProviderConfig &config, const QString &id, bool includeImages,
+                                        const Cancellation &cancelled, bool inspectMedia);
+    void clearMovieMetadata(const ProviderConfig &config, const Cancellation &cancelled);
     QByteArray artwork(const ProviderConfig &config, const QString &path, const Cancellation &cancelled = {}) override;
     QJsonValue request(const ProviderConfig &config, const QString &path, const QVariantMap &parameters = {},
                         const Cancellation &cancelled = {}) override;
@@ -28,6 +34,7 @@ public:
     void clear(const ProviderConfig &config, const Cancellation &cancelled = {});
 private:
     void initialize(QSqlDatabase &db);
+    void initializeMovies(QSqlDatabase &db);
     void scan(QSqlDatabase &db, const QString &root, const Cancellation &cancelled);
     std::optional<ShowDetail> readShow(const ProviderConfig &config, const QString &showId,
                                       bool includeImages, const Cancellation &cancelled, bool inspectFiles);

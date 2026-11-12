@@ -50,9 +50,14 @@ has no usable chapters.
 
 ## Local folders and network storage
 
-1. Select **Local**, then click **Browse** or enter your TV library folder.
-2. Mount any network drive first and make sure your account can read the files.
-3. Return to **TV Shows** for the initial scan.
+1. Select **Local**, then use **Local media folders** inside **TV Shows** or **Movies**.
+2. Click **Add folder** in that section, then **Browse** or enter its path.
+   The section supplies its media type. Use the dropdown to move a folder to the
+   other section. Choose folders that do not overlap.
+3. Mount any network drive first and make sure your account can read the files.
+4. Open **TV Shows** or **Movies** for that library's initial scan.
+
+Existing Local paths become **TV Shows** folders automatically.
 
 Use clear show folders and season/episode numbers, for example:
 
@@ -64,29 +69,52 @@ TV Shows/
       Example Show - S01E02.mkv
 ```
 
-Supported embedded chapters named Recap, Intro, Credits, or Preview are imported
-during discovery. Ordinary browsing uses the saved catalog. After adding,
-moving, or removing files, use **Settings → Media → Rescan for changes**.
+TV discovery imports supported embedded Recap, Intro, Credits, or Preview chapters.
+Local movie scans exclude disc internals (`BDMV` and `VIDEO_TS`), standard
+extras folders, and marked extras such as `-trailer`, `-interview`, and
+`-deletedscene`. Numeric movie titles and special editions are included.
+Use filenames such as `Example Film (2024).mkv` for a readable title and year. Open a movie to view
+its playable item. To convert supported chapters such as Studio Logos, Main
+Titles, and End Credits into segments, enable **Import movie timestamps** in
+**Settings → Media**. This setting defaults to off.
 
-## Local show titles and artwork
+Browsing uses the saved catalog. After adding, moving, or removing files, use
+**Rescan for changes** in the corresponding Local section. A movie rescan also
+removes previously listed disc clips and recognised extras from the catalog.
+If a folder is unavailable during the
+rescan, Introvert keeps its saved listings and reports the folder that failed.
 
-Fetching online metadata is optional; local detection and editing work without it.
+## Local metadata and artwork
 
-1. In **Settings → Media**, choose a **Metadata provider** and **Artwork provider**.
-2. Enter the credentials shown for those providers.
-3. Click **Fetch metadata**. Use **Stop fetch** to stop; completed shows are kept.
+Local has separate **TV Shows** and **Movies** configuration sections. Each
+section contains its own folders, metadata provider, artwork provider, API keys,
+and actions to rescan, fetch metadata, and clear its cache.
+Movies match by filename title and release year. Matching fills in titles and
+available external IDs, posters, and logos. TV matches also include episode names
+and numbering.
+
+1. In **Settings → Media**, choose a **Metadata provider** and **Artwork provider**
+   in each Local section.
+   Artwork defaults to **Same as metadata**. Choose **Off** to hide and skip artwork.
+2. Enter the credentials shown for that section's selected providers.
+3. Click **Fetch metadata**. Titles and artwork update in the library as each item
+   is saved. Use **Stop fetch** to stop and keep completed items.
+
+Successful matches and their cached images are reused for up to 24 hours. Fetching
+again retries failed lookups and restores missing cached images.
 
 | Provider | Credential |
 | --- | --- |
 | TMDB | API key |
-| TheTVDB | Application API key; subscriber PIN if required |
+| TheTVDB | Application API key |
 | OMDb | API key |
 | TVmaze | None |
 | fanart.tv | Personal API key; artwork only |
 
-For TheTVDB, choose the **Episode order** matching your files. Artwork can use
-the metadata provider, another provider, or **Off**. Rescan for new files before
-fetching metadata for them.
+TVmaze is available in the TV Shows section. The provider supplies the available
+image types. For TheTVDB, choose the **Episode
+order** matching your TV files. Rescan after adding or moving files in a previously
+scanned folder.
 
 If a show is matched incorrectly, open it in **TV Shows**, click **Identify**,
 and enter its show ID from the selected metadata provider. Check the resulting

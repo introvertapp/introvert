@@ -13,6 +13,9 @@ struct ParsedEpisode {
     std::optional<qint64> year;
 };
 
+struct ParsedMovie { QString title; std::optional<qint64> year; };
+ParsedMovie parseMovie(const QString &filePath);
+bool isMovieExtraFile(const QString &filePath);
 QString cleanTitle(QString value);
 std::optional<ParsedEpisode> parseEpisode(const QString &filePath, const QString &rootPath);
 

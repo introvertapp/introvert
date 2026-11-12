@@ -71,7 +71,7 @@ bool ProviderSettingsModel::dirty() const
 {
     return m_edited || m_address != m_savedAddress || m_images != m_savedImages
         || m_importSegments != m_savedImportSegments || m_importMode != m_savedImportMode
-        || m_importMovieSegments != m_savedImportMovieSegments;
+        || m_importMovieSegments != m_savedImportMovieSegments || m_localFolders != m_savedLocalFolders;
 }
 
 void ProviderSettingsModel::refreshStatus()
@@ -86,12 +86,14 @@ void ProviderSettingsModel::select(const QString &provider)
     if (provider != m_provider && dirty()) flush();
     if (provider == m_provider && dirty()) return;
     if (!m_provider.isEmpty() && dirty())
-        m_drafts[m_provider] = {m_address, m_images, m_credential, m_edited, m_importSegments, m_importMode, m_importMovieSegments};
+        m_drafts[m_provider] = {m_address, m_images, m_credential, m_edited, m_importSegments, m_importMode,
+            m_importMovieSegments, m_localFolders};
     m_timer.stop();
     m_provider = provider;
     m_address.clear(); m_credential.clear(); m_message.clear();
     m_images = m_edited = m_importSegments = m_importMovieSegments = false;
     m_importMode = "tv";
+    m_localFolders.clear();
     m_timeout = 10;
     if (!provider.isEmpty()) {
         try {
@@ -101,22 +103,26 @@ void ProviderSettingsModel::select(const QString &provider)
             m_importSegments = config.importSegments;
             m_importMovieSegments = config.importMovieSegments;
             m_importMode = config.importMode;
+            m_localFolders = config.localFolders;
             m_timeout = config.timeoutSeconds;
             if (provider != "local") m_credential = m_store.credential("media:" + provider).value_or(QString());
         } catch (...) {
             m_message = QStringLiteral("Cannot load provider settings. Check database access and app.db credential storage.");
         }
     }
+    if (provider == "local" && m_localFolders.isEmpty()) m_localFolders.append(LocalFolder{});
     refreshStatus();
     m_savedAddress = m_address; m_savedImages = m_images; m_savedImportSegments = m_importSegments;
     m_savedImportMode = m_importMode;
     m_savedImportMovieSegments = m_importMovieSegments;
+    m_savedLocalFolders = m_localFolders;
     const auto draft = m_drafts.constFind(provider);
     if (draft != m_drafts.cend()) {
         m_address = draft->address; m_images = draft->images;
         m_credential = draft->credential; m_edited = draft->edited; m_importSegments = draft->importSegments;
         m_importMode = draft->importMode;
         m_importMovieSegments = draft->importMovieSegments;
+        m_localFolders = draft->folders;
     }
     emit changed();
     emit cleared();
@@ -127,12 +133,75 @@ void ProviderSettingsModel::edited()
     m_message.clear(); m_timer.start(); emit changed();
 }
 
-void ProviderSettingsModel::setAddress(const QString &value) { m_address = value; edited(); }
+void ProviderSettingsModel::setAddress(const QString &value)
+{
+    if (m_provider == "local") {
+        for (auto &folder : m_localFolders) if (folder.type == "tv") {
+            folder.path = value; localFoldersEdited(); return;
+        }
+        m_localFolders.prepend({value, "tv"});
+        localFoldersEdited();
+    } else { m_address = value; edited(); }
+}
+
+QVariantList ProviderSettingsModel::localFolders() const
+{
+    QVariantList rows;
+    for (const auto &folder : m_localFolders) rows.append(QVariantMap{{"path", folder.path}, {"type", folder.type}});
+    return rows;
+}
+
+void ProviderSettingsModel::localFoldersEdited()
+{
+    m_address.clear();
+    for (const auto &folder : m_localFolders) if (folder.type == "tv" && !folder.path.isEmpty()) {
+        m_address = folder.path; break;
+    }
+    edited();
+}
+
+void ProviderSettingsModel::addLocalFolder() { addLocalFolderForType("tv"); }
+
+void ProviderSettingsModel::addLocalFolderForType(const QString &type)
+{
+    if (m_provider != "local" || (type != "tv" && type != "movies")) return;
+    m_localFolders.append({{}, type});
+    localFoldersEdited();
+}
+
+void ProviderSettingsModel::setLocalFolderPath(int index, const QString &value)
+{
+    if (m_provider != "local" || index < 0 || index >= m_localFolders.size() || m_localFolders[index].path == value) return;
+    m_localFolders[index].path = value;
+    localFoldersEdited();
+}
+
+void ProviderSettingsModel::setLocalFolderType(int index, const QString &type)
+{
+    if (m_provider != "local" || index < 0 || index >= m_localFolders.size()
+        || (type != "tv" && type != "movies") || m_localFolders[index].type == type) return;
+    m_localFolders[index].type = type;
+    localFoldersEdited();
+}
+
+void ProviderSettingsModel::setLocalFolderUrl(int index, const QString &value)
+{
+    const auto path = QUrl(value).toLocalFile();
+    if (!path.isEmpty()) setLocalFolderPath(index, path);
+}
+
+void ProviderSettingsModel::removeLocalFolder(int index)
+{
+    if (m_provider != "local" || index < 0 || index >= m_localFolders.size()) return;
+    m_localFolders.removeAt(index);
+    if (m_localFolders.isEmpty()) m_localFolders.append(LocalFolder{});
+    localFoldersEdited();
+}
 void ProviderSettingsModel::setFetchImages(bool value) { m_images = value; edited(); }
 void ProviderSettingsModel::setImportSegments(bool value) { m_importSegments = value; edited(); }
 void ProviderSettingsModel::setImportMovieSegments(bool value)
 {
-    if (m_provider.isEmpty() || m_provider == "local" || value == m_importMovieSegments) return;
+    if (m_provider.isEmpty() || value == m_importMovieSegments) return;
     m_importMovieSegments = value;
     edited();
 }
@@ -175,9 +244,11 @@ bool ProviderSettingsModel::save(CredentialAction action, const QString &credent
 {
     if (m_provider.isEmpty()) { m_message = QStringLiteral("Select a provider first."); emit changed(); return false; }
     try {
+        auto folders = m_localFolders;
+        folders.removeIf([](const LocalFolder &folder) { return folder.path.isEmpty(); });
         m_store.saveProvider({m_provider, m_provider == "local" ? QString() : m_address,
                              m_provider == "local" ? m_address : QString(), m_images, m_timeout, m_importSegments, m_importMode,
-                             m_importMovieSegments},
+                             m_importMovieSegments, folders},
                              action, credential);
     } catch (const SettingsError &error) { m_message = errorText(error); emit errorOccurred(m_message); emit changed(); return false; }
     catch (...) { m_message = QStringLiteral("Save failed. Check app.db access and retry."); emit errorOccurred(m_message); emit changed(); return false; }
@@ -186,6 +257,7 @@ bool ProviderSettingsModel::save(CredentialAction action, const QString &credent
     m_savedAddress = m_address; m_savedImages = m_images; m_savedImportSegments = m_importSegments;
     m_savedImportMode = m_importMode;
     m_savedImportMovieSegments = m_importMovieSegments;
+    m_savedLocalFolders = m_localFolders;
     m_message.clear(); refreshStatus(); emit changed(); emit saved();
     return true;
 }

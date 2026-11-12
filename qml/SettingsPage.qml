@@ -120,7 +120,20 @@ Item {
             }
         }
     }
-    FolderDialog { id: localFolder; objectName: "localBrowseDialog"; title: "Local media path"; onAccepted: page.appSettings.mediaSettings.setDirectoryUrl(selectedFolder.toString()) }
+    function hasLocalFolder(type, requirePath) {
+        const folders = page.appSettings.mediaSettings.localFolders
+        for (let i = 0; i < folders.length; ++i)
+            if (folders[i].type === type && (!requirePath || folders[i].path.length > 0)) return true
+        return false
+    }
+
+    FolderDialog {
+        id: localFolder
+        objectName: "localBrowseDialog"
+        title: "Choose a Local media folder"
+        property int folderIndex: 0
+        onAccepted: page.appSettings.mediaSettings.setLocalFolderUrl(folderIndex, selectedFolder.toString())
+    }
 
     Rectangle {
         objectName: "settingsSurface"
@@ -477,23 +490,17 @@ Item {
                             Column {
                                 width: parent.width
                                 spacing: 12
-                                visible: page.appSettings.mediaProvider !== ""
-                                Column { width: parent.width; spacing: 6
-                                    Text {
-                                        font.pixelSize: 15; font.bold: true
-                                        text: page.appSettings.mediaProvider === "local" ? "Local media path" : "URL"
-                                        color: page.theme.text
-                                    }
-                                    Row { width: parent.width; spacing: 8
-                                        AppTextField {
-                                            objectName: "mediaAddressControl"
-                                            height: 40
-                                            width: parent.width - (page.appSettings.mediaProvider === "local" ? 88 : 0)
-                                            text: page.appSettings.mediaSettings.address
-                                            placeholderText: page.appSettings.mediaProvider === "local" ? "/Volumes/TV" : page.appSettings.mediaProvider === "plex" ? "http://server:32400" : "http://server:8096"
-                                            onTextEdited: page.appSettings.mediaSettings.setAddress(text)
-                                        }
-                                        AppButton { objectName: "localBrowseControl"; visible: page.appSettings.mediaProvider === "local"; text: "Browse"; theme: page.theme; width: 80; height: 40; onClicked: localFolder.open() }
+                                visible: page.appSettings.mediaProvider !== "" && page.appSettings.mediaProvider !== "local"
+                                Column {
+                                    width: parent.width; spacing: 6
+                                    visible: page.appSettings.mediaProvider !== "local"
+                                    Text { text: "URL"; font.pixelSize: 15; font.bold: true; color: page.theme.text }
+                                    AppTextField {
+                                        objectName: page.appSettings.mediaProvider === "local" ? "" : "mediaAddressControl"
+                                        width: parent.width; height: 40
+                                        text: page.appSettings.mediaSettings.address
+                                        placeholderText: page.appSettings.mediaProvider === "plex" ? "http://server:32400" : "http://server:8096"
+                                        onTextEdited: page.appSettings.mediaSettings.setAddress(text)
                                     }
                                 }
                                 Column {
@@ -578,7 +585,7 @@ Item {
                                         width: parent.width; height: 34
                                         Text { Layout.fillWidth: true; text: "Import movie timestamps"; color: page.theme.text }
                                         SegmentSwitch {
-                                            objectName: "mediaImportMovieSegmentsControl"
+                                            objectName: page.appSettings.mediaProvider === "local" ? "" : "mediaImportMovieSegmentsControl"
                                             Accessible.name: "Import movie timestamps"
                                             checked: page.appSettings.mediaSettings.importMovieSegments
                                             onToggled: page.appSettings.mediaSettings.setImportMovieSegments(checked)
@@ -591,7 +598,7 @@ Item {
                                 }
                                 Rectangle { width: parent.width; height: 1; color: page.theme.border }
                                 AppButton {
-                                    objectName: "rebuildMediaCacheControl"
+                                    objectName: page.appSettings.mediaProvider === "local" ? "" : "rebuildMediaCacheControl"
                                     visible: ["plex","emby","jellyfin","local"].indexOf(page.appSettings.mediaProvider)>=0
                                     readonly property bool rebuilding: Boolean(page.mediaLibrary && page.mediaLibrary.rebuildingCache)
                                     text: page.appSettings.mediaProvider==="local" ? (rebuilding ? "Checking for changes…" : "Rescan for changes") : (rebuilding ? "Rebuilding Cache…" : "Rebuild Cache")
@@ -626,7 +633,14 @@ Item {
                             height: Math.max(280, contentScroll.height - sectionHeading.height - 34)
                             theme: page.theme; backend: page.applicationLogs
                         }
-                        LibrarySettings { id: localExtras; visible: page.activeTab === "media" && page.appSettings.mediaProvider === "local"; width: parent.width; theme: page.theme; section: "media"; localProvider: true; mediaLibrary: page.mediaLibrary }
+                        LibrarySettings {
+                            id: localExtras
+                            visible: page.activeTab === "media" && page.appSettings.mediaProvider === "local"
+                            width: parent.width; theme: page.theme; section: "media"; localProvider: true
+                            mediaLibrary: page.mediaLibrary; mediaSettings: page.appSettings.mediaSettings; folderDialog: localFolder
+                            hasTvFolders: page.hasLocalFolder("tv", true)
+                            hasMovieFolders: page.hasLocalFolder("movies", true)
+                        }
                         ServiceSettings {
                             visible: page.activeTab !== "application" && page.activeTab !== "media" && page.activeTab !== "logs"
                             width: parent.width

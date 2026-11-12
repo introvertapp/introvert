@@ -61,7 +61,7 @@ ApplicationWindow {
     function explain(title, message) { action.title = title; action.message = message; action.confirmText = "Close"; action.open() }
     function openShow(show) {
         appNavigation.navigate("home")
-        if(mediaLibrary && appSettings.mediaSettings.importMode === "movies") return
+        if(mediaLibrary && appSettings.mediaProvider !== "local" && appSettings.mediaSettings.importMode === "movies") return
         selectedShow = show
         if(mediaLibrary && !uiPreview) {
             openingShowRequest = true
@@ -71,7 +71,7 @@ ApplicationWindow {
     }
     function openMovie(movie) {
         appNavigation.navigate("movies")
-        if(mediaLibrary && appSettings.mediaSettings.importMode === "tv") return
+        if(mediaLibrary && appSettings.mediaProvider !== "local" && appSettings.mediaSettings.importMode === "tv") return
         selectedMovie = movie
         if(mediaLibrary && !uiPreview) {
             if(movie.scope) mediaLibrary.openJobMovie(movie.id, movie.scope)
