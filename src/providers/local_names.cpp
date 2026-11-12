@@ -145,14 +145,57 @@ bool isMovieExtraFile(const QString &filePath)
 ParsedMovie parseMovie(const QString &filePath)
 {
     const auto stem = QFileInfo(filePath).completeBaseName();
-    auto title = truncate(stem).replace(pattern("[._]+"), " ").simplified();
-    static const auto yearSuffix = pattern(QStringLiteral(R"(\s+[\[(]?((?:19|20)\d{2})[\])]?$)"));
-    const auto year = yearSuffix.match(title);
-    if (year.hasMatch()) title.truncate(year.capturedStart());
+    auto title = stem;
+    std::optional<qint64> year;
+    // Follow Jellyfin v12.4's CleanDateTime -> CleanString order. Prefer a
+    // punctuation-delimited year, then a space-delimited one; release text
+    // after the year is discarded. Full dates and numbers in titles survive.
+    // Reference: Emby.Naming/{Common/NamingOptions,Video/VideoResolver}.cs.
+    static const auto years = pattern(QStringLiteral(R"((19[0-9]{2}|20[0-9]{2})(?![0-9]|\W[0-9]{2}\W[0-9]{2}))"));
+    QList<QRegularExpressionMatch> candidates;
+    auto matches = years.globalMatch(stem);
+    while (matches.hasNext()) candidates.append(matches.next());
+    const QString separators = QStringLiteral(" _.()[]-");
+    const QString punctuation = QStringLiteral("_.()[]-");
+    for (int pass = 0; pass < 2 && !year; ++pass) {
+        for (auto match = candidates.crbegin(); match != candidates.crend(); ++match) {
+            const auto start = match->capturedStart();
+            if (start == 0 || !separators.contains(stem.at(start - 1))) continue;
+            auto before = stem.left(start);
+            if (pass == 0) {
+                if (start < 2 || !punctuation.contains(stem.at(start - 1))
+                    || QStringLiteral("_,.()[]-").contains(stem.at(start - 2))) continue;
+                before.chop(1);
+            } else {
+                while (!before.isEmpty() && separators.contains(before.back())) before.chop(1);
+            }
+            if (before.trimmed().isEmpty()) continue;
+            title = before.trimmed();
+            year = match->captured(1).toLongLong();
+            break;
+        }
+    }
+    // The same release flags and bracket/group cleanup used by Jellyfin,
+    // expressed for Qt; existing Introvert codec/provider tags remain supported.
+    static const auto flags = pattern(QStringLiteral(
+        R"([ _,.()\[\]-](?:3d|sbs|tab|hsbs|htab|mvc|hdr|hdc|uhd|ultrahd|4k|ac3|dts|custom|dc|divx5?|dsr|dsrip|dutch|dvd|dvdrip|dvdscr|dvdscreener|screener|dvdivx|cam|fragment|fs|hdtv|hdrip|hdtvrip|internal|limited|multi|subs|ntsc|ogg|ogm|pal|pdtv|proper|repack|rerip|retail|cd[1-9]|r5|bd5|bd|se|svcd|swedish|german|read.nfo|nfofix|unrated|ws|web-dl|telesync|ts|telecine|tc|brrip|bdrip|480p|480i|576p|576i|720p|720i|1080p|1080i|2160p|hrhd|hrhdtv|hddvd|bluray|blu-ray|x264|x265|h264|h265|xvid|xvidvd|xxx|www.www|aac)(?=$|[ _,.()\[\]-]))"));
+    const auto flag = flags.match(title);
+    if (flag.hasMatch() && !title.left(flag.capturedStart()).trimmed().isEmpty()) title.truncate(flag.capturedStart());
+    title = truncate(title);
+    static const auto trailingGroups = pattern(QStringLiteral(R"(\s*(?:\[[^\]]+\]\s*)+$)"));
+    const auto groups = trailingGroups.match(title);
+    if (groups.hasMatch() && !title.left(groups.capturedStart()).trimmed().isEmpty()) title.truncate(groups.capturedStart());
+    static const auto episodeRange = pattern(QStringLiteral(R"(\WE[0-9]+[-~]E?[0-9]+(?:\W|$))"));
+    const auto range = episodeRange.match(title);
+    if (range.hasMatch() && range.capturedStart() > 0) title.truncate(range.capturedStart());
+    static const auto leadingGroup = pattern(QStringLiteral(R"(^\s*\[[^\]]+\]\s*(?=\S))"));
+    static const auto part = pattern(QStringLiteral(R"(\s+-\s+[0-9]+\s*$)"));
+    title.remove(leadingGroup);
+    title.remove(part);
     title = cleanTitle(title);
     if (title.isEmpty()) title = cleanTitle(stem);
     if (title.isEmpty()) title = stem;
-    return {title, year.hasMatch() ? std::optional<qint64>(decimal(year.captured(1))) : std::nullopt};
+    return {title, year};
 }
 
 } // namespace introvert::providers

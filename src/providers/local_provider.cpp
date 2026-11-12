@@ -46,8 +46,11 @@ QString childPath(const QString &parent, const QString &name)
 }
 MovieSummary movieSummary(const QSqlQuery &query, const QString &root, bool images)
 {
-    MovieSummary movie{{ProviderId::Local, query.value(0).toString(), {}}, query.value(1).toString()};
-    if (!query.value(2).isNull()) movie.year = query.value(2).toLongLong();
+    // Reparse the stored path without filesystem/media I/O. Existing unmatched
+    // catalogs benefit from naming fixes without a rescan or identity changes.
+    const auto parsed = parseMovie(query.value(8).toString());
+    MovieSummary movie{{ProviderId::Local, query.value(0).toString(), {}}, query.value(1).isNull() ? parsed.title : query.value(1).toString()};
+    movie.year = query.value(2).isNull() ? parsed.year : std::optional<qint64>(query.value(2).toLongLong());
     movie.externalIds = {optionalString(query.value(3)), optionalString(query.value(4)), optionalString(query.value(5))};
     if (images) {
         movie.posterUrl = optionalString(query.value(6));
@@ -57,7 +60,7 @@ MovieSummary movieSummary(const QSqlQuery &query, const QString &root, bool imag
     return movie;
 }
 
-const QString movieRows = "SELECT m.id,COALESCE(d.title,m.title),COALESCE(d.year,m.year),d.imdb,d.tmdb,d.tvdb,d.poster,d.logo,m.path "
+const QString movieRows = "SELECT m.id,d.title,d.year,d.imdb,d.tmdb,d.tvdb,d.poster,d.logo,m.path "
     "FROM local_movies m LEFT JOIN local_movie_metadata d ON d.movie_id=m.id WHERE m.root=?";
 
 struct LocalFiles {

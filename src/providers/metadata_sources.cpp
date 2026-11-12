@@ -23,6 +23,39 @@ QString normalized(QString value)
 {
     value=value.toCaseFolded();value.replace(QRegularExpression("[^\\p{L}\\p{N}]+")," ");return value.trimmed();
 }
+QString movieName(QString value, bool search = false)
+{
+    // Jellyfin v12.4 TmdbUtils.CleanName/NormalizeTitle: preserve Unicode
+    // letters, numbers and combining marks, plus interpuncts in search text.
+    static const QRegularExpression searchSeparators(QStringLiteral("[^\\p{L}\\p{N}\\p{M}·]+"));
+    static const QRegularExpression titleSeparators(QStringLiteral("[^\\p{L}\\p{N}\\p{M}]+"));
+    value.replace(search ? searchSeparators : titleSeparators, " ");
+    return search ? value.trimmed() : value.trimmed().toLower();
+}
+QJsonObject chooseMovie(const QJsonArray &rows, const QString &title, std::optional<qint64> year)
+{
+    if (rows.isEmpty()) throw MetadataNotFound(true);
+    // Same ranking as Jellyfin v12.4 TmdbUtils.FindBestMatch: exact title 8,
+    // whole-word prefix 4, year within one year 2. Ties keep provider order,
+    // which also supplies fuzzy/alternative-title matches when scores are zero.
+    const auto wanted = movieName(title);
+    const auto titleScore = [&wanted](const QString &candidate) {
+        const auto name = movieName(candidate);
+        if (name == wanted) return 8;
+        return name.startsWith(wanted + ' ') ? 4 : 0;
+    };
+    auto best = rows.first().toObject();
+    int bestScore = 0;
+    if (wanted.isEmpty()) return best;
+    for (const auto &value : rows) {
+        const auto row = value.toObject();
+        auto score = std::max(titleScore(row["title"].toString()), titleScore(row["original_title"].toString()));
+        const auto date = row["release_date"].toString().left(4).toLongLong();
+        if (year && *year > 0 && date > 0 && std::abs(date - *year) <= 1) score += 2;
+        if (score > bestScore) { best = row; bestScore = score; }
+    }
+    return best;
+}
 QString imageUrl(const QString &value)
 {
     const QUrl url(value,QUrl::StrictMode);
@@ -84,6 +117,7 @@ MetadataClient::Record MetadataClient::identifyTitle(const QString &source, cons
 {
     const bool movie = title.movie;
     const auto chooseTitle = [&](const QJsonArray &rows, const QString &name, const QString &year) {
+        if (movie && source == "tmdb") return chooseMovie(rows, title.name, title.year);
         return choose(rows, title.name, title.year, name, year, movie);
     };
     if(!QStringList{"tmdb","tvdb","omdb","tvmaze"}.contains(source) || (movie && source == "tvmaze"))throw ProviderError("Unsupported metadata provider.");
@@ -138,7 +172,7 @@ MetadataClient::Record MetadataClient::identifyTitle(const QString &source, cons
             if (rows.size() == 1) matchId = id(rows.first().toObject()["id"]);
         }
         if (matchId.isEmpty()) {
-            QVariantMap search{{"query", title.name}};
+            QVariantMap search{{"query", movie ? movieName(title.name, true) : title.name}};
             if (movie && title.year) search["year"] = *title.year;
             matchId = id(chooseTitle(tmdbRead("/search" + media, search).toObject()["results"].toArray(), titleField, dateField)["id"]);
         }

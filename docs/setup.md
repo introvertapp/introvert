@@ -103,6 +103,12 @@ and numbering.
 Successful matches and their cached images are reused for up to 24 hours. Fetching
 again retries failed lookups and restores missing cached images.
 
+Local movie names recognise release years followed by edition or quality tags,
+such as `Example Film.1996.Remastered.1080p.mkv`. TMDB movie matching follows
+Jellyfin's ranking of titles and original titles, nearby release years, and
+TMDB's search relevance. Existing unmatched movies use the updated filename
+parsing on the next fetch; clearing the library or rescanning is unnecessary.
+
 | Provider | Credential |
 | --- | --- |
 | TMDB | API key |
