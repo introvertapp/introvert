@@ -27,13 +27,15 @@ in the episode list or video editor.
 ## Multiple seasons
 
 1. Open the show and select your first season.
-2. Hold **Shift** and click additional season buttons. The first Shift-click on
-   another season includes the currently open season.
-3. Shift-click a selected season again to remove it from the selection.
+2. Hold **Shift** and click another season to select the full range between
+   the two seasons, including both ends.
+3. Hold **⌘** on macOS or **Ctrl** on Windows/Linux and click a season to add
+   or remove it individually.
 4. Choose **Intro**, **Credits**, or both, then click **Detect N Seasons**.
 
 To scan a whole show, include all its seasons. Each season is processed separately.
-Ordinary clicks browse seasons; Shift-clicks change the detection selection.
+Clicking a season without modifiers opens it and replaces the selection with
+that season.
 
 ## Entire library
 

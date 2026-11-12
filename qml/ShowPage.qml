@@ -46,6 +46,8 @@ Item {
     property string timestampFormat: "both"
     property var selectionByEpisode: ({})
     property var detectionSeasons: []
+    property int seasonSelectionAnchor: -1
+    readonly property var availableSeasons: page.show && !page.movieMode ? page.show.seasonNumbers || Array.from({length:page.show.seasons || 0},function(_,index){return index+1}) : []
     readonly property var requestedDetectionSeasons: detectionSeasons.length ? detectionSeasons : [season]
     readonly property var detectionRun: detector ? detector.showDetection : ({})
     readonly property bool requestedDetectionActive: Boolean(detectionRun.active)
@@ -54,9 +56,21 @@ Item {
         var state = detector ? detector.seasonProgress[String(number)] : null
         return state && ["queued", "running", "complete"].indexOf(state.status) >= 0 ? Number(state.progress || 0) : -1
     }
-    function toggleDetectionSeason(number) {
-        if(!detectionSeasons.length && number !== season) { detectionSeasons = [season, number]; return }
-        detectionSeasons = detectionSeasons.indexOf(number) >= 0 ? detectionSeasons.filter(function(value) { return value !== number }) : detectionSeasons.concat([number])
+    function modifiedSelection(options, selected, value, anchor, modifiers) {
+        var multiple = modifiers & (Qt.ControlModifier | Qt.MetaModifier)
+        if((modifiers & Qt.ShiftModifier) && options.indexOf(anchor)>=0) {
+            var start=options.indexOf(anchor), end=options.indexOf(value)
+            var range=options.slice(Math.min(start,end),Math.max(start,end)+1)
+            return multiple ? selected.concat(range.filter(function(item){return selected.indexOf(item)<0})) : range
+        }
+        return multiple ? (selected.indexOf(value)>=0 ? selected.filter(function(item){return item!==value}) : selected.concat([value])) : [value]
+    }
+    function chooseSeason(number, modifiers) {
+        var anchor=availableSeasons.indexOf(seasonSelectionAnchor)>=0 ? seasonSelectionAnchor : season
+        if(modifiers & (Qt.ShiftModifier | Qt.ControlModifier | Qt.MetaModifier))
+            detectionSeasons=modifiedSelection(availableSeasons,requestedDetectionSeasons,number,anchor,modifiers)
+        else { detectionSeasons=[]; openSeason(number) }
+        seasonSelectionAnchor=(modifiers & Qt.ShiftModifier) ? anchor : number
     }
     function openSeason(number) { if(preview) season = number; seasonRequested(number) }
     readonly property int selectedCount: selectedPayload().length
@@ -129,6 +143,7 @@ Item {
         return {segments:segments,badges:badges}
     }
     property var selectedEndpoints: []
+    property string endpointSelectionAnchor: ""
     readonly property bool hasSkipDbId: /^tt[0-9]{6,10}$/i.test(String(show && show.externalIds ? show.externalIds.imdb || "" : "").trim())
     readonly property var availableEndpoints: {
         var endpoints = submissions ? submissions.endpoints : ["introdb.app", "theintrodb.org"]
@@ -142,13 +157,15 @@ Item {
     }
     readonly property var requestedEndpoints: selectedEndpoints.length ? selectedEndpoints.filter(function(value){return availableEndpoints.indexOf(value)>=0}) : availableEndpoints.slice(0,1)
     readonly property string endpoint: requestedEndpoints.join(", ")
-    function chooseEndpoint(value, multiple) {
-        selectedEndpoints = multiple ? (requestedEndpoints.indexOf(value)>=0 ? requestedEndpoints.filter(function(item){return item!==value}) : requestedEndpoints.concat([value])) : [value]
+    function chooseEndpoint(value, modifiers) {
+        var anchor=availableEndpoints.indexOf(endpointSelectionAnchor)>=0 ? endpointSelectionAnchor : requestedEndpoints[0]
+        selectedEndpoints=modifiedSelection(availableEndpoints,requestedEndpoints,value,anchor,modifiers)
+        endpointSelectionAnchor=(modifiers & Qt.ShiftModifier) ? anchor : value
     }
     function clearSelection() { selectionByEpisode={} }
     onShowChanged: {
         var key = show ? (movieMode ? "movie:" : "tv:") + String(show.id || "") : ""
-        if(key !== selectionShowId) { clearSelection(); detectionSeasons=[]; selectionShowId=key; resetScroll() }
+        if(key !== selectionShowId) { clearSelection(); detectionSeasons=[]; seasonSelectionAnchor=-1; endpointSelectionAnchor=""; selectionShowId=key; resetScroll() }
     }
     property string selectionShowId: ""
     function resetScroll() {Qt.callLater(function(){
@@ -209,9 +226,9 @@ Item {
                         required property string modelData
                         objectName: "endpoint_"+modelData
                         text: Endpoints.name(modelData); theme: page.theme; selected: page.requestedEndpoints.indexOf(modelData)>=0
-                        onClicked: page.chooseEndpoint(modelData,false)
-                        Keys.onSpacePressed: function(event) { page.chooseEndpoint(modelData,Boolean(event.modifiers & Qt.ShiftModifier)); event.accepted=true }
-                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: function(mouse) { endpointButton.forceActiveFocus(); page.chooseEndpoint(endpointButton.modelData,Boolean(mouse.modifiers & Qt.ShiftModifier)) } }
+                        onClicked: page.chooseEndpoint(modelData,Qt.NoModifier)
+                        Keys.onSpacePressed: function(event) { page.chooseEndpoint(modelData,event.modifiers); event.accepted=true }
+                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: function(mouse) { endpointButton.forceActiveFocus(); page.chooseEndpoint(endpointButton.modelData,mouse.modifiers) } }
                     }
                 }
                 AppButton { objectName: "reviewSubmissionControl"; progress: page.submissions ? page.submissions.progress : -1; text: page.selectedCount > 0 ? "Submit (" + page.selectedCount + ")" : "Submit"; enabled: page.requestedEndpoints.length>0 && page.selectedCount > 0 && (!page.submissions || !page.submissions.busy); theme: page.theme; onClicked: page.reviewRequested() }
@@ -289,28 +306,26 @@ Item {
             visible: !page.movieMode
             anchors.left: parent.left; anchors.bottom: parent.bottom; width: parent.width-200; spacing: 10
             Repeater {
-                model: page.show && !page.movieMode ? page.show.seasonNumbers || Array.from({length:page.show.seasons || 0},function(_,index){return index+1}) : []
+                model: page.availableSeasons
                 AppButton {
                     id: seasonButton
                     required property var modelData
                     readonly property bool wholeSeasonSelected: page.detectionSeasons.indexOf(Number(modelData)) >= 0
                     objectName: "season_" + modelData; text: "Season " + modelData; fontSize: 11; implicitHeight: 31
-                    selected: page.season === modelData || wholeSeasonSelected
+                    selected: page.requestedDetectionSeasons.indexOf(Number(modelData)) >= 0
                     progress: page.requestedDetectionActive ? page.seasonDetectionProgress(Number(modelData)) : page.submissions && page.submissions.seasonProgress[String(modelData)] ? page.submissions.seasonProgress[String(modelData)].progress : page.seasonDetectionProgress(Number(modelData))
                     selectionColor: page.theme.selected
                     selectionBorderColor: page.theme.accent
                     theme: page.theme
-                    onClicked: page.openSeason(Number(modelData))
+                    onClicked: page.chooseSeason(Number(modelData),Qt.NoModifier)
                     Keys.onSpacePressed: function(event) {
-                        if(event.modifiers & Qt.ShiftModifier) { page.toggleDetectionSeason(Number(modelData)); event.accepted = true }
-                        else event.accepted = false
+                        page.chooseSeason(Number(modelData),event.modifiers); event.accepted = true
                     }
                     MouseArea {
                         anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                         onClicked: function(mouse) {
                             seasonButton.forceActiveFocus()
-                            if(mouse.modifiers & Qt.ShiftModifier) page.toggleDetectionSeason(Number(seasonButton.modelData))
-                            else page.openSeason(Number(seasonButton.modelData))
+                            page.chooseSeason(Number(seasonButton.modelData),mouse.modifiers)
                         }
                     }
                 }

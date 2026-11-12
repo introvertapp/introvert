@@ -29,9 +29,13 @@ anonymous key through its API. Enable **SkipDB**, paste the key into its
 1. Open a movie, or open a TV show and select a season.
 2. Select the ranges on the movie or episode cards. The switches below the cards
    select every available range of that type for the movie or selected seasons.
-   For TV, Shift-click season buttons to include several seasons.
-3. Click **IntroDB**, **TheIntroDB**, or **SkipDB**. Shift-click to select
-   additional services. For movies, check the [submission limits](#movie-submission-limits).
+   For TV, Shift-click another season to select an inclusive range, or
+   ⌘-click on macOS (Ctrl-click on Windows/Linux) to add or remove individual seasons.
+   Clicking without modifiers opens that season and clears the other season selections.
+3. Click **IntroDB**, **TheIntroDB**, or **SkipDB**. Shift-click another service
+   to select an inclusive range, or ⌘-click on macOS (Ctrl-click on Windows/Linux)
+   to add or remove individual services. Clicking without modifiers selects only
+   that service. For movies, check the [submission limits](#movie-submission-limits).
 4. Click **Submit**.
 5. In **Review Submission**, check the title, IDs, selected segments, and
    endpoints. For TV, check the selected season and episodes. For TheIntroDB,
