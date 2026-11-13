@@ -115,9 +115,9 @@ other sequences may require more or less work.
 | --- | --- | --- |
 | macOS | ARM64 (Apple Silicon) | Tested |
 | macOS | x86_64 (Intel) | Tested |
-| Windows | x86_64 | Not yet tested |
+| Windows | x86_64 | Tested |
 | Linux | x86_64, ARM64 | Not yet tested |
 
-Only macOS has been tested at runtime. All internal tests pass, including build,
-packaging, architecture and dependency checks for Windows and Linux. Native
-runtime and installation testing on those platforms is still pending.
+macOS and Windows clients have been tested at runtime.
+All internal tests pass, including build, packaging, architecture and dependency checks for Linux.
+Native runtime and installation testing on Linux is still pending.
