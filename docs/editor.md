@@ -25,6 +25,10 @@ ranges of the same type.
 
 ## Use the video editor
 
+For Silo, allow original-file downloads on both the server and the API key
+owner's account. If the editor reports **HTTP 403**, follow [Silo setup](setup.md#silo)
+and reopen the editor after correcting the download permissions or quality limit.
+
 1. Click the **clapperboard icon** on the movie or episode card.
 2. Play or seek to the sequence you want to check.
 3. Drag a segment's edges on the timeline, or type its **Start** and **End**

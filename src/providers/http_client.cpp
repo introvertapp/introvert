@@ -70,7 +70,7 @@ QByteArray HttpClient::read(const ProviderConfig &config, const QString &path, c
             else if (status == 404) message = "The requested " + label + " resource was not found.";
             else if (status < 400) message = label + " redirected the request. Enter the final server URL in Media settings.";
             else message = label + " could not complete the request. Check the server and retry.";
-            throw ProviderError(message, status);
+            throw ProviderError(message, status, error.retryAfter);
         }
         throw ProviderError("Cannot read " + label + ". Check the URL, network, and HTTPS certificate.");
     }

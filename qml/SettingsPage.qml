@@ -482,9 +482,9 @@ Item {
                                     objectName: "mediaProviderControl"
                                     implicitHeight: 40
                                     width: parent.width
-                                    model: ["Not configured", "Plex", "Emby", "Jellyfin", "Local"]
-                                    currentIndex: Math.max(0, ["", "plex", "emby", "jellyfin", "local"].indexOf(page.appSettings.mediaProvider))
-                                    onActivated: function(index) { page.appSettings.setMediaProvider(["", "plex", "emby", "jellyfin", "local"][index]) }
+                                    model: ["Not configured", "Plex", "Emby", "Jellyfin", "Silo", "Local"]
+                                    currentIndex: Math.max(0, ["", "plex", "emby", "jellyfin", "silo", "local"].indexOf(page.appSettings.mediaProvider))
+                                    onActivated: function(index) { page.appSettings.setMediaProvider(["", "plex", "emby", "jellyfin", "silo", "local"][index]) }
                                 }
                             }
                             Column {
@@ -499,7 +499,7 @@ Item {
                                         objectName: page.appSettings.mediaProvider === "local" ? "" : "mediaAddressControl"
                                         width: parent.width; height: 40
                                         text: page.appSettings.mediaSettings.address
-                                        placeholderText: page.appSettings.mediaProvider === "plex" ? "http://server:32400" : "http://server:8096"
+                                        placeholderText: page.appSettings.mediaProvider === "plex" ? "http://server:32400" : page.appSettings.mediaProvider === "silo" ? "http://server:8090" : "http://server:8096"
                                         onTextEdited: page.appSettings.mediaSettings.setAddress(text)
                                     }
                                 }
@@ -560,7 +560,7 @@ Item {
                                 }
                                 Column {
                                     width: parent.width; spacing: 6
-                                    visible: ["plex", "emby", "jellyfin"].indexOf(page.appSettings.mediaProvider) >= 0
+                                    visible: ["plex", "emby", "jellyfin", "silo"].indexOf(page.appSettings.mediaProvider) >= 0
                                         && page.appSettings.mediaSettings.importMode !== "movies"
                                     RowLayout {
                                         width: parent.width; height: 34
@@ -579,7 +579,7 @@ Item {
                                 }
                                 Column {
                                     width: parent.width; spacing: 6
-                                    visible: ["plex", "emby", "jellyfin"].indexOf(page.appSettings.mediaProvider) >= 0
+                                    visible: ["plex", "emby", "jellyfin", "silo"].indexOf(page.appSettings.mediaProvider) >= 0
                                         && page.appSettings.mediaSettings.importMode !== "tv"
                                     RowLayout {
                                         width: parent.width; height: 34
@@ -599,7 +599,7 @@ Item {
                                 Rectangle { width: parent.width; height: 1; color: page.theme.border }
                                 AppButton {
                                     objectName: page.appSettings.mediaProvider === "local" ? "" : "rebuildMediaCacheControl"
-                                    visible: ["plex","emby","jellyfin","local"].indexOf(page.appSettings.mediaProvider)>=0
+                                    visible: ["plex","emby","jellyfin","silo","local"].indexOf(page.appSettings.mediaProvider)>=0
                                     readonly property bool rebuilding: Boolean(page.mediaLibrary && page.mediaLibrary.rebuildingCache)
                                     text: page.appSettings.mediaProvider==="local" ? (rebuilding ? "Checking for changes…" : "Rescan for changes") : (rebuilding ? "Rebuilding Cache…" : "Rebuild Cache")
                                     hint: page.appSettings.mediaProvider==="local" ? "Check folders for added, changed or removed files. Unchanged files reuse saved metadata." : ""

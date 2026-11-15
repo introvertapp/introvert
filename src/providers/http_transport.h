@@ -9,11 +9,13 @@ namespace introvert::providers::detail {
 enum class HttpFailureKind { HttpStatus, Timeout, Network, TooLarge };
 class HttpFailure final : public std::exception {
 public:
-    HttpFailure(HttpFailureKind kind, int status = 0, bool retryable = false) : kind(kind), status(status), retryable(retryable) {}
+    HttpFailure(HttpFailureKind kind, int status = 0, bool retryable = false, QByteArray retryAfter = {})
+        : kind(kind), status(status), retryable(retryable), retryAfter(std::move(retryAfter)) {}
     const char *what() const noexcept override { return "Media request failed"; }
     HttpFailureKind kind;
     int status;
     bool retryable;
+    QByteArray retryAfter;
 };
 struct HttpResponse { QByteArray data, mime; };
 struct HttpExchange {

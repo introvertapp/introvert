@@ -1,6 +1,7 @@
 #include "catalog_service.h"
 #include "providers/plex_provider.h"
 #include "providers/emby_provider.h"
+#include "providers/silo_provider.h"
 #include "providers/local_provider.h"
 #include "segments/catalog_segments.h"
 #include <QElapsedTimer>
@@ -10,6 +11,14 @@
 namespace introvert::library {
 using namespace providers;
 namespace {
+
+QString detailListing(const ProviderConfig &config, const QString &listing)
+{
+    // A lightweight Silo detail must never satisfy a later marker import.
+    // Keep inventory/artwork scopes and the other adapters' cache contracts.
+    return config.provider == ProviderId::Silo && !config.importSegments
+        ? QStringLiteral("silo-episodes-v1/") + listing : listing;
+}
 
 template<typename Summary>
 QVariantMap titleRow(const Summary &title)
@@ -45,6 +54,7 @@ QString providerLabel(ProviderId id)
     case ProviderId::Emby: return "Emby";
     case ProviderId::Jellyfin: return "Jellyfin";
     case ProviderId::Local: return "Local";
+    case ProviderId::Silo: return "Silo";
     }
     return {};
 }
@@ -55,6 +65,7 @@ CatalogService::CatalogService(SettingsStore store, MediaCache &cache, ProviderM
     if (!m_providers.count(ProviderId::Plex)) m_providers[ProviderId::Plex] = std::make_unique<PlexProvider>();
     if (!m_providers.count(ProviderId::Emby)) m_providers[ProviderId::Emby] = std::make_unique<EmbyProvider>();
     if (!m_providers.count(ProviderId::Jellyfin)) m_providers[ProviderId::Jellyfin] = std::make_unique<JellyfinProvider>();
+    if (!m_providers.count(ProviderId::Silo)) m_providers[ProviderId::Silo] = std::make_unique<SiloProvider>();
     if (!m_providers.count(ProviderId::Local)) m_providers[ProviderId::Local] = std::make_unique<LocalProvider>(m_store.databasePath());
 }
 
@@ -420,6 +431,9 @@ CatalogResult CatalogService::browse(const ProviderConfig &config, const QString
         }
     };
     const auto import = [&](const QList<ShowSummary> &values) {
+        // Native Silo episode/watch reads can invoke server-side marker lookup.
+        // With imports disabled, load episodes only when their show is opened.
+        if (config.provider == ProviderId::Silo && !config.importSegments) return;
         int unavailable = 0;
         for (const auto &show : values) {
             checkCancelled(cancel);
@@ -496,7 +510,11 @@ CatalogResult CatalogService::browse(const ProviderConfig &config, const QString
     checkCancelled(cancel);
     if (remote) {
         m_cache.putSeries(scope, values);
-        if (force) m_cache.invalidateDetails(scope);
+        if (force) {
+            m_cache.invalidateDetails(scope);
+            if (config.provider == ProviderId::Silo)
+                m_cache.invalidateDetails(m_cache.scope(config, QStringLiteral("silo-episodes-v1/") + listing));
+        }
     }
     result.cached = localCached;
     if (!result.warning && localCached) result.message = "Using cached Local library.";
@@ -513,7 +531,7 @@ ShowDetail CatalogService::detail(const ProviderConfig &config, const QString &l
 {
     checkCancelled(cancel);
     const bool remote = config.provider != ProviderId::Local;
-    const auto scope = remote ? m_cache.scope(config, listing) : QString();
+    const auto scope = remote ? m_cache.scope(config, detailListing(config, listing)) : QString();
     auto result = remote ? m_cache.detail(scope, id) : std::optional<ShowDetail>();
     if(result && remote && !result->hasEpisodeAddressing)result.reset();
     if (!result) {
@@ -602,9 +620,9 @@ CatalogResult CatalogService::rebuild(const ProviderConfig &config, const QStrin
         for (const auto &path : {show.posterUrl, show.logoUrl, detail->show.posterUrl, detail->show.logoUrl})
             if (path && !path->isEmpty() && !images.contains(*path)) images[*path] = artwork(config, path, cancel, remote);
         checkCancelled(cancel);
-        if(remote)requireStored(m_cache.putDetail(full, *detail, show.identity.itemId));
+        if(remote)requireStored(m_cache.putDetail(m_cache.scope(config, detailListing(config, "full")), *detail, show.identity.itemId));
         detail->show.posterUrl.reset(); detail->show.logoUrl.reset();
-        if(remote)requireStored(m_cache.putDetail(basic, *detail, show.identity.itemId));
+        if(remote)requireStored(m_cache.putDetail(m_cache.scope(config, detailListing(config, "basic")), *detail, show.identity.itemId));
         if (remote && !config.importSegments)
             for (auto &season : detail->seasons) for (auto &episode : season.episodes) episode.importedSegments.clear();
         const auto imported=segments::loadCatalogSegments(m_store.databasePath(), *detail,

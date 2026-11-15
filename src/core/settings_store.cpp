@@ -16,8 +16,8 @@
 namespace introvert {
 namespace {
 
-const QStringList providers = {"plex", "emby", "jellyfin", "local"};
-const QStringList accounts = {"media:plex", "media:emby", "media:jellyfin",
+const QStringList providers = {"plex", "emby", "jellyfin", "local", "silo"};
+const QStringList accounts = {"media:plex", "media:emby", "media:jellyfin", "media:silo",
                              "endpoints:introdb_app", "endpoints:theintrodb_org", "endpoints:skipdb_tv",
                              "metadata:tmdb", "metadata:tvdb", "metadata:omdb", "metadata:fanart", "webhook:key",
                              "metadata:movies:tmdb", "metadata:movies:tvdb", "metadata:movies:omdb", "metadata:movies:fanart"};
@@ -65,7 +65,7 @@ void validateSetting(const QString &field, const QVariant &value)
     QStringList options;
     if (field == "timestamp_format") options = {"seconds", "MM:SS", "both"};
     else if (field == "tv_show_listing_type") options = {"full", "basic"};
-    else if (field == "media_provider") options = {"", "plex", "emby", "jellyfin", "local"};
+    else if (field == "media_provider") options = {"", "plex", "emby", "jellyfin", "local", "silo"};
     else throw SettingsError("Unsupported application setting.");
     require(value.metaType().id() == QMetaType::QString && options.contains(value.toString()),
             "Invalid application setting.");
@@ -217,7 +217,7 @@ void SettingsStore::initialize() const
     require(versionQuery.next(), "Cannot read INTROvert database version.");
     const int version = versionQuery.value(0).toInt();
     versionQuery.finish();
-    require(version >= 0 && version <= 2, "Unsupported INTROvert database version.");
+    require(version >= 0 && version <= 3, "Unsupported INTROvert database version.");
     Transaction transaction(db);
     if (version == 0) {
         execute(db, QStringLiteral("CREATE TABLE IF NOT EXISTS app_settings ("
@@ -233,7 +233,7 @@ void SettingsStore::initialize() const
                 "media_provider"}, "Incompatible application settings schema.");
     if (version < 2) {
         execute(db, QStringLiteral("CREATE TABLE provider_settings (provider_id TEXT PRIMARY KEY NOT NULL "
-            "CHECK(provider_id IN ('plex','emby','jellyfin','local')),remote_url TEXT NOT NULL DEFAULT '',"
+            "CHECK(provider_id IN ('plex','emby','jellyfin','local','silo')),remote_url TEXT NOT NULL DEFAULT '',"
             "local_root TEXT NOT NULL DEFAULT '',fetch_images INTEGER NOT NULL DEFAULT 0 CHECK(fetch_images IN (0,1)),"
             "timeout_seconds REAL NOT NULL DEFAULT 10 CHECK(timeout_seconds > 0),"
             "CHECK((provider_id='local' AND remote_url='') OR (provider_id!='local' AND local_root='')))"));
@@ -244,6 +244,22 @@ void SettingsStore::initialize() const
         execute(db, "ALTER TABLE provider_settings ADD COLUMN import_segments INTEGER NOT NULL DEFAULT 0 CHECK(import_segments IN (0,1))");
     require(columns(db, "provider_settings") == QSet<QString>{"provider_id", "remote_url", "local_root", "fetch_images", "timeout_seconds", "import_segments"},
             "Incompatible provider settings schema.");
+    if (version == 2) {
+        // Widen the provider CHECK through SQLite's table-rebuild procedure.
+        // Do not rename the original: existing library-setting foreign keys
+        // must keep referring to provider_settings. This connection leaves
+        // foreign-key enforcement off, as it does for the other migrations.
+        execute(db, "CREATE TABLE provider_settings_new (provider_id TEXT PRIMARY KEY NOT NULL "
+            "CHECK(provider_id IN ('plex','emby','jellyfin','local','silo')),remote_url TEXT NOT NULL DEFAULT '',"
+            "local_root TEXT NOT NULL DEFAULT '',fetch_images INTEGER NOT NULL DEFAULT 0 CHECK(fetch_images IN (0,1)),"
+            "timeout_seconds REAL NOT NULL DEFAULT 10 CHECK(timeout_seconds > 0),"
+            "import_segments INTEGER NOT NULL DEFAULT 0 CHECK(import_segments IN (0,1)),"
+            "CHECK((provider_id='local' AND remote_url='') OR (provider_id!='local' AND local_root='')))");
+        execute(db, "INSERT INTO provider_settings_new SELECT provider_id,remote_url,local_root,fetch_images,timeout_seconds,import_segments FROM provider_settings");
+        execute(db, "DROP TABLE provider_settings");
+        execute(db, "ALTER TABLE provider_settings_new RENAME TO provider_settings");
+        execute(db, "INSERT OR IGNORE INTO provider_settings(provider_id) VALUES('silo')");
+    }
     execute(db, "CREATE TABLE IF NOT EXISTS provider_library_settings("
         "provider_id TEXT PRIMARY KEY NOT NULL REFERENCES provider_settings(provider_id),"
         "import_mode TEXT NOT NULL CHECK(import_mode IN ('tv','movies','both')),"
@@ -317,7 +333,7 @@ void SettingsStore::initialize() const
         "application_updates INTEGER NOT NULL DEFAULT 1 CHECK(application_updates IN (0,1)),"
         "detector_updates INTEGER NOT NULL DEFAULT 1 CHECK(detector_updates IN (0,1)))"));
     execute(db, QStringLiteral("INSERT OR IGNORE INTO in_app_notification_settings(id) VALUES(1)"));
-    execute(db, QStringLiteral("PRAGMA user_version=2"));
+    execute(db, QStringLiteral("PRAGMA user_version=3"));
     transaction.commit();
     restrictPermissions(m_path);
 }

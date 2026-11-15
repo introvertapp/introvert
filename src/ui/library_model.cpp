@@ -66,7 +66,7 @@ QString LibraryModel::episodeCount() const
 std::optional<CatalogSelection> LibraryModel::settingsKey() const
 {
     const auto provider = m_settings.mediaProvider();
-    if (provider != "plex" && provider != "emby" && provider != "jellyfin" && provider != "local") return {};
+    if (provider != "plex" && provider != "emby" && provider != "jellyfin" && provider != "local" && provider != "silo") return {};
     return CatalogSelection{m_store.loadProvider(provider), m_settings.listingType()};
 }
 

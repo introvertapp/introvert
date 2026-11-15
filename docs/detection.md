@@ -15,6 +15,11 @@ row. If it is missing, starting detection shows guidance to install it. Other
 app features remain available. Detector updates are independent of app updates
 and apply to new scans without restarting.
 
+For Silo, TV detection needs the same original-file download access as the video
+editor. Check the [Silo download settings](setup.md#silo) and confirm an episode
+opens in the editor before scanning. **Import TV timestamps** controls importing
+Silo's existing markers; it can stay off when you want to run INTROvert's detection.
+
 ## One season
 
 1. Open a show in **TV Shows** and click the season you want.

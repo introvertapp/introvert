@@ -531,7 +531,7 @@ void DetectionModel::finished(const QString &id, const detection::DetectionUpdat
         else if (row.value("matchingWarnings").toBool()) message += " Some comparisons had limited evidence.";
     }
     const auto status=row.value("status").toString();
-    const QMap<QString,QString> providers{{"plex","Plex"},{"emby","Emby"},{"jellyfin","Jellyfin"},{"local","Local files"}};
+    const QMap<QString,QString> providers{{"plex","Plex"},{"emby","Emby"},{"jellyfin","Jellyfin"},{"silo","Silo"},{"local","Local files"}};
     const auto provider=providers.value(row.value("provider").toString(),"Media server");
     bool durationOk=false;double durationMs=result.value("durationMs").toDouble(&durationOk);
     if(!durationOk || !std::isfinite(durationMs) || durationMs<0)

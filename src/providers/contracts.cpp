@@ -112,6 +112,8 @@ QString providerScope(const ProviderIdentity &identity, const QString &connectio
 QString itemWebUrl(const QString &serverUrl, const ProviderIdentity &identity)
 {
     if (serverUrl.isEmpty() || identity.itemId.isEmpty() || identity.provider == ProviderId::Local) return {};
+    if (identity.provider == ProviderId::Silo)
+        return detail::baseUrl(serverUrl) + "/item/" + detail::quote(identity.itemId);
     const auto base = detail::baseUrl(serverUrl) + "/web/index.html#!/";
     if (identity.provider == ProviderId::Plex) {
         if (!identity.serverId || identity.serverId->isEmpty()) return {};
@@ -141,13 +143,14 @@ QString providerName(ProviderId provider)
     case ProviderId::Emby: return QStringLiteral("emby");
     case ProviderId::Jellyfin: return QStringLiteral("jellyfin");
     case ProviderId::Local: return QStringLiteral("local");
+    case ProviderId::Silo: return QStringLiteral("silo");
     }
     throw ProviderError(QStringLiteral("Unsupported provider identifier"));
 }
 
 ProviderId providerId(const QString &name)
 {
-    for (const auto provider : {ProviderId::Plex, ProviderId::Emby, ProviderId::Jellyfin, ProviderId::Local})
+    for (const auto provider : {ProviderId::Plex, ProviderId::Emby, ProviderId::Jellyfin, ProviderId::Local, ProviderId::Silo})
         if (providerName(provider) == name) return provider;
     throw ProviderError(QStringLiteral("Unsupported provider identifier"));
 }

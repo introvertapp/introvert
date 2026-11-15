@@ -14,7 +14,7 @@
 
 namespace introvert::providers {
 
-enum class ProviderId { Plex, Emby, Jellyfin, Local };
+enum class ProviderId { Plex, Emby, Jellyfin, Local, Silo };
 enum class SegmentType { Recap, Intro, Credits, Preview };
 
 QString providerName(ProviderId provider);
@@ -25,11 +25,13 @@ QString normalizedEpisodeOrder(QString value);
 
 class ProviderError : public std::runtime_error {
 public:
-    explicit ProviderError(const QString &message, std::optional<int> httpStatus = {})
-        : std::runtime_error(message.toUtf8().constData()), m_httpStatus(httpStatus) {}
+    explicit ProviderError(const QString &message, std::optional<int> httpStatus = {}, QByteArray retryAfter = {})
+        : std::runtime_error(message.toUtf8().constData()), m_httpStatus(httpStatus), m_retryAfter(std::move(retryAfter)) {}
     std::optional<int> httpStatus() const { return m_httpStatus; }
+    const QByteArray &retryAfter() const { return m_retryAfter; }
 private:
     std::optional<int> m_httpStatus;
+    QByteArray m_retryAfter;
 };
 
 class Cancelled final : public std::exception {

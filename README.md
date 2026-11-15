@@ -23,7 +23,7 @@ timestamps entirely by hand. You can edit Recap, Intro, Credits, and Preview
 segments for movies and TV episodes. Keyboard shortcuts work in both, and the
 episode drawer lets you switch episodes while reviewing a show.
 
-- Browse and search **TV shows and movies** from Plex, Emby, or Jellyfin.
+- Browse and search **TV shows and movies** from Plex, Emby, Jellyfin, or Silo.
   Local folders and mounted network storage support separate TV and movie libraries.
 - Enable separate imports for **TV episode markers** and **named movie chapters**.
   Local TV libraries can import supported embedded chapters during discovery.
@@ -43,7 +43,7 @@ rewrite the media files or change the markers on a connected media server.
 
 - [Quick start](#quick-start)
 - [Installation](docs/installation.md): [macOS](docs/installation.md#macos), [Windows](docs/installation.md#windows), [Linux](docs/installation.md#linux)
-- [Connect your media and configure metadata](docs/setup.md)
+- [Connect your media and configure metadata](docs/setup.md): [Silo setup](docs/setup.md#silo)
 - [Import movie chapter timestamps](docs/setup.md#movie-details-and-chapter-imports)
 - [Run detection](docs/detection.md): [one season](docs/detection.md#one-season), [multiple seasons](docs/detection.md#multiple-seasons), [entire library](docs/detection.md#entire-library)
 - [Review and edit timestamps](docs/editor.md)
@@ -57,9 +57,13 @@ rewrite the media files or change the markers on a connected media server.
 1. [Install INTROvert](docs/installation.md) for your operating system.
 2. Open **Settings → Media** and [connect a server or add local folders](docs/setup.md).
 
+For **Silo**, use an unrestricted API key. Editor playback and TV detection also
+need original-file downloads allowed on the server and the key owner's account.
+See [Silo setup](docs/setup.md#silo) for the required settings.
+
 ### Movies
 
-1. For Plex, Emby, or Jellyfin, set **Import** to **Movies** or **Both**. For
+1. For Plex, Emby, Jellyfin, or Silo, set **Import** to **Movies** or **Both**. For
    Local, add a folder with type **Movies**.
 2. Optionally turn on **Import movie timestamps** to bring in Intro, Credits,
    Recap, and Preview from [recognized chapters](docs/setup.md#movie-details-and-chapter-imports).

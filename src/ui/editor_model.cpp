@@ -68,7 +68,19 @@ EditorModel::EditorModel(LibraryModel &library, SegmentStore store, QObject *par
     connect(&m_player, &QMediaPlayer::errorOccurred, this, [this] {
         if (m_closed) return;
         m_priming = false; m_ready = false; m_primeActive = false;
-        m_message = "Cannot decode video with Qt Multimedia."; emit errorOccurred(m_message); emit changed();
+        m_message = "Cannot decode video with Qt Multimedia.";
+        if (m_context && m_context->episode.identity.provider == ProviderId::Silo && m_stream) {
+            const auto diagnostics = m_stream->diagnostics();
+            if (diagnostics.value("invalid_headers").toLongLong())
+                m_message = "Silo returned invalid byte-range headers for the video.";
+            else for (const auto code : {401,403,404,422,429,500,502,503,504}) {
+                if (!diagnostics.value("http_" + QString::number(code)).toLongLong()) continue;
+                m_message = QStringLiteral("Silo video request failed (HTTP %1).").arg(code);
+                if (code == 403) m_message += " Check the account's original-download permissions and quality limits.";
+                break;
+            }
+        }
+        emit errorOccurred(m_message); emit changed();
     });
     connect(&library, &LibraryModel::changed, this, &EditorModel::libraryChanged);
 }

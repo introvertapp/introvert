@@ -100,11 +100,15 @@ through Settings before running detection there.
 | Problem | What to check |
 | --- | --- |
 | Library will not load | Check **Settings → Media**, the server URL and key, or local folder permissions. Mount network storage and allow local-network access if prompted. |
+| Silo rejects metadata requests | Use an unrestricted key showing **Full access** in Silo. `libraries:read` alone is insufficient. Check the URL and the key owner's library/profile access. See [Silo setup](setup.md#silo). |
+| Silo lists shows but video fails with HTTP 403 | Enable **Allow downloads** in Silo's server download settings and allow downloads for the key owner's account. Its quality limit must permit the original file. Close and reopen the editor after changing permissions. See [Silo setup](setup.md#silo). |
+| Silo metadata refresh pauses or reports HTTP 429 | Let INTROvert wait and retry automatically. If the refresh still fails, wait before retrying and check **Settings → Logs** for the server response. |
+| Silo seasons, episodes, or counts are out of date | Use **Settings → Media → Rebuild Cache**, let it finish, then reopen the show. Saved timestamp edits and credentials are retained. |
 | New local episodes are missing | Use **Rescan for changes**. Use filenames with season/episode numbers such as `S01E01`. |
 | Local show has the wrong title or no artwork | Check metadata credentials, use **Fetch metadata**, or correct the match with **Identify**. |
 | Video will not open | Check file access and original-file download permissions on the server. INTROvert does not use server transcoding. |
 | Detector unavailable | [Install the detector](installation.md#install-the-detector) through **Settings → Application → Check for Updates**, then start detection again. |
-| Movies are missing | Choose Plex, Emby, or Jellyfin in **Settings → Media**, set **Import** to **Movies** or **Both**, and open **Movies**. |
+| Movies are missing | Choose Plex, Emby, Jellyfin, or Silo in **Settings → Media**, set **Import** to **Movies** or **Both**, and open **Movies**. |
 | TV shows are missing or Scan Library is disabled | For a server source, set **Import** to **TV shows** or **Both** in **Settings → Media**. To enable **Scan Library**, also select **Intro**, **Credits**, or both in **Settings → Detection**. |
 | Movie Intro or Credits are missing | Enable **Import movie timestamps** in **Settings → Media** and reopen the movie. Imports need [named chapters](setup.md#movie-details-and-chapter-imports). Use the movie card or editor to enter a range manually. |
 | TV marker import or Local metadata fetch was deferred | Wait for queued or running detection for the affected season to finish. Reopen the show to retry server marker imports. For Local media, run **Fetch metadata** again if the fetch was deferred. |

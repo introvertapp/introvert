@@ -199,7 +199,7 @@ void LocalProvider::initialize(QSqlDatabase &db)
 {
     auto versionQuery = sql::execute(db, "PRAGMA user_version"); versionQuery.next();
     const auto version = versionQuery.value(0).toInt(); versionQuery.finish();
-    if (version < 0 || version > 2) throw ProviderError(QStringLiteral("Unsupported Local catalog version."));
+    if (version < 0 || version > 3) throw ProviderError(QStringLiteral("Unsupported Local catalog version."));
     sql::execute(db, "CREATE TABLE IF NOT EXISTS shows(id TEXT PRIMARY KEY,root TEXT NOT NULL,path TEXT NOT NULL,title TEXT NOT NULL,year INTEGER)");
     sql::execute(db, "CREATE TABLE IF NOT EXISTS episodes(id TEXT PRIMARY KEY,show_id TEXT NOT NULL,season INTEGER NOT NULL,number INTEGER NOT NULL,title TEXT,path TEXT NOT NULL)");
     sql::execute(db, "CREATE TABLE IF NOT EXISTS local_show_metadata(show_id TEXT PRIMARY KEY,title TEXT,imdb TEXT,tmdb TEXT,tvdb TEXT,tvmaze TEXT,poster TEXT,logo TEXT,status TEXT,error TEXT)");

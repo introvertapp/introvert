@@ -1,4 +1,5 @@
 #include "range_stream.h"
+#include "providers/silo_provider.h"
 #include "providers/plex_provider.h"
 #include "providers/emby_provider.h"
 #include "providers/json_values.h"
@@ -77,6 +78,12 @@ Source resolve(const ProviderConfig &config, const QString &episode, const Cance
     const int timeout = int(std::clamp(config.timeoutSeconds * 1000, 1., 10000.));
     const auto base = detail::baseUrl(config.remoteUrl.value_or(QString()));
     const auto id = detail::quote(episode);
+    if (config.provider == ProviderId::Silo) {
+        SiloProvider provider;
+        const auto file = provider.mediaFile(config, episode, cancel);
+        return {QUrl(base + "/api/v2/direct-download?file_id=" + detail::quote(file)),
+                provider.accessHeaders(config, cancel), timeout};
+    }
     if (config.provider == ProviderId::Plex) {
         PlexProvider provider;
         const auto metadata = provider.request(config, "/library/metadata/" + id, {}, cancel).toObject();

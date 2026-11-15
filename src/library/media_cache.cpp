@@ -44,7 +44,7 @@ std::unique_ptr<sql::Connection> MediaCache::connect()
     sql::execute(db, "PRAGMA journal_mode=WAL");
     auto query = sql::execute(db, "PRAGMA user_version"); query.next();
     const auto version = query.value(0).toInt(); query.finish();
-    if (version < 0 || version > 2) throw DatabaseError("Unsupported disposable cache version");
+    if (version < 0 || version > 3) throw DatabaseError("Unsupported disposable cache version");
     sql::Transaction transaction(db);
     sql::execute(db, "CREATE TABLE IF NOT EXISTS media_cache_settings(name TEXT PRIMARY KEY,value BLOB NOT NULL)");
     sql::execute(db, "INSERT OR IGNORE INTO media_cache_settings VALUES('scope_key',?)", {randomBytes()});
@@ -74,6 +74,11 @@ QString MediaCache::scope(const providers::ProviderConfig &config, const QString
         json(localImages ? std::nullopt : config.remoteUrl),
         json(localImages ? std::nullopt : config.credential), listing, localImages || config.fetchImages};
     if (config.provider == providers::ProviderId::Local) values.append(json(config.localRoot));
+    // Previously cached Silo WebP delivery bytes cannot be displayed by kits
+    // without the optional Qt image plugin. Re-fetch only that image scope,
+    // through the adapter's bundled-decoder/PNG path; metadata and edits keep
+    // their existing scope and persisted formats.
+    if (config.provider == providers::ProviderId::Silo && listing == "images") values.append("decoded-artwork-v1");
     const auto context = asciiJson(values);
     if (m_scopes.contains(context)) return m_scopes[context];
     auto key = m_fallback;

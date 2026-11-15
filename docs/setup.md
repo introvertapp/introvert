@@ -2,10 +2,10 @@
 
 [← Documentation](../README.md#table-of-contents)
 
-Open **Settings → Media** and choose **Plex**, **Emby**, **Jellyfin**, or **Local**.
+Open **Settings → Media** and choose **Plex**, **Emby**, **Jellyfin**, **Silo**, or **Local**.
 Settings save automatically. Open **TV Shows** or **Movies** to load the selected source.
 
-## Plex, Emby, or Jellyfin
+## Plex, Emby, Jellyfin, or Silo
 
 1. Enter your server's **URL**, including its port when needed.
 2. Enter the server credential in **API Key**.
@@ -19,6 +19,7 @@ Settings save automatically. Open **TV Shows** or **Movies** to load the selecte
 | Plex | `http://server:32400` | Your [Plex authentication token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/) (`X-Plex-Token`) |
 | Emby | `http://server:8096` | An API key created in the server dashboard |
 | Jellyfin | `http://server:8096` | An API key created in the server dashboard |
+| Silo | `http://server:8090` | A key created in **Admin → Sign-in & Security → API Keys**, owned by the account whose libraries you want to access |
 
 Use your server's actual address in place of `server`. Use a direct server URL
 that does not redirect to another address. Your credential must allow access to
@@ -28,6 +29,47 @@ media files.
 Both timestamp import switches are **off by default** and saved separately for
 each provider. Turning them off keeps timestamps already saved in INTROvert.
 Use **Rebuild Cache** to refresh the selected server's library and artwork.
+
+### Silo
+
+INTROvert connects through Silo's official native API and automatically uses the
+key owner's primary profile. In Silo, open **Admin → Sign-in & Security → API
+Keys** and create an **unrestricted (unscoped)** key for the account whose
+libraries you want to access. The key should show **Full access**; a key limited
+to `libraries:read` cannot fetch the required metadata. The key owner does not
+need to be an administrator.
+
+In INTROvert, select **Silo** in **Settings → Media**, enter the normal Silo
+server URL and key, then choose **TV shows**, **Movies**, or **Both**. Include
+the port and any reverse-proxy path prefix in the URL, for example
+`http://server:8090` or `https://example.com/silo`.
+
+Browsing metadata and reading the original video require different permissions.
+For editor playback and TV detection, check these settings in Silo:
+
+1. In **Admin → Downloads → Settings**, turn on **Allow downloads**.
+2. In **Admin → Users**, edit the account that owns the API key. Under
+   **Access & limits**, ensure **Downloads → Offline downloads** is allowed and
+   the **Playback & streaming → Max quality** limit permits the original file's
+   resolution.
+
+An unrestricted API key still follows these download permissions and quality
+limits. If video loading reports **HTTP 403**, check both the server and account
+settings, then close and reopen the video editor. Silo describes these checks in
+its [original-download documentation](https://github.com/Silo-Server/silo-server/blob/main/docs/downloads-api.md#410-direct-download).
+
+TV shows use Silo's season and episode numbering, including specials in season
+0. With **Import TV timestamps** off, episodes load when you open a show. Turn
+it on to import available Recap, Intro, Credits, and Preview markers; previously
+saved edits and intentional deletions keep their priority. Turning imports on
+later fetches the markers without a cache reset. For movies, enable **Import
+movie timestamps** to use the [chapter imports](#movie-details-and-chapter-imports)
+below.
+
+Silo metadata requests automatically wait and retry when the server rate-limits
+them. Let the refresh finish before starting another rebuild. Use **Settings →
+Logs** to check a failed request, and **Rebuild Cache** after changes to the
+server's library. Posters and logos use INTROvert's normal artwork cache.
 
 ### Movie details and chapter imports
 

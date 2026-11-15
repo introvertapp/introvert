@@ -69,7 +69,8 @@ static HttpExchange exchangeOnce(const QUrl &url, const QMap<QByteArray, QByteAr
     consume(); checkCancelled(cancelled);
     if (exceeded) throw HttpFailure(HttpFailureKind::TooLarge);
     const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
-    if (!allowHttpErrors && status.isValid() && status.toInt() >= 300) throw HttpFailure(HttpFailureKind::HttpStatus, status.toInt());
+    if (!allowHttpErrors && status.isValid() && status.toInt() >= 300)
+        throw HttpFailure(HttpFailureKind::HttpStatus, status.toInt(), false, reply->rawHeader("Retry-After"));
     if (headersOnly && status.isValid()) {
         const auto mime = reply->header(QNetworkRequest::ContentTypeHeader).toByteArray();
         QMap<QByteArray, QByteArray> responseHeaders;
