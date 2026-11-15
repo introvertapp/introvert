@@ -43,7 +43,7 @@ rewrite the media files or change the markers on a connected media server.
 
 - [Quick start](#quick-start)
 - [Installation](docs/installation.md): [macOS](docs/installation.md#macos), [Windows](docs/installation.md#windows), [Linux](docs/installation.md#linux)
-- [Connect your media and configure metadata](docs/setup.md): [Silo setup](docs/setup.md#silo)
+- [Connect your media and configure metadata](docs/setup.md)
 - [Import movie chapter timestamps](docs/setup.md#movie-details-and-chapter-imports)
 - [Run detection](docs/detection.md): [one season](docs/detection.md#one-season), [multiple seasons](docs/detection.md#multiple-seasons), [entire library](docs/detection.md#entire-library)
 - [Review and edit timestamps](docs/editor.md)
@@ -56,10 +56,6 @@ rewrite the media files or change the markers on a connected media server.
 
 1. [Install INTROvert](docs/installation.md) for your operating system.
 2. Open **Settings → Media** and [connect a server or add local folders](docs/setup.md).
-
-For **Silo**, use an unrestricted API key. Editor playback and TV detection also
-need original-file downloads allowed on the server and the key owner's account.
-See [Silo setup](docs/setup.md#silo) for the required settings.
 
 ### Movies
 
